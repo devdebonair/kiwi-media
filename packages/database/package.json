@@ -1,0 +1,6 @@
+{
+  "name": "@kiwi/database",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.js"
+}

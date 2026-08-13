@@ -1,0 +1,11 @@
+node_modules/
+dist/
+data/
+**/data/
+.next/
+**/.next/
+.env
+*.log
+design-qa-*.png
+design-qa.md
+media/**/*.webm

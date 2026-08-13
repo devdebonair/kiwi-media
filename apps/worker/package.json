@@ -1,0 +1,12 @@
+{
+  "name": "@kiwi/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "mime-types": "^3.0.1"
+  }
+}

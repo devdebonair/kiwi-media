@@ -1,0 +1,38 @@
+services:
+  kiwi:
+    build: .
+    restart: unless-stopped
+    environment:
+      KIWI_MEDIA_DIRS: /media
+    ports:
+      - "3333:3333"
+    volumes:
+      - kiwi-data:/data
+      - ./media:/media:ro
+  web:
+    build: .
+    restart: unless-stopped
+    command: npm run start -w web -- -H 0.0.0.0 -p 4173
+    environment:
+      KIWI_API_ORIGIN: http://kiwi:3333
+    depends_on: [kiwi]
+  worker:
+    build: .
+    restart: unless-stopped
+    command: npm run start -w @kiwi/worker
+    environment:
+      KIWI_MEDIA_DIRS: /media
+    volumes:
+      - kiwi-data:/data
+      - ./media:/media:ro
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [web, kiwi]
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+
+volumes:
+  kiwi-data:

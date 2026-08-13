@@ -1,0 +1,15 @@
+{
+  "name": "kiwi",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "concurrently -n api,web,worker -c blue,green,yellow \"npm run dev -w @kiwi/server\" \"npm run dev -w web\" \"npm run dev -w @kiwi/worker\"",
+    "build": "npm run build -w web",
+    "start": "concurrently -n api,web,worker -c blue,green,yellow \"npm run start -w @kiwi/server\" \"npm run start -w web -- -H 0.0.0.0 -p 4173\" \"npm run start -w @kiwi/worker\"",
+    "test": "npm run test -w @kiwi/server && npm run build -w web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

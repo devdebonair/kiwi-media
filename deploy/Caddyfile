@@ -1,0 +1,12 @@
+:80 {
+  encode zstd gzip
+  handle /api/* {
+    reverse_proxy kiwi:3333
+  }
+  handle /generated/* {
+    reverse_proxy kiwi:3333
+  }
+  handle {
+    reverse_proxy web:4173
+  }
+}
