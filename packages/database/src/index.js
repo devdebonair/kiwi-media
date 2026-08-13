@@ -145,7 +145,9 @@ export function seed() {
     ["topic-jazz", "jazz", "Jazz", "Improvisation, rhythm, and a century of recorded performance.", "/assets/media/jazz.png", "/assets/media/jazz.png", "genre"],
     ["topic-nature", "nature", "Nature", "Wild places, species, and the living world.", "/assets/media/waterfall.png", "/assets/media/waterfall.png", "subject"],
     ["topic-photo", "photography", "Photography", "Images, photographers, and visual culture.", "/assets/media/street.png", "/assets/media/street.png", "medium"],
-    ["topic-long", "long-reads", "Long reads", "Essays and articles worth returning to.", "/assets/media/article.png", "/assets/media/article.png", "format"]
+    ["topic-long", "long-reads", "Long reads", "Essays and articles worth returning to.", "/assets/media/article.png", "/assets/media/article.png", "format"],
+    ["topic-anime", "anime", "Anime", "Japanese animation, its history, films, and music.", "/generated/anime-ponsuke.jpg", "/generated/anime-namakura.jpg", "medium"],
+    ["topic-anime-music", "anime-music", "Anime Music", "Theme songs and soundtrack music with an anime-inspired spirit.", "/generated/anime-music.jpg", "/generated/anime-music.jpg", "genre"]
   ];
   const topicStmt = db.prepare("INSERT INTO topics (id,slug,name,summary,avatar_url,banner_url,topic_type,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)");
   for (const t of topics) topicStmt.run(...t, now(), now());
@@ -160,16 +162,40 @@ export function seed() {
     ["asset-west-village", "video", "Weekend in the West Village", "An unhurried walk through one of New York's most human neighborhoods.", "/assets/media/street.png", 669000, "2026-08-05T18:00:00Z"],
     ["asset-kind-blue", "audio", "Kind of Blue", "A landmark modal jazz album and perennial favorite.", "/assets/media/jazz.png", 2795000, "2026-08-04T18:00:00Z"],
     ["asset-rockies", "video", "Morning Calm in the Rockies", "Still water, mountain air, and first light.", "/assets/media/waterfall.png", 435000, "2026-08-03T18:00:00Z"],
-    ["asset-slow", "article", "The Case for Slow Living", "Finding balance and attention in a frantic world.", "/assets/media/article.png", null, "2026-08-02T18:00:00Z"]
+    ["asset-slow", "article", "The Case for Slow Living", "Finding balance and attention in a frantic world.", "/assets/media/article.png", null, "2026-08-02T18:00:00Z"],
+    ["asset-anime-namakura", "video", "Namakura Gatana (The Dull Sword)", "Jun'ichi Kōuchi's landmark 1917 animated short about a samurai whose new sword is not what he expected.", "/generated/anime-namakura.jpg", 257865, "2026-08-13T19:00:00Z"],
+    ["asset-anime-ponsuke", "video", "Spring Comes to Ponsuke", "Ikuo Oishi's playful 1934 Japanese animated short.", "/generated/anime-ponsuke.jpg", 425007, "2026-08-13T18:59:00Z"],
+    ["asset-anime-taro", "video", "Taro-san's Train", "A 1929 Japanese animated film directed by Yasuji Murata.", "/generated/anime-taro.jpg", 926000, "2026-08-13T18:58:00Z"],
+    ["asset-anime-theme-tale", "audio", "Tale on the Late — Main Theme", "A bright, cinematic theme by Komiku, included as an anime soundtrack fixture.", "/generated/anime-music.jpg", 76000, "2026-08-13T18:57:00Z"],
+    ["asset-anime-theme-friends", "audio", "Friends' Theme", "An adventurous character theme by Komiku, included as an anime soundtrack fixture.", "/generated/anime-music.jpg", 164000, "2026-08-13T18:56:00Z"],
+    ["asset-anime-theme-song", "audio", "Theme Song", "An atmospheric theme by Monplaisir, included as an anime soundtrack fixture.", "/generated/anime-music.jpg", 82000, "2026-08-13T18:55:00Z"]
   ];
   const assetStmt = db.prepare("INSERT INTO assets (id,kind,title,description,thumbnail_url,duration_ms,added_at,updated_at,visibility) VALUES (?,?,?,?,?,?,?,?,?)");
   for (const a of assets) assetStmt.run(...a, a[6], "public");
+  const sampleDir = resolve(packageDir, "../../../media/samples");
+  const sampleSources = [
+    ["asset-anime-namakura", "Namakura Gatana (1917).webm", "https://commons.wikimedia.org/wiki/File:Namakura_Gatana_with_music.webm", "Jun'ichi Kōuchi; music by Kevin MacLeod", "Public domain / CC BY 3.0"],
+    ["asset-anime-ponsuke", "Spring Comes to Ponsuke (1934).webm", "https://commons.wikimedia.org/wiki/File:Spring_Comes_to_Ponsuke_(1934).webm", "Ikuo Oishi", "Public domain"],
+    ["asset-anime-taro", "Taro-san's Train (1929).webm", "https://commons.wikimedia.org/wiki/File:Tar%C3%B4-san_no_kisha_(1929).webm", "Yasuji Murata", "Public domain"],
+    ["asset-anime-theme-tale", "Tale on the Late - Main Theme.ogg", "https://commons.wikimedia.org/wiki/File:Komiku_-_01_-_Tale_on_the_Late_Main_Theme.ogg", "Komiku", "CC0 1.0"],
+    ["asset-anime-theme-friends", "Friends Theme.ogg", "https://commons.wikimedia.org/wiki/File:Komiku_-_06_-_Friendss_theme.ogg", "Komiku", "CC0 1.0"],
+    ["asset-anime-theme-song", "Theme Song.ogg", "https://commons.wikimedia.org/wiki/File:Monplaisir_-_01_-_Theme_Song.ogg", "Monplaisir", "CC0 1.0"]
+  ];
+  const sourceStmt = db.prepare("INSERT INTO asset_sources (id,asset_id,source_url,canonical_url,site_name,creator_name,retrieved_at,metadata_json) VALUES (?,?,?,?,?,?,?,?)");
+  for (const [assetId, filename, sourceUrl, creator, license] of sampleSources) {
+    db.prepare("UPDATE assets SET source_url=?,file_path=?,metadata_json=? WHERE id=?").run(sourceUrl, resolve(sampleDir, filename), JSON.stringify({ license, fixture: true }), assetId);
+    sourceStmt.run(randomUUID(), assetId, sourceUrl, sourceUrl, "Wikimedia Commons", creator, "2026-08-13T00:00:00Z", JSON.stringify({ license, localFilename: filename }));
+  }
   const links = [
     ["asset-city", "topic-nyc"], ["asset-jazz", "topic-jazz"], ["asset-jazz", "topic-nyc"],
     ["asset-waterfall", "topic-nature"], ["asset-street", "topic-photo"], ["asset-street", "topic-nyc"],
     ["asset-brooklyn", "topic-nyc"], ["asset-blue-train", "topic-jazz"],
     ["asset-rainforest", "topic-nature"], ["asset-west-village", "topic-nyc"],
-    ["asset-kind-blue", "topic-jazz"], ["asset-rockies", "topic-nature"], ["asset-slow", "topic-long"]
+    ["asset-kind-blue", "topic-jazz"], ["asset-rockies", "topic-nature"], ["asset-slow", "topic-long"],
+    ["asset-anime-namakura", "topic-anime"], ["asset-anime-ponsuke", "topic-anime"], ["asset-anime-taro", "topic-anime"],
+    ["asset-anime-theme-tale", "topic-anime"], ["asset-anime-theme-tale", "topic-anime-music"],
+    ["asset-anime-theme-friends", "topic-anime"], ["asset-anime-theme-friends", "topic-anime-music"],
+    ["asset-anime-theme-song", "topic-anime"], ["asset-anime-theme-song", "topic-anime-music"]
   ];
   const annotationStmt = db.prepare("INSERT INTO annotations (id,asset_id,note_markdown,origin,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?)");
   const annotationTopicStmt = db.prepare("INSERT INTO annotation_topics VALUES (?,?,?)");
@@ -185,6 +211,7 @@ export function seed() {
   const feedStmt = db.prepare("INSERT INTO feeds (id,owner_id,slug,name,description,query_json,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)");
   feedStmt.run("feed-nyc", userId, "new-york-city", "New York City", "Everything connected to New York City.", JSON.stringify({ topicIds: ["topic-nyc"] }), "public", now(), now());
   feedStmt.run("feed-jazz", userId, "jazz", "Jazz", "Performances, albums, photos, and writing.", JSON.stringify({ topicIds: ["topic-jazz"] }), "public", now(), now());
+  feedStmt.run("feed-anime", userId, "anime", "Anime", "Japanese animation and theme music from across the library.", JSON.stringify({ topicIds: ["topic-anime"] }), "public", now(), now());
   rebuildSearch();
 }
 
@@ -198,6 +225,51 @@ export function rebuildSearch() {
   for (const row of db.prepare("SELECT id,name,summary,body_markdown FROM topics").all()) insert.run(row.id, "topic", row.name, `${row.summary || ""} ${row.body_markdown || ""}`, "");
 }
 
+function syncAnimeFixtures() {
+  const timestamp = now();
+  const topics = [
+    ["topic-anime", "anime", "Anime", "Japanese animation, its history, films, and music.", "/generated/anime-ponsuke.jpg", "/generated/anime-namakura.jpg", "medium"],
+    ["topic-anime-music", "anime-music", "Anime Music", "Theme songs and soundtrack music with an anime-inspired spirit.", "/generated/anime-music.jpg", "/generated/anime-music.jpg", "genre"]
+  ];
+  const insertTopic = db.prepare("INSERT OR IGNORE INTO topics (id,slug,name,summary,avatar_url,banner_url,topic_type,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)");
+  for (const topic of topics) insertTopic.run(...topic, timestamp, timestamp);
+
+  const sampleDir = resolve(packageDir, "../../../media/samples");
+  const assets = [
+    ["asset-anime-namakura", "video", "Namakura Gatana (The Dull Sword)", "Jun'ichi Kōuchi's landmark 1917 animated short about a samurai whose new sword is not what he expected.", "anime-namakura.jpg", 257865, "Namakura Gatana (1917).webm", "https://commons.wikimedia.org/wiki/File:Namakura_Gatana_with_music.webm", "Jun'ichi Kōuchi; music by Kevin MacLeod", "Public domain / CC BY 3.0"],
+    ["asset-anime-ponsuke", "video", "Spring Comes to Ponsuke", "Ikuo Oishi's playful 1934 Japanese animated short.", "anime-ponsuke.jpg", 425007, "Spring Comes to Ponsuke (1934).webm", "https://commons.wikimedia.org/wiki/File:Spring_Comes_to_Ponsuke_(1934).webm", "Ikuo Oishi", "Public domain"],
+    ["asset-anime-taro", "video", "Taro-san's Train", "A 1929 Japanese animated film directed by Yasuji Murata.", "anime-taro.jpg", 926000, "Taro-san's Train (1929).webm", "https://commons.wikimedia.org/wiki/File:Tar%C3%B4-san_no_kisha_(1929).webm", "Yasuji Murata", "Public domain"],
+    ["asset-anime-theme-tale", "audio", "Tale on the Late — Main Theme", "A bright, cinematic theme by Komiku, included as an anime soundtrack fixture.", "anime-music.jpg", 76000, "Tale on the Late - Main Theme.ogg", "https://commons.wikimedia.org/wiki/File:Komiku_-_01_-_Tale_on_the_Late_Main_Theme.ogg", "Komiku", "CC0 1.0"],
+    ["asset-anime-theme-friends", "audio", "Friends' Theme", "An adventurous character theme by Komiku, included as an anime soundtrack fixture.", "anime-music.jpg", 164000, "Friends Theme.ogg", "https://commons.wikimedia.org/wiki/File:Komiku_-_06_-_Friendss_theme.ogg", "Komiku", "CC0 1.0"],
+    ["asset-anime-theme-song", "audio", "Theme Song", "An atmospheric theme by Monplaisir, included as an anime soundtrack fixture.", "anime-music.jpg", 82000, "Theme Song.ogg", "https://commons.wikimedia.org/wiki/File:Monplaisir_-_01_-_Theme_Song.ogg", "Monplaisir", "CC0 1.0"]
+  ];
+  const insertAsset = db.prepare("INSERT OR IGNORE INTO assets (id,kind,title,description,source_url,file_path,thumbnail_url,duration_ms,added_at,updated_at,visibility,metadata_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
+  for (let index = 0; index < assets.length; index++) {
+    const [id, kind, title, description, thumbnail, duration, filename, sourceUrl, creator, license] = assets[index];
+    const addedAt = new Date(Date.parse("2026-08-13T19:00:00Z") - index * 60000).toISOString();
+    insertAsset.run(id, kind, title, description, sourceUrl, resolve(sampleDir, filename), `/generated/${thumbnail}`, duration, addedAt, addedAt, "public", JSON.stringify({ license, fixture: true }));
+    if (!db.prepare("SELECT 1 FROM asset_sources WHERE asset_id=? AND canonical_url=?").get(id, sourceUrl)) {
+      db.prepare("INSERT INTO asset_sources (id,asset_id,source_url,canonical_url,site_name,creator_name,retrieved_at,metadata_json) VALUES (?,?,?,?,?,?,?,?)").run(randomUUID(), id, sourceUrl, sourceUrl, "Wikimedia Commons", creator, "2026-08-13T00:00:00Z", JSON.stringify({ license, localFilename: filename }));
+    }
+  }
+  const links = [
+    ["asset-anime-namakura", "topic-anime"], ["asset-anime-ponsuke", "topic-anime"], ["asset-anime-taro", "topic-anime"],
+    ["asset-anime-theme-tale", "topic-anime"], ["asset-anime-theme-tale", "topic-anime-music"],
+    ["asset-anime-theme-friends", "topic-anime"], ["asset-anime-theme-friends", "topic-anime-music"],
+    ["asset-anime-theme-song", "topic-anime"], ["asset-anime-theme-song", "topic-anime-music"]
+  ];
+  for (const [assetId, topicId] of links) {
+    const exists = db.prepare("SELECT 1 FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE a.asset_id=? AND at.topic_id=?").get(assetId, topicId);
+    if (!exists) {
+      const annotationId = randomUUID();
+      db.prepare("INSERT INTO annotations (id,asset_id,note_markdown,origin,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?)").run(annotationId, assetId, "", "seed", "public", timestamp, timestamp);
+      db.prepare("INSERT INTO annotation_topics VALUES (?,?,?)").run(annotationId, topicId, "subject");
+    }
+  }
+  db.prepare("INSERT OR IGNORE INTO feeds (id,owner_id,slug,name,description,query_json,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)").run("feed-anime", "user-local", "anime", "Anime", "Japanese animation and theme music from across the library.", JSON.stringify({ topicIds: ["topic-anime"] }), "public", timestamp, timestamp);
+  rebuildSearch();
+}
+
 export function assetWithTopics(row) {
   if (!row) return null;
   const topics = db.prepare("SELECT DISTINCT t.id,t.slug,t.name,t.avatar_url FROM topics t JOIN annotation_topics at ON at.topic_id=t.id JOIN annotations a ON a.id=at.annotation_id WHERE a.asset_id=?").all(row.id);
@@ -207,3 +279,4 @@ export function assetWithTopics(row) {
 
 migrate();
 seed();
+syncAnimeFixtures();
