@@ -1,7 +1,7 @@
 # Prototype Instructions
 
 Watch history must be ordered by date watched, with the most recently watched items first.
-Video playback must preserve portrait, square, and landscape aspect ratios without cropping; tall videos should fit within the viewport height.
+The regular watch player must preserve portrait, square, and landscape aspect ratios without cropping; tall videos should fit within the viewport height. Shorts is an exception: use edge-to-edge, viewport-filling video with cover sizing, overlay controls and captions, and no app header, sidebar, outer margins, or permanent settings form.
 
 Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.
 
@@ -20,3 +20,5 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+Views count once per item playback session, never per progress save, pause, or Shorts loop. Show view counts in the library and player. Each item allows up to five likes per user. Shorts is a vertically snapping video feed, defaults to videos strictly under 90 seconds, and has a persistent configurable duration limit.

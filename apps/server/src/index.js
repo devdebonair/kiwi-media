@@ -21,10 +21,16 @@ await app.register(cors, { origin: true, credentials: true });
 await app.register(fastifyStatic, { root: generatedDir, prefix: "/generated/", decorateReply: false });
 await app.register(fastifyStatic, { root: webPublic, prefix: "/assets/", decorateReply: false });
 
+const engagement = id => ({
+  view_count: db.prepare("SELECT count(*) count FROM asset_views WHERE asset_id=?").get(id).count,
+  like_count: db.prepare("SELECT coalesce(sum(count),0) count FROM asset_likes WHERE asset_id=?").get(id).count,
+  my_likes: db.prepare("SELECT count FROM asset_likes WHERE asset_id=? AND user_id=?").get(id,userId)?.count || 0,
+});
+const enrichAsset = row => ({ ...assetWithTopics(row), ...engagement(row.id) });
 const listAssets = (where = "1=1", params = [], limit = 60, offset = 0) => db.prepare(`
   SELECT a.*, EXISTS(SELECT 1 FROM saved_assets sa WHERE sa.asset_id=a.id AND sa.user_id=?) saved
   FROM assets a WHERE ${where} ORDER BY a.added_at DESC,a.id DESC LIMIT ? OFFSET ?
-`).all(userId, ...params, limit, offset).map(assetWithTopics);
+`).all(userId, ...params, limit, offset).map(enrichAsset);
 
 const searchHits = (query, kind = "all") => {
   const ftsQuery = query.split(/\s+/).filter(Boolean).map(term => `"${term.replaceAll('"', '')}"*`).join(" AND ");
@@ -36,7 +42,7 @@ const searchHits = (query, kind = "all") => {
       if (!row) return [];
       const map = { videos: "video", music: "audio", photos: "image", articles: "article" };
       if (map[kind] && row.kind !== map[kind]) return [];
-      return [{ entityType: "asset", ...assetWithTopics(row) }];
+      return [{ entityType: "asset", ...enrichAsset(row) }];
     }
     if (hit.entity_type === "topic" && (kind === "all" || kind === "topics")) {
       const row = db.prepare("SELECT * FROM topics WHERE id=?").get(hit.entity_id);
@@ -56,10 +62,38 @@ app.get("/api/v1/assets", async (req, reply) => {
   return listAssets("1=1", [], Number(limit), Number(offset));
 });
 
+const shortsLimit = () => db.prepare("SELECT shorts_max_seconds FROM user_settings WHERE user_id=?").get(userId)?.shorts_max_seconds ?? 90;
+app.get("/api/v1/settings", async () => ({ shortsMaxSeconds: shortsLimit() }));
+app.put("/api/v1/settings", async (req, reply) => {
+  const value = req.body?.shortsMaxSeconds;
+  if (!Number.isSafeInteger(value) || value < 1 || value > 3600) return reply.code(400).send({ error: "Duration must be a whole number between 1 and 3600 seconds" });
+  db.prepare("INSERT INTO user_settings VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET shorts_max_seconds=excluded.shorts_max_seconds").run(userId,value);
+  return { shortsMaxSeconds: value };
+});
+app.get("/api/v1/shorts", async (req, reply) => {
+  const { limit = 20, offset = 0 } = req.query;
+  if (!Number.isSafeInteger(Number(limit)) || Number(limit) < 1 || Number(limit) > 200 || !Number.isSafeInteger(Number(offset)) || Number(offset) < 0) return reply.code(400).send({error:"Invalid pagination"});
+  return listAssets("a.kind='video' AND a.file_path IS NOT NULL AND a.file_path!='' AND a.duration_ms>0 AND a.duration_ms<?", [shortsLimit()*1000], Number(limit), Number(offset));
+});
+app.post("/api/v1/assets/:id/views", async (req, reply) => {
+  if (!db.prepare("SELECT 1 FROM assets WHERE id=?").get(req.params.id)) return reply.code(404).send({ error: "Asset not found" });
+  const session = req.body?.sessionId;
+  if (typeof session !== "string" || !/^[a-zA-Z0-9-]{16,80}$/.test(session)) return reply.code(400).send({ error: "A valid sessionId is required" });
+  db.prepare("INSERT OR IGNORE INTO asset_views VALUES (?,?,?,?)").run(userId,req.params.id,session,new Date().toISOString());
+  return engagement(req.params.id);
+});
+app.put("/api/v1/assets/:id/likes", async (req, reply) => {
+  if (!db.prepare("SELECT 1 FROM assets WHERE id=?").get(req.params.id)) return reply.code(404).send({ error: "Asset not found" });
+  const count = req.body?.count;
+  if (!Number.isSafeInteger(count) || count < 0 || count > 5) return reply.code(400).send({ error: "Likes must be between 0 and 5" });
+  db.prepare("INSERT INTO asset_likes VALUES (?,?,?) ON CONFLICT(user_id,asset_id) DO UPDATE SET count=excluded.count").run(userId,req.params.id,count);
+  return engagement(req.params.id);
+});
+
 app.get("/api/v1/assets/:id", async (req, reply) => {
   const row = db.prepare("SELECT a.*, EXISTS(SELECT 1 FROM saved_assets WHERE user_id=? AND asset_id=a.id) saved FROM assets a WHERE a.id=?").get(userId, req.params.id);
   if (!row) return reply.code(404).send({ error: "Asset not found" });
-  return assetWithTopics(row);
+  return enrichAsset(row);
 });
 
 app.get("/api/v1/assets/:id/file", async (req, reply) => {
@@ -194,15 +228,15 @@ app.get("/api/v1/history", async (req, reply) => {
     FROM consumption_state cs JOIN assets a ON a.id=cs.asset_id
     WHERE cs.user_id=? AND cs.last_viewed_at IS NOT NULL
     ORDER BY cs.last_viewed_at DESC, a.id DESC LIMIT ? OFFSET ?
-  `).all(userId, Number(limit), Number(offset)).map(assetWithTopics);
+  `).all(userId, Number(limit), Number(offset)).map(enrichAsset);
 });
 
 app.put("/api/v1/assets/:id/progress", async (req, reply) => {
   if (!db.prepare("SELECT 1 FROM assets WHERE id=?").get(req.params.id)) return reply.code(404).send({ error: "Asset not found" });
   const progress = Number(req.body?.progressMs ?? 0);
   if (!Number.isSafeInteger(progress) || progress < 0) return reply.code(400).send({ error: "progressMs must be a nonnegative integer" });
-  db.prepare(`INSERT INTO consumption_state (user_id,asset_id,progress_ms,completed,last_viewed_at,view_count) VALUES (?,?,?,?,?,1)
-    ON CONFLICT(user_id,asset_id) DO UPDATE SET progress_ms=excluded.progress_ms,completed=excluded.completed,last_viewed_at=excluded.last_viewed_at,view_count=consumption_state.view_count+1`).run(userId, req.params.id, progress, req.body?.completed ? 1 : 0, new Date().toISOString());
+  db.prepare(`INSERT INTO consumption_state (user_id,asset_id,progress_ms,completed,last_viewed_at,view_count) VALUES (?,?,?,?,?,0)
+    ON CONFLICT(user_id,asset_id) DO UPDATE SET progress_ms=excluded.progress_ms,completed=excluded.completed,last_viewed_at=excluded.last_viewed_at`).run(userId, req.params.id, progress, req.body?.completed ? 1 : 0, new Date().toISOString());
   return { ok: true };
 });
 

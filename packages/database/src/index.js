@@ -119,6 +119,19 @@ export function migrate() {
       progress_ms INTEGER, completed INTEGER NOT NULL DEFAULT 0, last_viewed_at TEXT,
       view_count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(user_id, asset_id)
     );
+    CREATE TABLE IF NOT EXISTS asset_views (
+      user_id TEXT NOT NULL REFERENCES users(id), asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL, viewed_at TEXT NOT NULL,
+      PRIMARY KEY(user_id, asset_id, session_id)
+    );
+    CREATE INDEX IF NOT EXISTS asset_views_asset_idx ON asset_views(asset_id);
+    CREATE TABLE IF NOT EXISTS asset_likes (
+      user_id TEXT NOT NULL REFERENCES users(id), asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+      count INTEGER NOT NULL CHECK(count BETWEEN 0 AND 5), PRIMARY KEY(user_id, asset_id)
+    );
+    CREATE TABLE IF NOT EXISTS user_settings (
+      user_id TEXT PRIMARY KEY REFERENCES users(id), shorts_max_seconds INTEGER NOT NULL DEFAULT 90
+    );
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY, type TEXT NOT NULL, payload_json TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'queued', priority INTEGER NOT NULL DEFAULT 0,

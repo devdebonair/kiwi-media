@@ -8,8 +8,29 @@ Kiwi is a self-hosted media library centered on topics, precise moments, and sav
 - Organize media around topic profiles and dynamic feeds
 - Attach topics and notes to whole assets or precise moments and regions
 - Direct-play local video and audio with HTTP range requests
+- Track views and watch history, and give each item up to five likes
+- Browse a vertical Shorts feed with a saved duration limit
 - Scan read-only filesystem libraries with a persistent background worker
 - Run directly with Node.js or through Docker Compose
+
+## Views, likes, and Shorts
+
+A video or audio view counts when playback starts, once per item per page visit.
+Pauses, progress saves, retries, and Shorts loops do not add views. Opening a
+photo, article, or other non-audio/video item counts once per visit. Counts appear on library cards, search
+and history results, and players. Accurate counts use a new session ledger;
+legacy inflated counters are retained but excluded from display. Watch history
+and saved progress are preserved.
+
+The player and Shorts each offer up to five likes per item for the local user,
+with a Clear action to remove them. Likes persist across reloads.
+
+Open **Shorts** in navigation for a vertically snapping feed. Only videos with a
+local file and known positive duration qualify. The default cutoff is strictly
+under 90 seconds; open the gear button, change **Under … seconds**, and select **Apply** to save a limit
+from 1 to 3600 seconds. Shorts fills the browser viewport with cover-sized video and overlay controls.
+Videos start muted, crop to fill the screen, and pause
+when scrolled out of the active position. More items load as you scroll.
 
 ## Run locally
 
