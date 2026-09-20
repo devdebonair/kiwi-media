@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import mime from "mime-types";
 import { db, generatedDir, rebuildSearch, assetWithTopics } from "@kiwi/database";
 import { fileURLToPath } from "node:url";
+import { parseRange } from "./range.js";
 
 const app = Fastify({ logger: true });
 const host = process.env.KIWI_HOST || "0.0.0.0";
@@ -68,11 +69,9 @@ app.get("/api/v1/assets/:id/file", async (req, reply) => {
   const range = req.headers.range;
   reply.header("Accept-Ranges", "bytes").header("Content-Type", contentType);
   if (!range) return reply.header("Content-Length", size).send(createReadStream(asset.file_path));
-  const match = /bytes=(\d*)-(\d*)/.exec(range);
-  if (!match) return reply.code(416).send();
-  const start = match[1] ? Number(match[1]) : 0;
-  const end = match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
-  if (start > end || start >= size) return reply.code(416).header("Content-Range", `bytes */${size}`).send();
+  const parsed = parseRange(range, size);
+  if (!parsed) return reply.code(416).header("Content-Range", `bytes */${size}`).send();
+  const { start, end } = parsed;
   reply.code(206).header("Content-Range", `bytes ${start}-${end}/${size}`).header("Content-Length", end - start + 1);
   return reply.send(createReadStream(asset.file_path, { start, end }));
 });
