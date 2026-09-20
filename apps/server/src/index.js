@@ -21,10 +21,10 @@ await app.register(cors, { origin: true, credentials: true });
 await app.register(fastifyStatic, { root: generatedDir, prefix: "/generated/", decorateReply: false });
 await app.register(fastifyStatic, { root: webPublic, prefix: "/assets/", decorateReply: false });
 
-const listAssets = (where = "1=1", params = [], limit = 60) => db.prepare(`
+const listAssets = (where = "1=1", params = [], limit = 60, offset = 0) => db.prepare(`
   SELECT a.*, EXISTS(SELECT 1 FROM saved_assets sa WHERE sa.asset_id=a.id AND sa.user_id=?) saved
-  FROM assets a WHERE ${where} ORDER BY a.added_at DESC LIMIT ?
-`).all(userId, ...params, limit).map(assetWithTopics);
+  FROM assets a WHERE ${where} ORDER BY a.added_at DESC,a.id DESC LIMIT ? OFFSET ?
+`).all(userId, ...params, limit, offset).map(assetWithTopics);
 
 const searchHits = (query, kind = "all") => {
   const ftsQuery = query.split(/\s+/).filter(Boolean).map(term => `"${term.replaceAll('"', '')}"*`).join(" AND ");
@@ -48,11 +48,12 @@ const searchHits = (query, kind = "all") => {
 
 app.get("/api/v1/health", async () => ({ ok: true, service: "kiwi", database: "sqlite", time: new Date().toISOString() }));
 
-app.get("/api/v1/assets", async req => {
-  const { kind, topic, limit = 60 } = req.query;
-  if (topic) return listAssets("EXISTS(SELECT 1 FROM annotations an JOIN annotation_topics at ON at.annotation_id=an.id JOIN topics t ON t.id=at.topic_id WHERE an.asset_id=a.id AND (t.slug=? OR t.id=?))", [topic, topic], Number(limit));
-  if (kind) return listAssets("a.kind=?", [kind], Number(limit));
-  return listAssets("1=1", [], Number(limit));
+app.get("/api/v1/assets", async (req, reply) => {
+  const { kind, topic, limit = 60, offset = 0 } = req.query;
+  if (!Number.isSafeInteger(Number(limit)) || Number(limit) < 1 || Number(limit) > 200 || !Number.isSafeInteger(Number(offset)) || Number(offset) < 0) return reply.code(400).send({ error: "limit must be 1–200 and offset must be a nonnegative integer" });
+  if (topic) return listAssets("EXISTS(SELECT 1 FROM annotations an JOIN annotation_topics at ON at.annotation_id=an.id JOIN topics t ON t.id=at.topic_id WHERE an.asset_id=a.id AND (t.slug=? OR t.id=?))", [topic, topic], Number(limit), Number(offset));
+  if (kind) return listAssets("a.kind=?", [kind], Number(limit), Number(offset));
+  return listAssets("1=1", [], Number(limit), Number(offset));
 });
 
 app.get("/api/v1/assets/:id", async (req, reply) => {

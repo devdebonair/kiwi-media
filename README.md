@@ -20,6 +20,13 @@ npm run dev
 
 The Next.js web app listens on `0.0.0.0:4173` and the Fastify API listens on `0.0.0.0:3333`. To import local media, set `KIWI_MEDIA_DIRS` to one or more colon-separated absolute paths and use the Scan library action in Settings, or call `POST /api/v1/library/scan`. The API and worker load the root `.env` when launched through npm; shell environment variables take precedence.
 
+Network folders must already be mounted and readable by both processes. Scanning
+registers filenames and paths first, without reading full files for checksums or
+adding tags. Videos become browsable and stream directly from the originals.
+A separate `enrich-root` job generates thumbnails and technical metadata in the
+background. Home supports Load more for large libraries. Playback uses browser
+codec support; ingestion does not transcode originals.
+
 To download the small public-domain NASA fixtures used during development:
 
 ```bash
