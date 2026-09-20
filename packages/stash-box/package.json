@@ -1,0 +1,9 @@
+{
+  "name": "@kiwi/stash-box",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.js",
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test test/*.test.js" }
+}
