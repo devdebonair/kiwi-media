@@ -18,7 +18,7 @@ npm install
 npm run dev
 ```
 
-The Next.js web app listens on `0.0.0.0:4173` and the Fastify API listens on `0.0.0.0:3333`. To import local media, set `KIWI_MEDIA_DIRS` to one or more colon-separated absolute paths and use the Scan library action in Settings, or call `POST /api/v1/library/scan`.
+The Next.js web app listens on `0.0.0.0:4173` and the Fastify API listens on `0.0.0.0:3333`. To import local media, set `KIWI_MEDIA_DIRS` to one or more colon-separated absolute paths and use the Scan library action in Settings, or call `POST /api/v1/library/scan`. The API and worker load the root `.env` when launched through npm; shell environment variables take precedence.
 
 To download the small public-domain NASA fixtures used during development:
 
