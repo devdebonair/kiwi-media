@@ -186,8 +186,21 @@ app.post("/api/v1/assets/:id/save", async req => {
   return { saved: !exists };
 });
 
-app.put("/api/v1/assets/:id/progress", async req => {
-  const progress = Math.max(0, Number(req.body?.progressMs || 0));
+app.get("/api/v1/history", async (req, reply) => {
+  const { limit = 60, offset = 0 } = req.query;
+  if (!Number.isSafeInteger(Number(limit)) || Number(limit) < 1 || Number(limit) > 200 || !Number.isSafeInteger(Number(offset)) || Number(offset) < 0) return reply.code(400).send({ error: "limit must be 1–200 and offset must be a nonnegative integer" });
+  return db.prepare(`SELECT a.*, cs.last_viewed_at, cs.progress_ms, cs.completed,
+    EXISTS(SELECT 1 FROM saved_assets sa WHERE sa.asset_id=a.id AND sa.user_id=cs.user_id) saved
+    FROM consumption_state cs JOIN assets a ON a.id=cs.asset_id
+    WHERE cs.user_id=? AND cs.last_viewed_at IS NOT NULL
+    ORDER BY cs.last_viewed_at DESC, a.id DESC LIMIT ? OFFSET ?
+  `).all(userId, Number(limit), Number(offset)).map(assetWithTopics);
+});
+
+app.put("/api/v1/assets/:id/progress", async (req, reply) => {
+  if (!db.prepare("SELECT 1 FROM assets WHERE id=?").get(req.params.id)) return reply.code(404).send({ error: "Asset not found" });
+  const progress = Number(req.body?.progressMs ?? 0);
+  if (!Number.isSafeInteger(progress) || progress < 0) return reply.code(400).send({ error: "progressMs must be a nonnegative integer" });
   db.prepare(`INSERT INTO consumption_state (user_id,asset_id,progress_ms,completed,last_viewed_at,view_count) VALUES (?,?,?,?,?,1)
     ON CONFLICT(user_id,asset_id) DO UPDATE SET progress_ms=excluded.progress_ms,completed=excluded.completed,last_viewed_at=excluded.last_viewed_at,view_count=consumption_state.view_count+1`).run(userId, req.params.id, progress, req.body?.completed ? 1 : 0, new Date().toISOString());
   return { ok: true };
@@ -206,4 +219,5 @@ app.post("/api/v1/library/scan", async (req, reply) => {
 
 app.get("/api/v1/jobs", async () => db.prepare("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 50").all());
 
-await app.listen({ host, port });
+export { app };
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await app.listen({ host, port });

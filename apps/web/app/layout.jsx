@@ -1,4 +1,5 @@
 import "./globals.css";
+import "../src/player.css";
 
 export const metadata = {
   title: "Kiwi — your media, connected",

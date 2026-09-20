@@ -1,0 +1,21 @@
+/* Let the video's intrinsic ratio size the player instead of the 16:9 poster shell. */
+.player-shell:has(> video) {
+  aspect-ratio: auto;
+  display: flex;
+  justify-content: center;
+}
+
+.player-shell > video {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  max-height: 75vh;
+  max-height: 75svh;
+  object-fit: contain;
+}
+
+.player-shell > video:fullscreen {
+  height: 100%;
+  max-height: none;
+}
