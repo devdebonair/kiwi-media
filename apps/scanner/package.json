@@ -1,0 +1,12 @@
+{
+  "name": "@kiwi/scanner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "kiwi-metadata": "./src/cli.js" },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "build:phasher": "node scripts/build-phasher.js"
+  },
+  "dependencies": { "@kiwi/stash-box": "0.1.0" }
+}

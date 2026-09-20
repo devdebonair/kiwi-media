@@ -4,6 +4,7 @@ COPY package.json package-lock.json ./
 COPY apps/web/package.json apps/web/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY apps/worker/package.json apps/worker/package.json
+COPY apps/scanner/package.json apps/scanner/package.json
 COPY packages/database/package.json packages/database/package.json
 COPY packages/stash-box/package.json packages/stash-box/package.json
 RUN npm ci --no-audit --no-fund

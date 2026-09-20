@@ -28,6 +28,21 @@ To download the small public-domain NASA fixtures used during development:
 
 Their sources and licensing notes are recorded in `media/samples/SOURCES.md`. Video binaries are intentionally excluded from Git.
 
+## Fingerprint metadata lookups
+
+The monorepo includes `@kiwi/stash-box`, a reusable fingerprint/catalog client, and
+`@kiwi/scanner`, its standalone CLI. Neither requires a running Stash application.
+
+```bash
+npm run --silent metadata -- fingerprint '/media/example.mp4'
+# With STASH_BOX_ENDPOINT and STASH_BOX_API_KEY set:
+npm run --silent metadata -- lookup --recursive '/media/videos'
+```
+
+Lookups emit JSONL with all metadata candidates; they do not modify Kiwi's library.
+See [scanner setup and usage](apps/scanner/README.md) for optional perceptual hashes,
+provider configuration, fingerprint caching, and the JavaScript API.
+
 ## Production
 
 ```bash
