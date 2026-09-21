@@ -29,8 +29,10 @@ Remember playback position and automatically resume unfinished videos/audio when
 
 The September 2026 user references replace the earlier light mock: use charcoal surfaces, quiet dividers, spacious media thumbnails, restrained Kiwi green accents, and a collapsible left navigation. Home should feature real library media and topics; the regular player has a related-media column on wide screens. Carry the dark theme through search, topics, feeds, history, settings, and dialogs. Preserve responsive behavior and the existing full-viewport Shorts and uncropped regular-player rules.
 
-Likes should feel playful: each of the five likes advances the heart animation, from a small pop to a richer celebration inspired by mobile social-app reactions. Show five subtle progress marks instead of a visible numeric fraction. Keep the five-like cap, a way to clear likes, and a reduced-motion alternative.
+Likes should feel playful: each of the five likes advances the heart animation, from a small pop to a richer celebration inspired by mobile social-app reactions. Show only the heart and label; do not show tick marks, progress bars, or a numeric fraction. Keep the five-like cap and a reduced-motion alternative. Do not show a Clear button beside Like.
 
 Library filter tags should be pill-shaped, with the topic image in a small circle to the left when available. Tags without images remain text-only.
 
 The watch page's related-video column has no visible heading or divider above it; its first thumbnail must align with the top of the main player.
+
+Like and Save are compact pills with matching 38px heights, 20px icons, and 13px labels. The header search is a compact 38px pill (36px on phones) and suggests matching library media and topics as the user types, with mouse, touch, and keyboard selection.

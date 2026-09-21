@@ -16,7 +16,7 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
 .brand-mark svg { transform: rotate(8deg); }
 .icon-button { color: #b7b8c3; border-radius: 9px; }
 .icon-button:hover { color: var(--text); background: #ffffff0a; }
-.search { height: 43px; border-radius: 9px; background: #ffffff04; border-color: #ffffff06; color: #858694; }
+.search { position: relative; min-width: 0; height: 38px; border-radius: 999px; background: #ffffff04; border-color: #ffffff06; color: #858694; }
 .search input { min-width: 0; width: 100%; font-size: 14px; }
 .search input::placeholder { color: #9495a3; }
 .search:focus-within { background: #22232b; }
@@ -140,6 +140,23 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
 .watch-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .watch-toolbar > .view-count { margin: 0; flex-shrink: 0; }
 .watch-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.watch-actions > .outline-button, .watch-actions > .primary-button { height: 38px; padding: 0 18px; border-radius: 999px; font-size: 13px; gap: 8px; }
+.watch-actions > button > svg { width: 20px; height: 20px; flex-shrink: 0; }
+.search-suggestions { position: absolute; z-index: 40; top: calc(100% + 10px); left: 0; right: 0; padding: 7px; border: 1px solid #ffffff16; border-radius: 18px; background: #202128; box-shadow: 0 16px 44px #0006; color: var(--text); }
+.search-suggestions-heading { padding: 9px 12px 12px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.search-suggestions-list { max-height: min(520px, 65dvh); overflow-y: auto; overscroll-behavior: contain; }
+.search .search-suggestion { display: flex; align-items: center; width: 100%; gap: 12px; padding: 10px 12px; border: 0; border-radius: 11px; background: transparent; text-align: left; color: var(--text); }
+.search .search-suggestion:hover, .search .search-suggestion[aria-selected="true"] { background: #b6df8310; }
+.suggestion-image { position: relative; display: grid; place-items: center; width: 44px; height: 32px; flex-shrink: 0; border-radius: 6px; overflow: hidden; color: var(--muted); background: #30323b; }
+.suggestion-image.is-topic { width: 36px; height: 36px; border-radius: 50%; margin: 0 4px; }
+.suggestion-image img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.suggestion-image img[hidden] { display: none; }
+.suggestion-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; }
+.suggestion-copy strong { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestion-copy small { font-size: 11px; color: var(--muted); }
+.search-suggestion > svg { flex-shrink: 0; color: var(--muted); }
+.search .search-all { color: var(--green); border-top: 1px solid var(--line); margin-top: 5px; padding-top: 13px; padding-bottom: 13px; font-size: 12px; }
+.search-all > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .watch-description { padding: 22px 0; }
 .watch-description p { font-size: 13px; line-height: 1.9; color: #bfc0ca; white-space: pre-line; overflow-wrap: anywhere; }
 .watch-topics { flex-wrap: wrap; margin: 0 0 13px; }
@@ -211,9 +228,10 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
   .brand-group .brand > span:last-child { display: none; }
   .menu-toggle { padding: 4px; }
   .brand-group .brand-mark { width: 28px; height: 29px; }
-  .search { height: 37px; padding: 0 10px; gap: 7px; }
+  .search { height: 36px; padding: 0 10px; gap: 7px; }
   .search input { font-size: 12px; }
   .search > svg { width: 17px; flex-shrink: 0; }
+  .search-suggestions { position: fixed; top: calc(var(--topbar) - 4px); left: 14px; right: 14px; }
   .avatar { width: 32px; height: 32px; border-radius: 9px; }
   .content { padding: 25px 16px 50px; }
   .section-heading { gap: 16px; }
@@ -254,7 +272,7 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
   .watch-info h1 { font-size: 20px; }
   .watch-toolbar { gap: 16px; }
   .watch-actions { gap: 8px; }
-  .watch-actions .outline-button, .watch-actions .primary-button { padding: 0 12px; height: 37px; }
+  .watch-actions .outline-button, .watch-actions .primary-button { padding: 0 18px; height: 38px; }
   .watch-description { padding: 17px 0; }
   .dialog { padding: 22px; }
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, ClockCounterClockwise, Compass, FolderOpen, Gear, Leaf, List, MagnifyingGlass, Play, Rows, Tag, X } from "@phosphor-icons/react";
+import { SearchBar } from "./search-bar.jsx";
+import { ArrowUpRight, ClockCounterClockwise, Compass, FolderOpen, Gear, Leaf, List, Play, Rows, Tag, X } from "@phosphor-icons/react";
 
 export function Brand({ navigate }) {
   return <a href="/" className="brand" aria-label="Kiwi home" onClick={event => {
@@ -35,11 +36,7 @@ export function Header({ query, setQuery, onSubmit, openMenu, navigate, mobileOp
       <button className="menu-toggle icon-button" onClick={openMenu} aria-label="Toggle navigation" aria-controls="site-navigation" aria-expanded={mobile ? mobileOpen : !collapsed}><List size={23} /></button>
       <Brand navigate={navigate} />
     </div>
-    <form className="search" role="search" onSubmit={onSubmit}>
-      <MagnifyingGlass size={21} aria-hidden="true" />
-      <input ref={searchRef} value={query} onChange={event => setQuery(event.target.value)} placeholder="Search your library…" aria-label="Search your library" />
-      {query ? <button type="button" onClick={() => setQuery("")} aria-label="Clear search"><X size={17} /></button> : <kbd>⌘ / Ctrl K</kbd>}
-    </form>
+    <SearchBar query={query} setQuery={setQuery} onSubmit={onSubmit} navigate={navigate} inputRef={searchRef} />
     <div className="header-actions"><span className="local-label"><span /> Personal library</span><button className="avatar" onClick={() => navigate("/settings")} aria-label="Library settings" title="Library settings"><Gear size={21} /></button></div>
   </header>;
 }

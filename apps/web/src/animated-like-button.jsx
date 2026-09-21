@@ -88,12 +88,11 @@ function AnimatedLikeButton({ asset, api, onChange }) {
       title={replay ? "All the love. Tap to celebrate again." : `${count} of 5 likes. Tap to add a little more love.`}
       onClick={() => { if (!pending.current) { if (replay) celebrate(5); else update(count + 1); } }}>
       <span className="like-heart-stage" aria-hidden="true">
-        <span key={`heart-${burst?.sequence ?? "resting"}`} className="like-heart"><Heart size={22} weight={count ? "fill" : "regular"} /></span>
+        <span key={`heart-${burst?.sequence ?? "resting"}`} className="like-heart"><Heart size={20} weight={count ? "fill" : "regular"} /></span>
         {burst && <LikeBurst key={`burst-${burst.sequence}`} level={burst.level} />}
       </span>
-      <span className="like-button-copy" aria-hidden="true"><span className="like-label">{labels[count]}</span><span className="like-steps">{Array.from({ length: 5 }, (_, index) => <span key={index} className={index < count ? "filled" : ""} />)}</span></span>
+      <span className="like-button-copy" aria-hidden="true"><span className="like-label">{labels[count]}</span></span>
     </button>
-    <button className={`reset-likes like-reset ${count ? "" : "is-empty"}`} disabled={busy || !count} onClick={() => update(0)} aria-label={`Clear likes for ${asset.title}`}>Clear</button>
     <span className="like-announcement" role="status" aria-live="polite" aria-atomic="true">{announcement}</span>
     {error && <span role="alert">{error}</span>}
   </div>;

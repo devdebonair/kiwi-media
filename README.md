@@ -23,7 +23,7 @@ legacy inflated counters are retained but excluded from display. Watch history
 and saved progress are preserved.
 
 The player and Shorts each offer up to five likes per item for the local user,
-with a Clear action to remove them. Likes persist across reloads.
+with progressively richer heart animations. Likes persist across reloads.
 
 Open **Shorts** in navigation for a vertically snapping feed. Only videos with a
 local file and known positive duration qualify. The default cutoff is strictly
