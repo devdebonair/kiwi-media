@@ -1,7 +1,8 @@
 "use client";
 
+import { TopicLabel } from "./topic-label.jsx";
 import { useEffect, useRef, useState } from "react";
-import { BookmarkSimple, CaretLeft, DownloadSimple, Tag } from "@phosphor-icons/react";
+import { BookmarkSimple, CaretLeft, DownloadSimple } from "@phosphor-icons/react";
 import { LikeButton, ViewCount, usePlaybackTracking } from "./engagement.jsx";
 import { resumeSeconds } from "./playback-progress.mjs";
 
@@ -63,7 +64,7 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
           {error && <p role="alert">{error}</p>}
         </section>
         {(asset.description || asset.topics?.length > 0) && <section className="watch-description">
-          {asset.topics?.length > 0 && <div className="watch-topics">{asset.topics.map(topic => <AppLink key={topic.id} href={`/topic/${topic.slug}`} navigate={navigate}><Tag size={15} />{topic.name}</AppLink>)}</div>}
+          {asset.topics?.length > 0 && <div className="watch-topics">{asset.topics.map(topic => <AppLink key={topic.id} href={`/topic/${topic.slug}`} navigate={navigate}><TopicLabel topic={topic} /></AppLink>)}</div>}
           {asset.description && <p>{asset.description}</p>}
         </section>}
         {asset.moments?.length > 0 && <section className="moments"><h2>Notable moments</h2>{asset.moments.map((moment, index) => <button key={index} onClick={() => { if (mediaRef.current) { mediaRef.current.currentTime = moment.start_ms / 1000; mediaRef.current.play().catch(() => {}); } }}><span>{formatDuration(moment.start_ms)}</span><div><strong>{moment.topic || "Moment"}</strong><p>{moment.note_markdown}</p></div></button>)}</section>}

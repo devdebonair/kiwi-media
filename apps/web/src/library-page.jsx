@@ -1,5 +1,6 @@
 "use client";
 
+import { TopicLabel } from "./topic-label.jsx";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, ArrowUpRight, Compass, Heart, SquaresFour, Tag } from "@phosphor-icons/react";
 
@@ -50,7 +51,7 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty }) {
     </div>
     <div className="chips" role="group" aria-label="Filter library by topic">
       <button aria-pressed={selected === "all"} className={selected === "all" ? "selected" : ""} onClick={() => setSelected("all")}><SquaresFour size={17} weight={selected === "all" ? "fill" : "regular"} /> All media</button>
-      {topics.slice(0, 6).map(topic => <button key={topic.id} aria-pressed={selected === topic.slug} className={selected === topic.slug ? "selected" : ""} onClick={() => setSelected(topic.slug)}>{topic.avatar_url && <img className="chip-avatar" src={topic.avatar_url} alt="" width={22} height={22} onError={event => { event.currentTarget.hidden = true; }} />}{topic.name}</button>)}
+      {topics.slice(0, 6).map(topic => <button key={topic.id} aria-pressed={selected === topic.slug} className={selected === topic.slug ? "selected" : ""} onClick={() => setSelected(topic.slug)}><TopicLabel topic={topic} /></button>)}
       <AppLink className="chip-browse" href="/topics" navigate={navigate} aria-label="Browse all topics"><ArrowRight size={18} /></AppLink>
     </div>
     {error && <div className="error-notice" role="alert"><span>{error}</span><button className="outline-button" onClick={() => assets?.length ? loadMore() : setRetry(value => value + 1)}>Try again</button></div>}

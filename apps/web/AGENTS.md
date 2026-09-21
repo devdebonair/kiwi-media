@@ -31,7 +31,7 @@ The September 2026 user references replace the earlier light mock: use charcoal 
 
 Likes should feel playful: each of the five likes advances the heart animation, from a small pop to a richer celebration inspired by mobile social-app reactions. Show only the heart and label; do not show tick marks, progress bars, or a numeric fraction. Keep the five-like cap and a reduced-motion alternative. Do not show a Clear button beside Like.
 
-Library filter tags should be pill-shaped, with the topic image in a small circle to the left when available. Tags without images remain text-only.
+Library filter tags and topic labels below the player share the same pill styling, sizing, neutral colors, and circular topic image on the left when available. Tags without images remain text-only. Topic-pill labels use 14px text on desktop and 13px on phones for readability.
 
 The watch page's related-video column has no visible heading or divider above it; its first thumbnail must align with the top of the main player.
 
