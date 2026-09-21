@@ -93,7 +93,8 @@ app.put("/api/v1/assets/:id/likes", async (req, reply) => {
 app.get("/api/v1/assets/:id", async (req, reply) => {
   const row = db.prepare("SELECT a.*, EXISTS(SELECT 1 FROM saved_assets WHERE user_id=? AND asset_id=a.id) saved FROM assets a WHERE a.id=?").get(userId, req.params.id);
   if (!row) return reply.code(404).send({ error: "Asset not found" });
-  return enrichAsset(row);
+  const progress = db.prepare("SELECT progress_ms, completed FROM consumption_state WHERE user_id=? AND asset_id=?").get(userId, row.id);
+  return { ...enrichAsset(row), progress_ms: progress?.progress_ms ?? 0, completed: progress?.completed ?? 0 };
 });
 
 app.get("/api/v1/assets/:id/file", async (req, reply) => {
@@ -163,7 +164,8 @@ app.get("/api/v1/topics/:slug", async (req, reply) => {
     JOIN (SELECT DISTINCT a.asset_id FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE at.topic_id=?) shared ON shared.asset_id=a2.asset_id
     WHERE t.id != ? GROUP BY t.id ORDER BY item_count DESC LIMIT 8
   `).all(topic.id, topic.id);
-  return { ...topic, item_count: assets.length, assets, related };
+  const { item_count } = db.prepare("SELECT count(DISTINCT a.asset_id) item_count FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE at.topic_id=?").get(topic.id);
+  return { ...topic, item_count, assets, related };
 });
 
 app.post("/api/v1/topics/:id/follow", async req => {

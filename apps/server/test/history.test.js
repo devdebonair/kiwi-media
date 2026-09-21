@@ -42,3 +42,20 @@ test('history and progress reject invalid inputs', async () => {
   }
   assert.equal((await app.inject({ method: 'PUT', url: '/api/v1/assets/missing/progress', payload: { progressMs: 10 } })).statusCode, 404);
 });
+
+test('asset details return persisted progress for the current user only', async () => {
+  const assets = db.prepare('SELECT id FROM assets ORDER BY id LIMIT 2').all();
+  const id = assets[0].id;
+  await app.inject({ method: 'PUT', url: `/api/v1/assets/${id}/progress`, payload: { progressMs: 42000, completed: false } });
+  let asset = (await app.inject(`/api/v1/assets/${id}`)).json();
+  assert.equal(asset.progress_ms, 42000);
+  assert.equal(asset.completed, 0);
+  await app.inject({ method: 'PUT', url: `/api/v1/assets/${id}/progress`, payload: { progressMs: 90000, completed: true } });
+  asset = (await app.inject(`/api/v1/assets/${id}`)).json();
+  assert.equal(asset.completed, 1);
+  db.prepare('DELETE FROM consumption_state WHERE user_id=? AND asset_id=?').run('user-local', assets[1].id);
+  db.prepare('INSERT OR REPLACE INTO consumption_state (user_id,asset_id,progress_ms,completed) VALUES (?,?,?,?)').run('other-user', assets[1].id, 12000, 1);
+  asset = (await app.inject(`/api/v1/assets/${assets[1].id}`)).json();
+  assert.equal(asset.progress_ms, 0);
+  assert.equal(asset.completed, 0);
+});

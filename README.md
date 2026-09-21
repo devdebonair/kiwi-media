@@ -71,6 +71,31 @@ Lookups emit JSONL with all metadata candidates; they do not modify Kiwi's libra
 See [scanner setup and usage](apps/scanner/README.md) for optional perceptual hashes,
 provider configuration, fingerprint caching, and the JavaScript API.
 
+## Enrich people and creator profiles
+
+With the reviewed name export at `data/exports/names-from-titles/evidence.json`
+and the existing StashDB/ThePornDB credentials configured:
+
+```bash
+npm run profiles:enrich                     # Fetch public metadata and write a reviewable plan
+npm run profiles:enrich -- --offline --apply # Apply the cached plan inputs and download portraits
+```
+
+This creates person topics with descriptions, locally cached profile pictures,
+source links, and social accounts. It merges aliases through source identities,
+checks Wikipedia articles, and links only current video titles that match the
+reviewed names. Associations mean “mentioned in the title”; they do not verify
+on-screen appearances. Ambiguous and unmatched identities remain in the report.
+No video files are uploaded; only candidate names are sent to metadata providers.
+
+Plans, provider caches, optional reviewed profile resolutions, and the import
+report live in `data/exports/profile-enrichment/`. Each apply creates an SQLite
+backup in `data/backups/`, uses one transaction for tags and associations, and
+rebuilds search. Reruns reuse cached lookups, avoid duplicate tags/links, and
+preserve manually edited topic fields. `--offline` skips profile lookups but may
+still download uncached portraits. To refresh metadata, remove the relevant
+cache files before running the preview command again.
+
 ## Production
 
 ```bash

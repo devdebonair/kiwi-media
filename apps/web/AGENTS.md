@@ -22,3 +22,13 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 <!-- END:nextjs-agent-rules -->
 
 Views count once per item playback session, never per progress save, pause, or Shorts loop. Show view counts in the library and player. Each item allows up to five likes per user. Shorts is a vertically snapping video feed, defaults to videos strictly under 90 seconds, and has a persistent configurable duration limit.
+
+Remember playback position and automatically resume unfinished videos/audio when reopened. Explicit timestamp links take priority over saved progress; completed items restart from the beginning.
+
+## Visual direction
+
+The September 2026 user references replace the earlier light mock: use charcoal surfaces, quiet dividers, spacious media thumbnails, restrained Kiwi green accents, and a collapsible left navigation. Home should feature real library media and topics; the regular player has a related-media column on wide screens. Carry the dark theme through search, topics, feeds, history, settings, and dialogs. Preserve responsive behavior and the existing full-viewport Shorts and uncropped regular-player rules.
+
+Likes should feel playful: each of the five likes advances the heart animation, from a small pop to a richer celebration inspired by mobile social-app reactions. Show five subtle progress marks instead of a visible numeric fraction. Keep the five-like cap, a way to clear likes, and a reduced-motion alternative.
+
+Library filter tags should be pill-shaped, with the topic image in a small circle to the left when available. Tags without images remain text-only.
