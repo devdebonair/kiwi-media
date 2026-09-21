@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BookmarkSimple, CaretLeft, Compass, DownloadSimple, Tag } from "@phosphor-icons/react";
+import { BookmarkSimple, CaretLeft, DownloadSimple, Tag } from "@phosphor-icons/react";
 import { LikeButton, ViewCount, usePlaybackTracking } from "./engagement.jsx";
 import { resumeSeconds } from "./playback-progress.mjs";
 
@@ -68,7 +68,7 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
         </section>}
         {asset.moments?.length > 0 && <section className="moments"><h2>Notable moments</h2>{asset.moments.map((moment, index) => <button key={index} onClick={() => { if (mediaRef.current) { mediaRef.current.currentTime = moment.start_ms / 1000; mediaRef.current.play().catch(() => {}); } }}><span>{formatDuration(moment.start_ms)}</span><div><strong>{moment.topic || "Moment"}</strong><p>{moment.note_markdown}</p></div></button>)}</section>}
       </div>
-      {related.length > 0 && <aside className="watch-related" aria-label="More to explore"><div className="row-heading"><h2><Compass size={21} /> More to explore</h2></div><div className="related-media">{related.map(item => <MediaCard key={item.id} asset={item} navigate={navigate} />)}</div></aside>}
+      {related.length > 0 && <aside className="watch-related" aria-label="More to explore"><div className="related-media">{related.map(item => <MediaCard key={item.id} asset={item} navigate={navigate} />)}</div></aside>}
     </div>
   </div>;
 }

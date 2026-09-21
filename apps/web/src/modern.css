@@ -145,7 +145,6 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
 .watch-topics { flex-wrap: wrap; margin: 0 0 13px; }
 .watch-topics a { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; background: #b6df830c; border: 1px solid #b6df831c; }
 .related-media { display: grid; gap: 24px; }
-.watch-related .row-heading { padding: 12px 0 16px; border-bottom: 1px solid var(--line); }
 .watch-related .card-copy h3 { font-size: 13px; }
 .moments h2 { font-size: 18px; font-weight: 500; }
 .nav-collapsed { --sidebar: 80px; }

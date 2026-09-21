@@ -32,3 +32,5 @@ The September 2026 user references replace the earlier light mock: use charcoal 
 Likes should feel playful: each of the five likes advances the heart animation, from a small pop to a richer celebration inspired by mobile social-app reactions. Show five subtle progress marks instead of a visible numeric fraction. Keep the five-like cap, a way to clear likes, and a reduced-motion alternative.
 
 Library filter tags should be pill-shaped, with the topic image in a small circle to the left when available. Tags without images remain text-only.
+
+The watch page's related-video column has no visible heading or divider above it; its first thumbnail must align with the top of the main player.
