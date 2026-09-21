@@ -36,3 +36,5 @@ Library filter tags should be pill-shaped, with the topic image in a small circl
 The watch page's related-video column has no visible heading or divider above it; its first thumbnail must align with the top of the main player.
 
 Like and Save are compact pills with matching 38px heights, 20px icons, and 13px labels. The header search is a compact 38px pill (36px on phones) and suggests matching library media and topics as the user types, with mouse, touch, and keyboard selection.
+
+Keep the top navbar compact: 60px on desktop, 56px on tablets, and 54px on phones. Page and sidebar offsets must track its height.

@@ -192,7 +192,7 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
   .all-topics { grid-column: 1 / -1; }
 }
 @media (max-width: 860px) {
-  :root { --topbar: 70px; }
+  :root { --topbar: 56px; }
   .topbar, .nav-collapsed .topbar { grid-template-columns: 142px minmax(0, 1fr) 36px; gap: 14px; padding: 0 18px; }
   .brand-group { gap: 14px; }
   .brand { display: flex; font-size: 27px; }
@@ -222,7 +222,7 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
   .related-media { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 580px) {
-  :root { --topbar: 66px; }
+  :root { --topbar: 54px; }
   .topbar, .nav-collapsed .topbar { grid-template-columns: 68px minmax(0, 1fr) 32px; gap: 10px; padding: 0 14px; }
   .brand-group { gap: 7px; }
   .brand-group .brand > span:last-child { display: none; }
