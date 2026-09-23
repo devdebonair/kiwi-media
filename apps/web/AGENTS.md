@@ -45,3 +45,5 @@ Do not show the home page's “A world of your own / Your library / Everything y
 Home keeps the discovery layout and shows shuffled videos. The separate Library page shows videos in newest-first order. Both pages load more videos automatically as the user scrolls.
 
 The regular video player uses custom charcoal controls with Kiwi green accents and offers automatic codec compatibility fallback plus a manual compatibility option. Preserve uncropped aspect ratios and playback resume behavior.
+
+Videos have a localStorage-backed playlist. Every video thumbnail has a bottom-right Add to Playlist control, revealed on hover or keyboard focus (always available on touch). Opening a video creates a queue if needed. Preserve the same player while switching between the watch page and bottom-right mini player; finished videos leave the queue, the next video plays automatically, and an empty playlist is removed. Use the existing rounded Phosphor icon family for these controls.

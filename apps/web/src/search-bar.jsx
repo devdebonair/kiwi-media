@@ -1,5 +1,6 @@
 "use client";
 
+import { AddToPlaylist } from "./playlist.jsx";
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowUpRight, MagnifyingGlass, Play, Tag, X } from "@phosphor-icons/react";
 
@@ -71,10 +72,10 @@ export function SearchBar({ query, setQuery, onSubmit, navigate, inputRef }) {
         {items.map((item, index) => {
           const topic = item.entityType === "topic";
           const picture = topic ? item.avatar_url : item.thumbnail_url;
-          return <button type="button" tabIndex={-1} role="option" aria-selected={active === index} id={`${listId}-${index}`} key={`${item.entityType}-${item.id}`} className="search-suggestion" onMouseDown={event => event.preventDefault()} onClick={() => choose(index)}>
-            <span className={`suggestion-image ${topic ? "is-topic" : ""}`}>{topic ? <Tag size={18} /> : <Play size={18} />}{picture && <img src={picture} alt="" onError={event => { event.currentTarget.hidden = true; }} />}</span>
+          return <div tabIndex={-1} role="option" aria-selected={active === index} id={`${listId}-${index}`} key={`${item.entityType}-${item.id}`} className="search-suggestion" onMouseDown={event => event.preventDefault()} onClick={() => choose(index)}>
+            <span className={`suggestion-image thumb ${topic ? "is-topic" : ""}`}>{topic ? <Tag size={18} /> : <Play size={18} />}{picture && <img src={picture} alt="" onError={event => { event.currentTarget.hidden = true; }} />}{!topic && <AddToPlaylist asset={item}/>}</span>
             <span className="suggestion-copy"><strong>{topic ? item.name : item.title}</strong><small>{topic ? "Topic" : kindLabels[item.kind] || "Media"}</small></span><ArrowUpRight size={16} aria-hidden="true" />
-          </button>;
+          </div>;
         })}
         <button type="button" tabIndex={-1} role="option" aria-selected={active === items.length} id={`${listId}-${items.length}`} className="search-suggestion search-all" onMouseDown={event => event.preventDefault()} onClick={() => choose(items.length)}><MagnifyingGlass size={18} /><span>Search for “{term}”</span><ArrowUpRight size={16} /></button>
       </div>

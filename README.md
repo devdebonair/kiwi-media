@@ -13,6 +13,17 @@ Kiwi is a self-hosted media library centered on topics, precise moments, and sav
 - Scan read-only filesystem libraries with a persistent background worker
 - Run directly with Node.js or through Docker Compose
 
+## Playlist and mini player
+
+Hover over a video thumbnail and choose **Add to Playlist**. On touch screens the
+button is always visible. Opening any video also creates a playlist. Minimize the
+watch player to keep watching while browsing, or expand it back to the watch page
+without restarting playback. The playlist panel lets you select or remove items.
+Finished videos are removed and the next queued video starts automatically.
+The queue is saved in localStorage across navigation and reloads, and is deleted
+when it finishes or you close the mini player. Entering Shorts pauses the regular
+player. Playlist controls use the existing [Phosphor Icons](https://phosphoricons.com/) library.
+
 ## Views, likes, and Shorts
 
 A video or audio view counts when playback starts, once per item per page visit.

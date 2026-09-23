@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { Play, Pause, SpeakerHigh, SpeakerSlash, ArrowsOut, DownloadSimple, ArrowClockwise, ArrowCounterClockwise } from '@phosphor-icons/react';
+import { Play, Pause, SpeakerHigh, SpeakerSlash, ArrowsOut, DownloadSimple, ArrowClockwise, ArrowCounterClockwise, PictureInPicture } from '@phosphor-icons/react';
 
 const time = seconds => {
   const value = Math.max(0, Math.floor(seconds || 0));
   return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`;
 };
 
-export function VideoPlayer({ asset, mediaRef, initialSeconds = 0 }) {
+export function VideoPlayer({ asset, mediaRef, initialSeconds = 0, onEnded, onMinimize, onPlay, autoPlay = true }) {
   const original = `/api/v1/assets/${asset.id}/file`;
   const shell = useRef(null);
   const resume = useRef(initialSeconds);
@@ -89,9 +89,9 @@ export function VideoPlayer({ asset, mediaRef, initialSeconds = 0 }) {
     if (event.key === 'f') fullscreen();
   }}>
     <div className="kiwi-screen">
-      <video ref={mediaRef} src={compatible ? `${original}?compatible=1` : original} poster={asset.thumbnail_url} autoPlay playsInline preload="metadata"
+      <video ref={mediaRef} src={compatible ? `${original}?compatible=1` : original} poster={asset.thumbnail_url} autoPlay={autoPlay} playsInline preload="metadata"
         onClick={toggle} onDoubleClick={fullscreen}
-        onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
+        onPlay={() => { setPlaying(true); onPlay?.(); }} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); onEnded?.(); }}
         onWaiting={() => setWaiting(true)} onPlaying={() => setWaiting(false)} onCanPlay={() => setWaiting(false)}
         onTimeUpdate={event => setPosition(event.currentTarget.currentTime)}
         onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
@@ -116,6 +116,7 @@ export function VideoPlayer({ asset, mediaRef, initialSeconds = 0 }) {
         <input className="kiwi-volume" type="range" aria-label="Volume" min="0" max="1" step="0.05" value={muted ? 0 : volume} onChange={event => { mediaRef.current.volume = Number(event.target.value); mediaRef.current.muted = false; }} />
         <select aria-label="Playback speed" value={rate} onChange={event => { const value = Number(event.target.value); setRate(value); mediaRef.current.playbackRate = value; }}>{[0.5, 0.75, 1, 1.25, 1.5, 2].map(value => <option key={value} value={value}>{value}×</option>)}</select>
         <a href={original} download aria-label="Download original" title="Download original"><DownloadSimple /></a>
+        {onMinimize && <button aria-label="Minimize player" title="Minimize player" onClick={onMinimize}><PictureInPicture /></button>}
         <button aria-label="Fullscreen" onClick={fullscreen}><ArrowsOut /></button>
       </div>
       <div className="kiwi-player-footer"><span><i /> {compatible ? 'Compatible playback' : 'Original quality'}</span>{!compatible && <button disabled={preparing} onClick={convert}>Playback issues? Use compatibility mode</button>}</div>

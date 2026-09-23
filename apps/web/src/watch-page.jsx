@@ -1,13 +1,17 @@
 "use client";
 
+import { usePlaylist, PlaylistQueue } from "./playlist.jsx";
+import { playlistReducer } from "./playlist-state.mjs";
 import { VideoPlayer } from "./video-player.jsx";
 import { TopicLabel } from "./topic-label.jsx";
 import { useEffect, useRef, useState } from "react";
-import { BookmarkSimple, DownloadSimple } from "@phosphor-icons/react";
+import { BookmarkSimple, DownloadSimple, ArrowsOutSimple, X } from "@phosphor-icons/react";
 import { LikeButton, ViewCount, usePlaybackTracking } from "./engagement.jsx";
 import { resumeSeconds } from "./playback-progress.mjs";
 
-export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, formatDuration }) {
+export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, formatDuration, mini = false, suspended = false }) {
+  const playlist = usePlaylist();
+  const [initialSeconds, setInitialSeconds] = useState(0);
   const [asset, setAsset] = useState(null);
   const [related, setRelated] = useState([]);
   const [error, setError] = useState("");
@@ -20,7 +24,9 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
     setAsset(null); setError(""); setPlaybackError(false);
     api(`/api/v1/assets/${id}`).then(value => {
       if (!active) return;
+      setInitialSeconds(resumeSeconds(value, new URLSearchParams(location.search).get("t")));
       setAsset(value);
+      if (value.kind === "video") playlist.dispatch({ type: "play", asset: value });
       const topic = value.topics?.[0];
       api(`/api/v1/assets?limit=9${topic ? `&topic=${encodeURIComponent(topic.slug)}` : ""}`)
         .then(rows => { if (active) setRelated(rows.filter(row => row.id !== id).slice(0, 8)); })
@@ -31,12 +37,21 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
 
   usePlaybackTracking({
     id,
-    initialSeconds: resumeSeconds(asset, typeof window === "undefined" ? null : new URLSearchParams(location.search).get("t")),
+    initialSeconds,
     ready: Boolean(asset), mediaRef, api,
     onChange: values => setAsset(current => ({ ...current, ...values })),
     still: Boolean(asset && !["video", "audio"].includes(asset.kind)),
   });
 
+  useEffect(() => { if (suspended) mediaRef.current?.pause(); }, [suspended, asset?.id]);
+
+  const finish = () => {
+    const next = playlistReducer(playlist, { type: "remove", id });
+    playlist.dispatch({ type: "remove", id });
+    if (!mini && next.activeId) navigate(`/watch/${next.activeId}`);
+  };
+
+  if (!asset && mini) return <div className="content watch-page mini-player"><div className="player-mode-bar"><span>{error || "Loading video…"}</span><button className="icon-button" aria-label="Close player and clear playlist" onClick={() => playlist.dispatch({ type: "clear" })}><X size={20}/></button></div><PlaylistQueue navigate={navigate} mini/></div>;
   if (!asset) return error ? <div className="content"><p role="alert">{error}</p><button className="outline-button" onClick={() => navigate("/")}>Back to library</button></div> : <Loading />;
   const hasFile = Boolean(asset.file_path);
   const src = `/api/v1/assets/${asset.id}/file`;
@@ -49,14 +64,16 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
     finally { setSaving(false); }
   };
 
-  return <div className="content watch-page">
+  return <div className={`content watch-page ${mini ? "mini-player" : ""}`} hidden={suspended}>
+    {asset.kind === "video" && mini && <div className="player-mode-bar"><span>{asset.title}</span><button className="icon-button" title="Expand player" aria-label="Expand player" onClick={() => navigate(`/watch/${id}`)}><ArrowsOutSimple size={20}/></button><button className="icon-button" aria-label="Close player and clear playlist" onClick={() => playlist.dispatch({ type: "clear" })}><X size={20}/></button></div>}
     <div className={`watch-layout ${related.length ? "" : "without-related"}`}>
       <div className="watch-primary">
         <div className="player-shell">
-          {hasFile && asset.kind === "video" ? <VideoPlayer key={asset.id} asset={asset} mediaRef={mediaRef} initialSeconds={resumeSeconds(asset, typeof window === "undefined" ? null : new URLSearchParams(location.search).get("t"))} />
+          {hasFile && asset.kind === "video" ? <VideoPlayer key={asset.id} asset={asset} mediaRef={mediaRef} initialSeconds={initialSeconds} autoPlay={!suspended} onEnded={finish} onPlay={() => playlist.dispatch({ type: "play", asset })} onMinimize={mini ? undefined : () => { playlist.dispatch({ type: "play", asset }); navigate("/"); }} />
             : hasFile && asset.kind === "audio" ? <div className="audio-player">{asset.thumbnail_url && <img src={asset.thumbnail_url} alt="" />}<audio ref={mediaRef} src={src} controls autoPlay onError={() => setPlaybackError(true)} /></div>
             : <div className="poster-player">{(asset.kind === "image" && hasFile) || asset.thumbnail_url ? <img src={asset.kind === "image" && hasFile ? src : asset.thumbnail_url} alt={asset.title} /> : <div className="media-unavailable">No preview available</div>}{hasFile && asset.kind !== "image" && <a className="outline-button original-link" href={src} download><DownloadSimple size={18} /> Open original</a>}</div>}
         </div>
+        <PlaylistQueue navigate={navigate} mini={mini}/>
         {playbackError && <p className="error-notice" role="alert">This media could not play in this browser. <a href={src} download>Download the original</a> to play it in another player.</p>}
         <section className="watch-info">
           <h1>{asset.title}</h1>

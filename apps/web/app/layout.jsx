@@ -3,6 +3,7 @@ import "../src/player.css";
 import "../src/engagement.css";
 import "../src/modern.css";
 import "../src/animated-like-button.css";
+import "../src/playlist.css";
 
 export const metadata = {
   title: "Kiwi — your media, connected",
