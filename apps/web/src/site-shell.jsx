@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { SearchBar } from "./search-bar.jsx";
-import { ArrowUpRight, ClockCounterClockwise, Compass, FolderOpen, Gear, Leaf, List, Play, Rows, Tag, X } from "@phosphor-icons/react";
+import { ClockCounterClockwise, Compass, FolderOpen, Gear, Leaf, List, Play, Rows, Tag, X } from "@phosphor-icons/react";
 
 export function Brand({ navigate }) {
   return <a href="/" className="brand" aria-label="Kiwi home" onClick={event => {
@@ -74,9 +74,7 @@ export function Sidebar({ route, navigate, open, close, AppLink }) {
         {group.items.map(([href, label, page, Icon]) => <AppLink key={page} href={href} navigate={navigate} onClick={close} title={label} aria-current={route.page === page || (page === "feeds" && route.page === "feed") ? "page" : undefined} className={route.page === page || (page === "feeds" && route.page === "feed") ? "active" : ""}><Icon size={22} /><span>{label}</span></AppLink>)}
       </nav>)}
       <div className="sidebar-bottom">
-        <div className="sidebar-note"><Leaf size={23} /><strong>A space for your interests.</strong><p>Your media. Your world.</p><AppLink href="/topics" navigate={navigate} onClick={close}>Find your next favorite <ArrowUpRight size={15} /></AppLink></div>
         <AppLink href="/settings" navigate={navigate} onClick={close} title="Settings" aria-current={route.page === "settings" ? "page" : undefined} className={route.page === "settings" ? "active" : ""}><Gear size={22} /><span>Settings</span></AppLink>
-        <span className="sidebar-footer">A little curiosity goes a long way.</span>
       </div>
     </aside>
   </>;
