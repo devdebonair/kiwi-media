@@ -41,4 +41,4 @@
 .kiwi-player:fullscreen .kiwi-player-footer { display: none; }
 @media (prefers-reduced-motion: reduce) { .kiwi-player:fullscreen .kiwi-controls { transition: none; } }
 @media (max-width: 580px) { .kiwi-controls { padding: 6px 10px 10px; } .kiwi-control-row { gap: 3px; } .kiwi-volume, .kiwi-skip { display: none !important; } .kiwi-player-footer { font-size: 9px; } }
-@media (max-width: 420px) { .kiwi-control-row > a, .kiwi-control-row select { display: none; } }
+@media (max-width: 420px) { .kiwi-control-row > a, .kiwi-control-row select, .kiwi-time span { display: none; } .kiwi-control-row button { width: 32px; } }

@@ -17,6 +17,7 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
   const [error, setError] = useState("");
   const [playbackError, setPlaybackError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [theater, setTheater] = useState(false);
   const mediaRef = useRef(null);
 
   useEffect(() => {
@@ -72,12 +73,12 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
     finally { setSaving(false); }
   };
 
-  return <div className={`content watch-page ${mini ? "mini-player" : ""}`} hidden={suspended}>
+  return <div className={`content watch-page ${mini ? "mini-player" : theater ? "theater-mode" : ""}`} hidden={suspended}>
     {asset.kind === "video" && mini && <div className="player-mode-bar"><span>{asset.title}</span><button className="icon-button" title="Expand player" aria-label="Expand player" onClick={() => navigate(`/watch/${id}`)}><ArrowsOutSimple size={20}/></button><button className="icon-button" aria-label="Close player and clear playlist" onClick={() => playlist.dispatch({ type: "clear" })}><X size={20}/></button></div>}
     <div className={`watch-layout ${related.length ? "" : "without-related"}`}>
       <div className="watch-primary">
         <div className="player-shell">
-          {hasFile && asset.kind === "video" ? <VideoPlayer key={asset.id} asset={asset} mediaRef={mediaRef} initialSeconds={initialSeconds} autoPlay={!suspended} onEnded={finish} onPlay={() => playlist.dispatch({ type: "play", asset })} onPrevious={previous} onNext={next} onMinimize={mini ? undefined : () => { playlist.dispatch({ type: "play", asset }); navigate("/"); }} />
+          {hasFile && asset.kind === "video" ? <VideoPlayer key={asset.id} asset={asset} mediaRef={mediaRef} initialSeconds={initialSeconds} autoPlay={!suspended} onEnded={finish} onPlay={() => playlist.dispatch({ type: "play", asset })} onPrevious={previous} onNext={next} theater={theater} onToggleTheater={mini ? undefined : () => setTheater(value => !value)} onMinimize={mini ? undefined : () => { playlist.dispatch({ type: "play", asset }); navigate("/"); }} />
             : hasFile && asset.kind === "audio" ? <div className="audio-player">{asset.thumbnail_url && <img src={asset.thumbnail_url} alt="" />}<audio ref={mediaRef} src={src} controls autoPlay onError={() => setPlaybackError(true)} /></div>
             : <div className="poster-player">{(asset.kind === "image" && hasFile) || asset.thumbnail_url ? <img src={asset.kind === "image" && hasFile ? src : asset.thumbnail_url} alt={asset.title} /> : <div className="media-unavailable">No preview available</div>}{hasFile && asset.kind !== "image" && <a className="outline-button original-link" href={src} download><DownloadSimple size={18} /> Open original</a>}</div>}
         </div>

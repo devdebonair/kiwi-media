@@ -119,6 +119,12 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
 .watch-layout.without-related { grid-template-columns: minmax(0, 1fr); max-width: 1200px; margin: auto; }
 .watch-primary { min-width: 0; }
 .player-shell { background: #0d0e12; border-radius: 12px; }
+.app:has(.watch-page.theater-mode) .sidebar { visibility: hidden; pointer-events: none; }
+.app:has(.watch-page.theater-mode) .main { margin-left: 0; }
+.watch-page.theater-mode { max-width: none; padding: 0 0 72px; }
+.watch-page.theater-mode .watch-layout { grid-template-columns: minmax(0, 1fr); max-width: none; gap: 0; }
+.watch-page.theater-mode .watch-primary .player-shell { margin: 0; border-radius: 0; }
+.watch-page.theater-mode .watch-primary > :not(.player-shell), .watch-page.theater-mode .watch-related { width: min(1280px, calc(100% - 48px)); margin-inline: auto; }
 .poster-player > img { object-fit: contain; opacity: 1; }
 .original-link { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); }
 .media-unavailable { height: 100%; display: grid; place-items: center; color: var(--muted); }
