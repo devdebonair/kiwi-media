@@ -10,7 +10,8 @@
     "test": "npm run test -w @kiwi/stash-box && npm run test -w @kiwi/scanner && npm run test -w @kiwi/worker && npm run test -w @kiwi/server && npm run build -w web",
     "metadata": "node apps/scanner/src/cli.js",
     "profiles:enrich": "node --env-file-if-exists=.env apps/scanner/src/profile-enrichment.js",
-    "metadata:build-phasher": "npm run build:phasher -w @kiwi/scanner"
+    "metadata:build-phasher": "npm run build:phasher -w @kiwi/scanner",
+    "migrate:library-roots": "node --env-file-if-exists=.env scripts/migrate-library-roots.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

@@ -35,7 +35,7 @@ async function walk(root) {
 export async function scanRoot(input, progress = () => {}) {
   const root = resolve(input);
   const files = await walk(root);
-  db.prepare("INSERT OR IGNORE INTO library_roots VALUES (?,?,?,?,?)").run(randomUUID(), basename(root), root, 1, now());
+  db.prepare("INSERT OR IGNORE INTO library_roots (id,name,absolute_path,read_only,created_at) VALUES (?,?,?,?,?)").run(randomUUID(), basename(root), root, 1, now());
   const rootId = db.prepare("SELECT id FROM library_roots WHERE absolute_path=?").get(root).id;
   let imported = 0;
   for (const [index, path] of files.entries()) {

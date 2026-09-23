@@ -50,7 +50,9 @@ npm install
 npm run dev
 ```
 
-The Next.js web app listens on `0.0.0.0:4173` and the Fastify API listens on `0.0.0.0:3333`. To import local media, set `KIWI_MEDIA_DIRS` to one or more colon-separated absolute paths and use the Scan library action in Settings, or call `POST /api/v1/library/scan`. The API and worker load the root `.env` when launched through npm; shell environment variables take precedence.
+The Next.js web app listens on `0.0.0.0:4173` and the Fastify API listens on `0.0.0.0:3333`. To import local media, add server-side absolute folder paths in **Settings → Media libraries**, then select **Scan library**. Folders and scanning preferences are stored in SQLite; pausing a folder preserves its imported media and existing jobs. The API and worker load other server settings from the root `.env` when launched through npm; shell environment variables take precedence.
+
+For an existing installation, run `npm run migrate:library-roots` once before removing the old `KIWI_MEDIA_DIRS` entry from `.env` (or the deployment environment). This backs up the database and imports any missing paths without changing existing folders, IDs, file links, or settings. Repeating the command does not duplicate folders or reset paused folders. Normal startup and scanning no longer use that variable. In Docker, add `/media` in Settings to scan the existing media mount.
 
 Network folders must already be mounted and readable by both processes. Scanning
 registers filenames and paths first, without reading full files for checksums or

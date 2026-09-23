@@ -3,7 +3,6 @@ services:
     build: .
     restart: unless-stopped
     environment:
-      KIWI_MEDIA_DIRS: /media
     ports:
       - "3333:3333"
     volumes:
@@ -21,7 +20,6 @@ services:
     restart: unless-stopped
     command: npm run start -w @kiwi/worker
     environment:
-      KIWI_MEDIA_DIRS: /media
     volumes:
       - kiwi-data:/data
       - ./media:/media:ro

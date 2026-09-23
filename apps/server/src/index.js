@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { basename, isAbsolute, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import mime from "mime-types";
 import { db, generatedDir, rebuildSearch, assetWithTopics } from "@kiwi/database";
@@ -297,14 +297,39 @@ app.put("/api/v1/assets/:id/progress", async (req, reply) => {
   return { ok: true };
 });
 
+app.get("/api/v1/library/roots", async () => db.prepare("SELECT * FROM library_roots ORDER BY created_at,id").all());
+
+app.post("/api/v1/library/roots", async (req, reply) => {
+  const input = req.body?.path;
+  if (typeof input !== "string" || !isAbsolute(input) || input.includes("\0")) return reply.code(400).send({ error: "An absolute folder path is required" });
+  const path = resolve(input);
+  try {
+    if (!statSync(path).isDirectory()) throw new Error();
+  } catch { return reply.code(400).send({ error: "Folder must exist on the server" }); }
+  if (db.prepare("SELECT id FROM library_roots WHERE absolute_path=?").get(path)) return reply.code(409).send({ error: "Folder is already connected" });
+  const id = randomUUID();
+  db.prepare("INSERT INTO library_roots (id,name,absolute_path,read_only,created_at) VALUES (?,?,?,?,?)").run(id, basename(path) || path, path, 1, new Date().toISOString());
+  return reply.code(201).send(db.prepare("SELECT * FROM library_roots WHERE id=?").get(id));
+});
+
+app.patch("/api/v1/library/roots/:id", async (req, reply) => {
+  if (typeof req.body?.enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
+  const result = db.prepare("UPDATE library_roots SET enabled=? WHERE id=?").run(Number(req.body.enabled), req.params.id);
+  if (!result.changes) return reply.code(404).send({ error: "Folder not found" });
+  return db.prepare("SELECT * FROM library_roots WHERE id=?").get(req.params.id);
+});
+
 app.post("/api/v1/library/scan", async (req, reply) => {
-  const roots = (process.env.KIWI_MEDIA_DIRS || "").split(":").filter(Boolean).map(path => resolve(path));
-  if (!roots.length) return reply.code(400).send({ error: "Set KIWI_MEDIA_DIRS before scanning" });
+  const roots = db.prepare("SELECT absolute_path FROM library_roots WHERE enabled=1 ORDER BY created_at,id").all().map(row => row.absolute_path);
+  if (!roots.length) return reply.code(400).send({ error: "Add or enable a folder in Settings before scanning" });
   const timestamp = new Date().toISOString();
-  for (const root of roots) {
-    db.prepare("INSERT OR IGNORE INTO library_roots VALUES (?,?,?,?,?)").run(randomUUID(), basename(root), root, 1, timestamp);
-    db.prepare("INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)").run(randomUUID(), "scan-root", JSON.stringify({ root }), "queued", 0, 0, timestamp, null, null, 0, null, timestamp, timestamp);
-  }
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const root of roots) {
+      db.prepare("INSERT INTO jobs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)").run(randomUUID(), "scan-root", JSON.stringify({ root }), "queued", 0, 0, timestamp, null, null, 0, null, timestamp, timestamp);
+    }
+    db.exec("COMMIT");
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
   return reply.code(202).send({ queued: roots.length, roots });
 });
 

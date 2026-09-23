@@ -144,6 +144,14 @@ export function migrate() {
       tokenize='unicode61 remove_diacritics 2'
     );
   `);
+  // Additive migration: preserve root IDs and every existing file relationship.
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    if (!db.prepare("PRAGMA table_info(library_roots)").all().some(column => column.name === "enabled")) {
+      db.exec("ALTER TABLE library_roots ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1))");
+    }
+    db.exec("COMMIT");
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
 }
 
 const now = () => new Date().toISOString();
