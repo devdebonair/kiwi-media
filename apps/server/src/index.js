@@ -37,9 +37,22 @@ const listAssets = (where = "1=1", params = [], limit = 60, offset = 0, orderBy 
 `).all(userId, ...params, limit, offset).map(enrichAsset);
 
 const searchHits = (query, kind = "all") => {
-  const ftsQuery = query.split(/\s+/).filter(Boolean).map(term => `"${term.replaceAll('"', '')}"*`).join(" AND ");
-  if (!ftsQuery) return [];
-  const hits = db.prepare("SELECT entity_id,entity_type,bm25(search_index) rank FROM search_index WHERE search_index MATCH ? ORDER BY rank LIMIT 80").all(ftsQuery);
+  const terms = query.split(/\s+/).filter(Boolean).map(term => `"${term.replaceAll('"', '')}"*`);
+  if (!terms.length) return [];
+  const matches = terms.map(() => `SELECT entity_id,entity_type FROM search_index WHERE search_index MATCH ?
+    UNION SELECT et.asset_id,'asset' FROM effective_asset_topics et
+      JOIN search_index ON search_index.entity_id=et.topic_id AND search_index.entity_type='topic'
+      WHERE search_index MATCH ?`);
+  const inheritedHits = db.prepare(`SELECT entity_id,entity_type FROM (
+    ${matches.map(sql => `SELECT * FROM (${sql})`).join(" INTERSECT ")}
+  ) ORDER BY entity_type,entity_id LIMIT 80`).all(...terms.flatMap(term => [term, term]));
+  const rankedHits = db.prepare("SELECT entity_id,entity_type FROM search_index WHERE search_index MATCH ? ORDER BY bm25(search_index) LIMIT 80").all(terms.join(" AND "));
+  const seen = new Set();
+  const hits = [...rankedHits, ...inheritedHits].filter(hit => {
+    const key = `${hit.entity_type}:${hit.entity_id}`;
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  }).slice(0, 80);
   return hits.flatMap(hit => {
     if (hit.entity_type === "asset" && (kind === "all" || kind === "assets" || kind === "videos" || kind === "music" || kind === "photos" || kind === "articles")) {
       const row = db.prepare("SELECT a.*, EXISTS(SELECT 1 FROM saved_assets WHERE user_id=? AND asset_id=a.id) saved FROM assets a WHERE a.id=?").get(userId, hit.entity_id);
@@ -66,7 +79,7 @@ app.get("/api/v1/assets", async (req, reply) => {
   const orderBy = sort === "shuffle" ? `((a.rowid * (1103515245 + ${Number(seed)} * 123457)) % 2147483647), a.id` : "a.added_at DESC,a.id DESC";
   const filters = [], params = [];
   if (kind) { filters.push("a.kind=?"); params.push(kind); }
-  if (topic) { filters.push("EXISTS(SELECT 1 FROM annotations an JOIN annotation_topics at ON at.annotation_id=an.id JOIN topics t ON t.id=at.topic_id WHERE an.asset_id=a.id AND (t.slug=? OR t.id=?))"); params.push(topic, topic); }
+  if (topic) { filters.push("EXISTS(SELECT 1 FROM effective_asset_topics et JOIN topics t ON t.id=et.topic_id WHERE et.asset_id=a.id AND (t.slug=? OR t.id=?))"); params.push(topic, topic); }
   return listAssets(filters.join(" AND ") || "1=1", params, Number(limit), Number(offset), orderBy);
 });
 
@@ -141,10 +154,9 @@ app.get("/api/v1/search", async req => {
 });
 
 app.get("/api/v1/topics", async () => db.prepare(`
-  SELECT t.*, count(DISTINCT a.id) item_count,
+  SELECT t.*, count(DISTINCT et.asset_id) item_count,
     EXISTS(SELECT 1 FROM topic_follows f WHERE f.topic_id=t.id AND f.user_id=?) followed
-  FROM topics t LEFT JOIN annotation_topics at ON at.topic_id=t.id
-  LEFT JOIN annotations a ON a.id=at.annotation_id GROUP BY t.id ORDER BY item_count DESC
+  FROM topics t LEFT JOIN effective_asset_topics et ON et.topic_id=t.id GROUP BY t.id ORDER BY item_count DESC
 `).all(userId));
 
 app.get("/api/v1/libraries", async () => db.prepare("SELECT id,name,absolute_path,read_only,created_at FROM library_roots ORDER BY name").all());
@@ -175,9 +187,11 @@ app.post("/api/v1/assets/:id/annotations", async (req, reply) => {
   } catch (error) { db.exec("ROLLBACK"); throw error; }
 });
 
-app.post("/api/v1/assets/:id/topics", async (req, reply) => {
-  const asset = db.prepare("SELECT * FROM assets WHERE id=?").get(req.params.id);
-  if (!asset) return reply.code(404).send({ error: "Asset not found" });
+const folderTopics = id => db.prepare("SELECT t.id,t.slug,t.name,t.avatar_url FROM topics t JOIN folder_topics ft ON ft.topic_id=t.id WHERE ft.library_root_id=? ORDER BY t.name").all(id);
+
+const addTopic = folder => async (req, reply) => {
+  const asset = db.prepare(folder ? "SELECT * FROM library_roots WHERE id=?" : "SELECT * FROM assets WHERE id=?").get(req.params.id);
+  if (!asset) return reply.code(404).send({ error: folder ? "Folder not found" : "Asset not found" });
   const topicId = req.body?.topicId;
   const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
   if (topicId !== undefined ? typeof topicId !== "string" || !topicId : !name || name.length > 100)
@@ -197,6 +211,14 @@ app.post("/api/v1/assets/:id/topics", async (req, reply) => {
       db.prepare("INSERT INTO topics (id,slug,name,topic_type,created_at,updated_at) VALUES (?,?,?,?,?,?)").run(id, slug, name, "topic", timestamp, timestamp);
       topic = { id };
     }
+    if (folder) {
+      db.prepare("INSERT OR IGNORE INTO folder_topics VALUES (?,?,?)").run(asset.id, topic.id, timestamp);
+      // Only index the topic itself; inherited tags are joined at search time.
+      db.prepare("DELETE FROM search_index WHERE entity_type='topic' AND entity_id=?").run(topic.id);
+      db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) SELECT id,'topic',name,coalesce(summary,'') || ' ' || coalesce(body_markdown,''),'' FROM topics WHERE id=?").run(topic.id);
+      db.exec("COMMIT");
+      return { topics: folderTopics(asset.id) };
+    }
     const exists = db.prepare("SELECT 1 FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE a.asset_id=? AND at.topic_id=?").get(asset.id, topic.id);
     if (!exists) {
       const id = randomUUID();
@@ -207,19 +229,26 @@ app.post("/api/v1/assets/:id/topics", async (req, reply) => {
     db.exec("COMMIT");
     return { topics: assetWithTopics(asset).topics };
   } catch (error) { db.exec("ROLLBACK"); throw error; }
+};
+app.post("/api/v1/assets/:id/topics", addTopic(false));
+app.post("/api/v1/library/roots/:id/topics", addTopic(true));
+app.delete("/api/v1/library/roots/:id/topics/:topicId", async (req, reply) => {
+  if (!db.prepare("SELECT 1 FROM library_roots WHERE id=?").get(req.params.id)) return reply.code(404).send({ error: "Folder not found" });
+  db.prepare("DELETE FROM folder_topics WHERE library_root_id=? AND topic_id=?").run(req.params.id, req.params.topicId);
+  return { topics: folderTopics(req.params.id) };
 });
 
 app.get("/api/v1/topics/:slug", async (req, reply) => {
   const topic = db.prepare(`SELECT t.*, EXISTS(SELECT 1 FROM topic_follows WHERE user_id=? AND topic_id=t.id) followed FROM topics t WHERE t.slug=?`).get(userId, req.params.slug);
   if (!topic) return reply.code(404).send({ error: "Topic not found" });
-  const assets = listAssets("EXISTS(SELECT 1 FROM annotations an JOIN annotation_topics at ON at.annotation_id=an.id WHERE an.asset_id=a.id AND at.topic_id=?)", [topic.id]);
+  const assets = listAssets("EXISTS(SELECT 1 FROM effective_asset_topics et WHERE et.asset_id=a.id AND et.topic_id=?)", [topic.id]);
   const related = db.prepare(`
     SELECT t.*, count(DISTINCT shared.asset_id) item_count FROM topics t
-    JOIN annotation_topics at2 ON at2.topic_id=t.id JOIN annotations a2 ON a2.id=at2.annotation_id
-    JOIN (SELECT DISTINCT a.asset_id FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE at.topic_id=?) shared ON shared.asset_id=a2.asset_id
+    JOIN effective_asset_topics et ON et.topic_id=t.id
+    JOIN effective_asset_topics shared ON shared.asset_id=et.asset_id AND shared.topic_id=?
     WHERE t.id != ? GROUP BY t.id ORDER BY item_count DESC LIMIT 8
   `).all(topic.id, topic.id);
-  const { item_count } = db.prepare("SELECT count(DISTINCT a.asset_id) item_count FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE at.topic_id=?").get(topic.id);
+  const { item_count } = db.prepare("SELECT count(*) item_count FROM effective_asset_topics WHERE topic_id=?").get(topic.id);
   return { ...topic, item_count, assets, related };
 });
 
@@ -253,7 +282,7 @@ app.get("/api/v1/feeds/:slug", async (req, reply) => {
   if (!feed) return reply.code(404).send({ error: "Feed not found" });
   const query = JSON.parse(feed.query_json);
   const assets = query.topicIds?.length
-    ? listAssets(`EXISTS(SELECT 1 FROM annotations an JOIN annotation_topics at ON at.annotation_id=an.id WHERE an.asset_id=a.id AND at.topic_id IN (${query.topicIds.map(() => "?").join(",")}))`, query.topicIds)
+    ? listAssets(`EXISTS(SELECT 1 FROM effective_asset_topics et WHERE et.asset_id=a.id AND et.topic_id IN (${query.topicIds.map(() => "?").join(",")}))`, query.topicIds)
     : query.text ? searchHits(query.text, "assets").filter(item => item.entityType === "asset") : listAssets();
   return { ...feed, query, assets };
 });
@@ -297,7 +326,7 @@ app.put("/api/v1/assets/:id/progress", async (req, reply) => {
   return { ok: true };
 });
 
-app.get("/api/v1/library/roots", async () => db.prepare("SELECT * FROM library_roots ORDER BY created_at,id").all());
+app.get("/api/v1/library/roots", async () => db.prepare("SELECT * FROM library_roots ORDER BY created_at,id").all().map(root => ({ ...root, topics: folderTopics(root.id) })));
 
 app.post("/api/v1/library/roots", async (req, reply) => {
   const input = req.body?.path;

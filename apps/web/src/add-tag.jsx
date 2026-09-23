@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Check, MagnifyingGlass, Plus, Tag } from "@phosphor-icons/react";
 
-export function AddTag({ asset, api, onChange }) {
+export function AddTag({ asset, api, onChange, endpoint = `/api/v1/assets/${asset.id}/topics` }) {
   const panel = useRef(null), trigger = useRef(null), input = useRef(null), busy = useRef(false);
   const uid = useId();
   const [open, setOpen] = useState(false);
@@ -53,7 +53,7 @@ export function AddTag({ asset, api, onChange }) {
     if (!topic || attached(topic) || busy.current || loading) return;
     busy.current = true; setSaving(true); setError("");
     try {
-      const value = await api(`/api/v1/assets/${asset.id}/topics`, {
+      const value = await api(endpoint, {
         method: "POST", body: JSON.stringify(topic.create ? { name: topic.name } : { topicId: topic.id }),
       });
       onChange(value.topics); close(); trigger.current?.focus();

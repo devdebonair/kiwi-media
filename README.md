@@ -52,6 +52,8 @@ npm run dev
 
 The Next.js web app listens on `0.0.0.0:4173` and the Fastify API listens on `0.0.0.0:3333`. To import local media, add server-side absolute folder paths in **Settings → Media libraries**, then select **Scan library**. Folders and scanning preferences are stored in SQLite; pausing a folder preserves its imported media and existing jobs. The API and worker load other server settings from the root `.env` when launched through npm; shell environment variables take precedence.
 
+Use **Add tag** beside a connected folder in Settings to choose or create a tag. Folder tags apply to imported content throughout its subfolders, including future imports. Remove a folder tag with its × button; directly assigned content tags remain. SQLite stores one `folder_topics` row per folder/tag pair, and the `effective_asset_topics` view combines these with direct tags at query time for content labels, filters, topic counts, feeds, and search. Inherited tags are not copied into asset annotations or search-index rows.
+
 For an existing installation, run `npm run migrate:library-roots` once before removing the old `KIWI_MEDIA_DIRS` entry from `.env` (or the deployment environment). This backs up the database and imports any missing paths without changing existing folders, IDs, file links, or settings. Repeating the command does not duplicate folders or reset paused folders. Normal startup and scanning no longer use that variable. In Docker, add `/media` in Settings to scan the existing media mount.
 
 Network folders must already be mounted and readable by both processes. Scanning

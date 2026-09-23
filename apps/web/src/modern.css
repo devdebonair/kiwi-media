@@ -273,3 +273,5 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
 .library-folder-form label{display:block;margin-bottom:8px}.library-folder-form>div{display:flex;gap:12px}
 .library-folder-form input{flex:1;min-width:0;background:var(--surface);color:inherit;border:1px solid var(--line);border-radius:8px;padding:12px}
 @media(max-width:580px){.library-folder{align-items:flex-start;flex-direction:column}.library-folder-form>div{flex-direction:column}}
+
+.folder-tags.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; padding: 0; }

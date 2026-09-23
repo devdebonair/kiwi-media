@@ -42,6 +42,13 @@ export function migrate() {
       body_markdown TEXT, avatar_url TEXT, banner_url TEXT, topic_type TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}'
     );
+    CREATE TABLE IF NOT EXISTS folder_topics (
+      library_root_id TEXT NOT NULL REFERENCES library_roots(id) ON DELETE CASCADE,
+      topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL, PRIMARY KEY(library_root_id, topic_id)
+    );
+    CREATE INDEX IF NOT EXISTS folder_topics_topic_idx ON folder_topics(topic_id);
+    CREATE INDEX IF NOT EXISTS files_root_asset_idx ON files(library_root_id, asset_id);
     CREATE TABLE IF NOT EXISTS topic_aliases (
       id TEXT PRIMARY KEY, topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
       alias TEXT NOT NULL, normalized_alias TEXT NOT NULL,
@@ -143,6 +150,21 @@ export function migrate() {
       entity_id UNINDEXED, entity_type UNINDEXED, title, body, tags,
       tokenize='unicode61 remove_diacritics 2'
     );
+  `);
+  // A view, not a materialized mapping: new imports inherit folder tags immediately.
+  db.exec(`CREATE VIEW IF NOT EXISTS effective_asset_topics AS
+    SELECT a.asset_id, at.topic_id FROM annotations a
+    JOIN annotation_topics at ON at.annotation_id=a.id
+    UNION
+    SELECT f.asset_id, ft.topic_id FROM files f
+    JOIN folder_topics ft ON ft.library_root_id=f.library_root_id
+    WHERE f.role='original'
+    UNION
+    -- Overlapping connected roots may share assets registered under only one root.
+    -- Literal path prefixes preserve directory boundaries and treat %/_ literally.
+    SELECT a.id, ft.topic_id FROM folder_topics ft
+    JOIN library_roots r ON r.id=ft.library_root_id
+    JOIN assets a ON substr(a.file_path,1,length(rtrim(r.absolute_path,'/'))+1)=rtrim(r.absolute_path,'/') || '/'
   `);
   // Additive migration: preserve root IDs and every existing file relationship.
   db.exec("BEGIN IMMEDIATE");
@@ -293,7 +315,7 @@ function syncAnimeFixtures() {
 
 export function assetWithTopics(row) {
   if (!row) return null;
-  const topics = db.prepare("SELECT DISTINCT t.id,t.slug,t.name,t.avatar_url FROM topics t JOIN annotation_topics at ON at.topic_id=t.id JOIN annotations a ON a.id=at.annotation_id WHERE a.asset_id=?").all(row.id);
+  const topics = db.prepare("SELECT DISTINCT t.id,t.slug,t.name,t.avatar_url FROM topics t JOIN effective_asset_topics et ON et.topic_id=t.id WHERE et.asset_id=?").all(row.id);
   const moments = db.prepare("SELECT s.start_ms,s.end_ms,a.note_markdown,t.name topic FROM annotation_selectors s JOIN annotations a ON a.id=s.annotation_id LEFT JOIN annotation_topics at ON at.annotation_id=a.id LEFT JOIN topics t ON t.id=at.topic_id WHERE a.asset_id=? ORDER BY s.start_ms").all(row.id);
   return { ...row, topics, moments, saved: Boolean(row.saved) };
 }
