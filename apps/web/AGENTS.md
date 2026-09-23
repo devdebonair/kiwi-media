@@ -49,3 +49,4 @@ The regular video player uses custom charcoal controls with Kiwi green accents a
 Videos have a localStorage-backed playlist. Every video thumbnail has a bottom-right Add to Playlist control, revealed on hover or keyboard focus (always available on touch). Opening a video creates a queue if needed. Preserve the same player while switching between the watch page and bottom-right mini player; finished videos leave the queue, the next video plays automatically, and an empty playlist is removed. Use the existing rounded Phosphor icon family for these controls.
 
 Keep the mini player compact, with a smaller thumbnail Add to Playlist button. Hide the original-quality/compatibility footer in the mini player, and use Phosphor chevrons for playlist collapse/expand controls.
+The playlist queue automatically scrolls its own list to reveal the currently playing video when playback changes or the queue expands, without scrolling the surrounding page.

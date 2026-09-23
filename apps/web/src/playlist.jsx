@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useReducer, useState } from 'react';
+import { createContext, useContext, useEffect, useReducer, useRef, useState } from 'react';
 import { CaretDown, CaretUp, Check, ListPlus, Playlist, Play, X } from '@phosphor-icons/react';
 import { emptyPlaylist, PLAYLIST_KEY, playlistReducer, restorePlaylist } from './playlist-state.mjs';
 
@@ -39,10 +39,22 @@ export function AddToPlaylist({ asset }) {
 export function PlaylistQueue({ navigate, mini = false }) {
   const { items, activeId, dispatch } = usePlaylist();
   const [open, setOpen] = useState(!mini);
+  const listRef = useRef(null);
+  const activeItemRef = useRef(null);
+  useEffect(() => {
+    const list = listRef.current;
+    const activeItem = activeItemRef.current;
+    if (!open || !list || !activeItem) return;
+    const viewport = list.getBoundingClientRect();
+    const row = activeItem.getBoundingClientRect();
+    // Scroll only the queue, keeping the page and player in place.
+    if (row.top < viewport.top) list.scrollTop += row.top - viewport.top;
+    else if (row.bottom > viewport.bottom) list.scrollTop += row.bottom - viewport.bottom;
+  }, [activeId, open, mini, items.length]);
   if (!items.length) return null;
   return <section className="playlist-queue" aria-label="Playlist">
     <button className="playlist-heading" aria-expanded={open} onClick={() => setOpen(value => !value)}><Playlist size={20} /><strong>Playlist</strong><span>{items.length} {items.length === 1 ? 'video' : 'videos'}</span><span className="playlist-chevron" aria-hidden="true">{open ? <CaretUp size={16} /> : <CaretDown size={16} />}</span></button>
-    {open && <ol>{items.map(asset => <li key={asset.id} className={asset.id === activeId ? 'is-playing' : ''}>
+    {open && <ol ref={listRef}>{items.map(asset => <li key={asset.id} ref={asset.id === activeId ? activeItemRef : null} className={asset.id === activeId ? 'is-playing' : ''}>
       <button className="playlist-item" onClick={() => { dispatch({ type: 'play', asset }); if (!mini) navigate(`/watch/${asset.id}`); }} aria-label={`Play ${asset.title}`}>
         {asset.thumbnail_url ? <img src={asset.thumbnail_url} alt="" /> : <Play size={24} />}<span><strong>{asset.title}</strong>{asset.id === activeId && <small>Now playing</small>}</span>
       </button><button className="icon-button" aria-label={`Remove ${asset.title} from playlist`} onClick={() => {
