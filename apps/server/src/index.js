@@ -5,7 +5,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { basename, isAbsolute, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import mime from "mime-types";
-import { db, generatedDir, rebuildSearch, assetWithTopics } from "@kiwi/database";
+import { db, generatedDir, rebuildSearch, reindexAssetSearch, reindexTopicSearch, assetWithTopics } from "@kiwi/database";
 import { fileURLToPath } from "node:url";
 import { createPlaybackCache } from "./playback.js";
 import { parseRange } from "./range.js";
@@ -210,12 +210,12 @@ const addTopic = folder => async (req, reply) => {
       const slug = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "tag"}-${id}`;
       db.prepare("INSERT INTO topics (id,slug,name,topic_type,created_at,updated_at) VALUES (?,?,?,?,?,?)").run(id, slug, name, "topic", timestamp, timestamp);
       topic = { id };
+      if (!folder) reindexTopicSearch(id);
     }
     if (folder) {
       db.prepare("INSERT OR IGNORE INTO folder_topics VALUES (?,?,?)").run(asset.id, topic.id, timestamp);
       // Only index the topic itself; inherited tags are joined at search time.
-      db.prepare("DELETE FROM search_index WHERE entity_type='topic' AND entity_id=?").run(topic.id);
-      db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) SELECT id,'topic',name,coalesce(summary,'') || ' ' || coalesce(body_markdown,''),'' FROM topics WHERE id=?").run(topic.id);
+      reindexTopicSearch(topic.id);
       db.exec("COMMIT");
       return { topics: folderTopics(asset.id) };
     }
@@ -224,7 +224,7 @@ const addTopic = folder => async (req, reply) => {
       const id = randomUUID();
       db.prepare("INSERT INTO annotations (id,asset_id,motivation,origin,visibility,created_at,updated_at) VALUES (?,?,'tagging','manual','private',?,?)").run(id, asset.id, timestamp, timestamp);
       db.prepare("INSERT INTO annotation_topics VALUES (?,?,?)").run(id, topic.id, "subject");
-      rebuildSearch();
+      reindexAssetSearch(asset.id);
     }
     db.exec("COMMIT");
     return { topics: assetWithTopics(asset).topics };

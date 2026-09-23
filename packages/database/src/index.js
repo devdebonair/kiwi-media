@@ -66,6 +66,7 @@ export function migrate() {
       origin TEXT NOT NULL DEFAULT 'manual', visibility TEXT NOT NULL DEFAULT 'private',
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}'
     );
+    CREATE INDEX IF NOT EXISTS annotations_asset_idx ON annotations(asset_id);
     CREATE TABLE IF NOT EXISTS annotation_topics (
       annotation_id TEXT NOT NULL REFERENCES annotations(id) ON DELETE CASCADE,
       topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
@@ -256,6 +257,19 @@ export function seed() {
   feedStmt.run("feed-jazz", userId, "jazz", "Jazz", "Performances, albums, photos, and writing.", JSON.stringify({ topicIds: ["topic-jazz"] }), "public", now(), now());
   feedStmt.run("feed-anime", userId, "anime", "Anime", "Japanese animation and theme music from across the library.", JSON.stringify({ topicIds: ["topic-anime"] }), "public", now(), now());
   rebuildSearch();
+}
+
+export function reindexAssetSearch(assetId) {
+  db.prepare("DELETE FROM search_index WHERE entity_type='asset' AND entity_id=?").run(assetId);
+  const row = db.prepare("SELECT id,title,description FROM assets WHERE id=?").get(assetId);
+  if (!row) return;
+  const tags = db.prepare("SELECT t.name FROM topics t JOIN annotation_topics at ON at.topic_id=t.id JOIN annotations a ON a.id=at.annotation_id WHERE a.asset_id=?").all(assetId).map(x => x.name).join(" ");
+  db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) VALUES (?,?,?,?,?)").run(row.id, "asset", row.title, row.description || "", tags);
+}
+
+export function reindexTopicSearch(topicId) {
+  db.prepare("DELETE FROM search_index WHERE entity_type='topic' AND entity_id=?").run(topicId);
+  db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) SELECT id,'topic',name,coalesce(summary,'') || ' ' || coalesce(body_markdown,''),'' FROM topics WHERE id=?").run(topicId);
 }
 
 export function rebuildSearch() {
