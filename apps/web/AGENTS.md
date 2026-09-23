@@ -35,6 +35,8 @@ Likes should feel playful: each of the five likes advances the heart animation, 
 
 Library filter tags and topic labels below the player share the same pill styling, sizing, neutral colors, and circular topic image on the left when available. Tags without images remain text-only. Topic-pill labels use 14px text on desktop and 13px on phones for readability.
 
+Mobile filter pills must keep their full content width, including avatars and label padding, inside the horizontally scrollable row.
+
 The watch page's related-video column has no visible heading or divider above it; its first thumbnail must align with the top of the main player.
 
 Like and Save are compact pills with matching 38px heights, 20px icons, and 13px labels. The header search is a compact 38px pill (36px on phones) and suggests matching library media and topics as the user types, with mouse, touch, and keyboard selection.

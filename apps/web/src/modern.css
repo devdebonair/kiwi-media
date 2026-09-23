@@ -40,6 +40,7 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
 .text-link { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
 .text-link:hover { color: var(--green); }
 .chips { padding-bottom: 26px; gap: 9px; align-items: center; }
+.chips > button { flex: 0 0 auto; }
 .chips button, .watch-topics a { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 7px 17px; font-size: 14px; border-radius: 999px; background: #23242c; color: #b1b2bf; border: 1px solid #ffffff04; }
 .chips button:has(.chip-avatar:not([hidden])), .watch-topics a:has(.chip-avatar:not([hidden])) { padding-left: 7px; }
 .chip-avatar { width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%; object-fit: cover; background: #ffffff12; }
