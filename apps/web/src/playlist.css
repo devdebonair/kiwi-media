@@ -1,6 +1,6 @@
 .thumbnail-link { display: block; width: 100%; height: 100%; }
 .thumb { position: relative; }
-.add-to-playlist { position: absolute; z-index: 2; right: 8px; bottom: 8px; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid #ffffff30; border-radius: 9px; color: #fff; background: #17181eeb; opacity: 0; pointer-events: none; transition: opacity .15s; }
+.add-to-playlist { position: absolute; z-index: 2; right: 8px; bottom: 8px; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 1px solid #ffffff30; border-radius: 7px; color: #fff; background: #17181eeb; opacity: 0; pointer-events: none; transition: opacity .15s; }
 .thumb:hover .add-to-playlist, .thumb:focus-within .add-to-playlist { opacity: 1; pointer-events: auto; }
 .thumb:hover .duration, .thumb:focus-within .duration { visibility: hidden; }
 .add-to-playlist:hover, .add-to-playlist[aria-disabled="true"] { color: var(--green); }
@@ -19,21 +19,31 @@
 .playlist-item > span { min-width: 0; }
 .playlist-item strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; }
 .playlist-item small { color: var(--green); font-size: 10px; }
-.content.watch-page.mini-player { position: fixed; z-index: 80; right: 20px; bottom: 20px; width: min(400px, calc(100vw - 24px)); max-height: calc(100svh - 80px); overflow-y: auto; padding: 0; margin: 0; background: #202128; border: 1px solid #ffffff20; border-radius: 12px; box-shadow: 0 12px 45px #0009; }
+.content.watch-page.mini-player { position: fixed; z-index: 80; right: 20px; bottom: 20px; width: min(360px, calc(100vw - 24px)); max-height: calc(100svh - 80px); overflow-y: auto; padding: 0; margin: 0; background: #202128; border: 1px solid #ffffff20; border-radius: 12px; box-shadow: 0 12px 45px #0009; }
 .mini-player .watch-layout { display: block; }
 .mini-player .watch-info, .mini-player .watch-description, .mini-player .moments, .mini-player .watch-related { display: none; }
 .mini-player .player-shell { border: 0; border-radius: 0; margin: 0; }
 .mini-player .kiwi-screen { min-height: 0; }
-.mini-player .kiwi-screen video { width: 100%; height: 210px; max-height: 35svh; object-fit: contain; }
+.mini-player .kiwi-screen video { width: 100%; height: 190px; max-height: 35svh; object-fit: contain; }
 .mini-player .kiwi-volume, .mini-player .kiwi-skip, .mini-player .kiwi-control-row > a { display: none; }
-.mini-player .kiwi-controls { padding: 5px 10px 9px; }
-.mini-player .kiwi-control-row { gap: 3px; }
+.mini-player .kiwi-controls { padding: 3px 9px 5px; }
+.mini-player .kiwi-control-row { gap: 3px; min-height: 34px; }
+.mini-player .kiwi-control-row button { width: 30px; height: 32px; }
+.mini-player .kiwi-player-footer { display: none; }
+.mini-player .player-mode-bar { padding: 3px 10px; }
+.mini-player .player-mode-bar .icon-button { width: 30px; height: 30px; }
+.mini-player .kiwi-big-play { width: 52px; height: 52px; }
+.mini-player .kiwi-big-play svg { width: 25px; height: 25px; }
+.mini-player .playlist-heading { padding: 10px; }
+.mini-player .playlist-item { gap: 8px; padding: 5px; }
+.mini-player .playlist-item img { width: 60px; height: 35px; flex-shrink: 0; }
+.playlist-chevron { display: grid; place-items: center; }
 .mini-player .playlist-queue { margin: 0; border: 0; border-radius: 0; border-top: 1px solid #ffffff12; }
 .mini-player .playlist-queue ol { max-height: 150px; }
 .playlist-notice:empty { display: none; }
 .playlist-notice { position: fixed; z-index: 100; bottom: 24px; left: 24px; max-width: min(360px, calc(100vw - 48px)); border: 1px solid #ffffff20; border-radius: 10px; padding: 13px 18px; background: #303139; color: #eeeef2; box-shadow: 0 5px 20px #0005; font-size: 13px; }
-@media (hover: none) { .add-to-playlist { opacity: 1; pointer-events: auto; } .thumb .duration { right: 50px; } }
+@media (hover: none) { .add-to-playlist { opacity: 1; pointer-events: auto; } .thumb .duration { right: 42px; } }
 @media (max-width: 580px) { .content.watch-page.mini-player { right: 12px; bottom: 12px; } .playlist-notice { bottom: auto; top: 65px; } }
 @media (prefers-reduced-motion: reduce) { .add-to-playlist { transition: none; } }
-.suggestion-image .add-to-playlist { width: 28px; height: 28px; right: 2px; bottom: 2px; }
+.suggestion-image .add-to-playlist { width: 24px; height: 24px; right: 2px; bottom: 2px; }
 .watch-page[hidden] { display: none; }

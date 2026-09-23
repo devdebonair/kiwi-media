@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useReducer, useState } from 'react';
-import { Check, ListPlus, Playlist, Play, X } from '@phosphor-icons/react';
+import { CaretDown, CaretUp, Check, ListPlus, Playlist, Play, X } from '@phosphor-icons/react';
 import { emptyPlaylist, PLAYLIST_KEY, playlistReducer, restorePlaylist } from './playlist-state.mjs';
 
 const Context = createContext(null);
@@ -33,7 +33,7 @@ export function AddToPlaylist({ asset }) {
   const added = playlist.items.some(item => item.id === asset.id);
   return <button type="button" className="add-to-playlist" aria-label={added ? `${asset.title} is in playlist` : `Add ${asset.title} to playlist`} title={added ? 'In playlist' : 'Add to Playlist'} aria-disabled={added} onClick={event => {
     event.preventDefault(); event.stopPropagation(); if (!added) playlist.add(asset);
-  }}>{added ? <Check size={20} /> : <ListPlus size={20} />}</button>;
+  }}>{added ? <Check size={16} /> : <ListPlus size={16} />}</button>;
 }
 
 export function PlaylistQueue({ navigate, mini = false }) {
@@ -41,7 +41,7 @@ export function PlaylistQueue({ navigate, mini = false }) {
   const [open, setOpen] = useState(!mini);
   if (!items.length) return null;
   return <section className="playlist-queue" aria-label="Playlist">
-    <button className="playlist-heading" aria-expanded={open} onClick={() => setOpen(value => !value)}><Playlist size={20} /><strong>Playlist</strong><span>{items.length} {items.length === 1 ? 'video' : 'videos'}</span><span>{open ? '−' : '+'}</span></button>
+    <button className="playlist-heading" aria-expanded={open} onClick={() => setOpen(value => !value)}><Playlist size={20} /><strong>Playlist</strong><span>{items.length} {items.length === 1 ? 'video' : 'videos'}</span><span className="playlist-chevron" aria-hidden="true">{open ? <CaretUp size={16} /> : <CaretDown size={16} />}</span></button>
     {open && <ol>{items.map(asset => <li key={asset.id} className={asset.id === activeId ? 'is-playing' : ''}>
       <button className="playlist-item" onClick={() => { dispatch({ type: 'play', asset }); if (!mini) navigate(`/watch/${asset.id}`); }} aria-label={`Play ${asset.title}`}>
         {asset.thumbnail_url ? <img src={asset.thumbnail_url} alt="" /> : <Play size={24} />}<span><strong>{asset.title}</strong>{asset.id === activeId && <small>Now playing</small>}</span>
