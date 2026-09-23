@@ -69,7 +69,7 @@ export function Sidebar({ route, navigate, open, close, AppLink }) {
     <aside ref={sidebarRef} id="site-navigation" className={`sidebar ${open ? "open" : ""}`}>
       <div className="mobile-sidebar-heading"><Brand navigate={href => { close(); navigate(href); }} /><button className="icon-button" onClick={close} aria-label="Close navigation"><X size={22} /></button></div>
       {groups.map(group => <nav className="nav-group" aria-label={group.label.toLowerCase()} key={group.label}>
-        <span className="nav-label">{group.label}</span>
+        {group.label !== "DISCOVER" && <span className="nav-label">{group.label}</span>}
         {group.items.map(([href, label, page, Icon]) => <AppLink key={page} href={href} navigate={navigate} onClick={close} title={label} aria-current={route.page === page || (page === "feeds" && route.page === "feed") ? "page" : undefined} className={route.page === page || (page === "feeds" && route.page === "feed") ? "active" : ""}><Icon size={22} /><span>{label}</span></AppLink>)}
       </nav>)}
       <div className="sidebar-bottom">
