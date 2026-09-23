@@ -175,6 +175,40 @@ app.post("/api/v1/assets/:id/annotations", async (req, reply) => {
   } catch (error) { db.exec("ROLLBACK"); throw error; }
 });
 
+app.post("/api/v1/assets/:id/topics", async (req, reply) => {
+  const asset = db.prepare("SELECT * FROM assets WHERE id=?").get(req.params.id);
+  if (!asset) return reply.code(404).send({ error: "Asset not found" });
+  const topicId = req.body?.topicId;
+  const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+  if (topicId !== undefined ? typeof topicId !== "string" || !topicId : !name || name.length > 100)
+    return reply.code(400).send({ error: "Choose a tag or enter a name of 1–100 characters" });
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    let topic = topicId ? db.prepare("SELECT * FROM topics WHERE id=?").get(topicId)
+      : db.prepare("SELECT * FROM topics").all().find(row => row.name.toLowerCase() === name.toLowerCase());
+    if (topicId && !topic) {
+      db.exec("ROLLBACK");
+      return reply.code(404).send({ error: "Tag not found" });
+    }
+    const timestamp = new Date().toISOString();
+    if (!topic) {
+      const id = randomUUID();
+      const slug = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "tag"}-${id}`;
+      db.prepare("INSERT INTO topics (id,slug,name,topic_type,created_at,updated_at) VALUES (?,?,?,?,?,?)").run(id, slug, name, "topic", timestamp, timestamp);
+      topic = { id };
+    }
+    const exists = db.prepare("SELECT 1 FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE a.asset_id=? AND at.topic_id=?").get(asset.id, topic.id);
+    if (!exists) {
+      const id = randomUUID();
+      db.prepare("INSERT INTO annotations (id,asset_id,motivation,origin,visibility,created_at,updated_at) VALUES (?,?,'tagging','manual','private',?,?)").run(id, asset.id, timestamp, timestamp);
+      db.prepare("INSERT INTO annotation_topics VALUES (?,?,?)").run(id, topic.id, "subject");
+      rebuildSearch();
+    }
+    db.exec("COMMIT");
+    return { topics: assetWithTopics(asset).topics };
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
+});
+
 app.get("/api/v1/topics/:slug", async (req, reply) => {
   const topic = db.prepare(`SELECT t.*, EXISTS(SELECT 1 FROM topic_follows WHERE user_id=? AND topic_id=t.id) followed FROM topics t WHERE t.slug=?`).get(userId, req.params.slug);
   if (!topic) return reply.code(404).send({ error: "Topic not found" });

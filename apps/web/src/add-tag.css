@@ -1,0 +1,20 @@
+.add-tag { display: inline-flex; }
+.add-tag-trigger { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 7px 14px; border: 1px solid #ffffff20; border-radius: 999px; background: #23242c; color: #b1b2bf; font-size: 14px; }
+.add-tag-trigger:hover { color: #eeeef2; border-color: #ffffff40; }
+.tag-popover { position: fixed; inset: auto; margin: 0; box-sizing: border-box; width: min(340px, calc(100vw - 24px)); height: min(360px, calc(100dvh - 24px)); padding: 12px; background: #202128; color: #eeeef2; border: 1px solid #ffffff20; border-radius: 12px; box-shadow: 0 12px 45px #0009; overflow: hidden; }
+.tag-popover:popover-open { display: flex; flex-direction: column; gap: 10px; }
+.tag-search-field { position: relative; flex-shrink: 0; }
+.tag-search-field > svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #858694; pointer-events: none; }
+.tag-search { display: block; box-sizing: border-box; width: 100%; flex-shrink: 0; height: 38px; min-height: 0; border: 1px solid #ffffff06; border-radius: 999px; background: #ffffff04; color: #eeeef2; padding: 0 11px 0 38px; font: inherit; font-size: 14px; line-height: 20px; }
+.tag-search:focus { outline: none; box-shadow: none; background: #22232b; border-color: #ffffff25; }
+.add-tag-trigger:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.tag-options { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.tag-option { display: flex; align-items: center; gap: 10px; padding: 8px; min-height: 46px; box-sizing: border-box; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.tag-option.is-selected { background: #ffffff0d; }
+.tag-option[aria-disabled="true"] { opacity: .5; cursor: default; }
+.tag-avatar { display: grid; place-items: center; position: relative; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; overflow: hidden; color: var(--green); background: #b6df8310; }
+.tag-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.tag-option-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.tag-empty { color: #a5a6b1; padding: 12px 8px; font-size: 13px; }
+@media (max-width: 680px) { .add-tag-trigger { min-height: 34px; font-size: 13px; } .tag-search { height: 36px; font-size: 16px; } }
+.tag-error { color: #ffb5b5; }

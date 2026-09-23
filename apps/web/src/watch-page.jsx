@@ -3,6 +3,7 @@
 import { usePlaylist, PlaylistQueue } from "./playlist.jsx";
 import { playlistReducer } from "./playlist-state.mjs";
 import { VideoPlayer } from "./video-player.jsx";
+import { AddTag } from "./add-tag.jsx";
 import { TopicLabel } from "./topic-label.jsx";
 import { useEffect, useRef, useState } from "react";
 import { BookmarkSimple, DownloadSimple, ArrowsOutSimple, X } from "@phosphor-icons/react";
@@ -89,10 +90,10 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
           <div className="watch-toolbar"><ViewCount count={asset.view_count} /><div className="watch-actions"><LikeButton asset={asset} api={api} onChange={values => setAsset(current => ({ ...current, ...values }))} /><button className={asset.saved ? "primary-button" : "outline-button"} disabled={saving} onClick={save}><BookmarkSimple weight={asset.saved ? "fill" : "regular"} />{asset.saved ? "Saved" : "Save"}</button></div></div>
           {error && <p role="alert">{error}</p>}
         </section>
-        {(asset.description || asset.topics?.length > 0) && <section className="watch-description">
-          {asset.topics?.length > 0 && <div className="watch-topics">{asset.topics.map(topic => <AppLink key={topic.id} href={`/topic/${topic.slug}`} navigate={navigate}><TopicLabel topic={topic} /></AppLink>)}</div>}
+        <section className="watch-description">
+          <div className="watch-topics">{asset.topics?.map(topic => <AppLink key={topic.id} href={`/topic/${topic.slug}`} navigate={navigate}><TopicLabel topic={topic} /></AppLink>)}{!mini && <AddTag key={asset.id} asset={asset} api={api} onChange={topics => setAsset(current => current?.id === asset.id ? { ...current, topics } : current)}/>}</div>
           {asset.description && <p>{asset.description}</p>}
-        </section>}
+        </section>
         {asset.moments?.length > 0 && <section className="moments"><h2>Notable moments</h2>{asset.moments.map((moment, index) => <button key={index} onClick={() => { if (mediaRef.current) { mediaRef.current.currentTime = moment.start_ms / 1000; mediaRef.current.play().catch(() => {}); } }}><span>{formatDuration(moment.start_ms)}</span><div><strong>{moment.topic || "Moment"}</strong><p>{moment.note_markdown}</p></div></button>)}</section>}
       </div>
       {related.length > 0 && <aside className="watch-related" aria-label="More to explore"><div className="related-media">{related.map(item => <MediaCard key={item.id} asset={item} navigate={navigate} />)}</div></aside>}

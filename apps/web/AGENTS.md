@@ -56,3 +56,8 @@ Keep the mini player compact, with a smaller thumbnail Add to Playlist button. H
 The playlist queue automatically scrolls its own list to reveal the currently playing video when playback changes or the queue expands, without scrolling the surrounding page.
 In fullscreen, video controls fade away until the cursor moves, then fade away again after movement stops. Include previous and next playlist controls in the player, disabled at the ends of the queue.
 The regular player has a theater toggle that expands the video across the viewport below the top bar, moves related videos below it, and restores the standard layout when toggled off.
+
+The watch page supports adding tags from a fixed-size searchable popover beside the topic pills. Match the mini player's charcoal background, border color, and 12px radius; show tag avatars and names, support arrow keys and Enter to select or create a tag.
+The tag popover search field uses the same pill corner radius and compact height as the navbar search field: 38px on desktop and 36px on phones, with a leading search icon.
+The tag search field matches the navbar search background in resting and focused states; use a quiet neutral focus border instead of a green highlight.
+Keep the tag popover minimal: only the search field and tag list, with no visible heading, close button, or keyboard-hint footer. Dismiss with Escape or an outside click.
