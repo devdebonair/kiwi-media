@@ -33,7 +33,12 @@
 .kiwi-status a { color: var(--green); font-size: 12px; }
 .kiwi-status button { display: flex; gap: 8px; align-items: center; background: #303139; color: #eeeef2; border: 0; padding: 8px 14px; border-radius: 20px; }
 .kiwi-buffering { position: absolute; padding: 8px 15px; background: #101115cc; border-radius: 20px; font-size: 13px; }
-.kiwi-player:fullscreen { display: flex; flex-direction: column; height: 100%; }
+.kiwi-player:fullscreen { position: relative; display: flex; flex-direction: column; height: 100%; }
 .kiwi-player:fullscreen .kiwi-screen { flex: 1; min-height: 0; }
 .kiwi-player:fullscreen .kiwi-screen video { height: 100%; max-height: 100%; position: absolute; }
+.kiwi-player:fullscreen .kiwi-controls { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; background: linear-gradient(transparent, #101115ed 24%, #101115f5); border: 0; transition: opacity .25s ease; }
+.kiwi-player:fullscreen .kiwi-controls:not(.controls-visible):not(:focus-within) { opacity: 0; pointer-events: none; }
+.kiwi-player:fullscreen .kiwi-player-footer { display: none; }
+@media (prefers-reduced-motion: reduce) { .kiwi-player:fullscreen .kiwi-controls { transition: none; } }
 @media (max-width: 580px) { .kiwi-controls { padding: 6px 10px 10px; } .kiwi-control-row { gap: 3px; } .kiwi-volume, .kiwi-skip { display: none !important; } .kiwi-player-footer { font-size: 9px; } }
+@media (max-width: 420px) { .kiwi-control-row > a, .kiwi-control-row select { display: none; } }

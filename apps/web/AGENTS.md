@@ -54,3 +54,4 @@ Videos have a localStorage-backed playlist. Every video thumbnail has a bottom-r
 
 Keep the mini player compact, with a smaller thumbnail Add to Playlist button. Hide the original-quality/compatibility footer in the mini player, and use Phosphor chevrons for playlist collapse/expand controls.
 The playlist queue automatically scrolls its own list to reveal the currently playing video when playback changes or the queue expands, without scrolling the surrounding page.
+In fullscreen, video controls fade away until the cursor moves, then fade away again after movement stops. Include previous and next playlist controls in the player, disabled at the ends of the queue.

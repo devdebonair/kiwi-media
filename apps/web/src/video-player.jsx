@@ -1,17 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { Play, Pause, SpeakerHigh, SpeakerSlash, ArrowsOut, DownloadSimple, ArrowClockwise, ArrowCounterClockwise, PictureInPicture } from '@phosphor-icons/react';
+import { Play, Pause, SpeakerHigh, SpeakerSlash, ArrowsOut, DownloadSimple, ArrowClockwise, ArrowCounterClockwise, PictureInPicture, SkipBack, SkipForward } from '@phosphor-icons/react';
 
 const time = seconds => {
   const value = Math.max(0, Math.floor(seconds || 0));
   return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`;
 };
 
-export function VideoPlayer({ asset, mediaRef, initialSeconds = 0, onEnded, onMinimize, onPlay, autoPlay = true }) {
+export function VideoPlayer({ asset, mediaRef, initialSeconds = 0, onEnded, onMinimize, onPlay, onPrevious, onNext, autoPlay = true }) {
   const original = `/api/v1/assets/${asset.id}/file`;
   const shell = useRef(null);
   const resume = useRef(initialSeconds);
+  const controlsTimer = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
   const [compatible, setCompatible] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [message, setMessage] = useState('');
@@ -23,6 +26,30 @@ export function VideoPlayer({ asset, mediaRef, initialSeconds = 0, onEnded, onMi
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [rate, setRate] = useState(1);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      const active = document.fullscreenElement === shell.current;
+      setIsFullscreen(active);
+      setControlsVisible(!active);
+      clearTimeout(controlsTimer.current);
+      if (active && shell.current?.querySelector('.kiwi-controls')?.contains(document.activeElement)) {
+        document.activeElement.blur();
+      }
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      clearTimeout(controlsTimer.current);
+    };
+  }, []);
+
+  const revealControls = () => {
+    if (document.fullscreenElement !== shell.current) return;
+    setControlsVisible(true);
+    clearTimeout(controlsTimer.current);
+    controlsTimer.current = setTimeout(() => setControlsVisible(false), 1800);
+  };
 
   useEffect(() => {
     if (!preparing) return;
@@ -79,7 +106,10 @@ export function VideoPlayer({ asset, mediaRef, initialSeconds = 0, onEnded, onMi
       else mediaRef.current.webkitEnterFullscreen?.();
     } catch { /* Fullscreen may be disabled by the embedding browser. */ }
   };
-  return <div className="kiwi-player" ref={shell} role="region" aria-label="Video player" tabIndex={0} onKeyDown={event => {
+  return <div className="kiwi-player" ref={shell} role="region" aria-label="Video player" tabIndex={0}
+    onPointerMove={event => { if (event.pointerType === 'mouse') revealControls(); }}
+    onPointerDown={event => { if (event.pointerType !== 'mouse') revealControls(); }}
+    onKeyDown={event => {
     if (event.target !== event.currentTarget) return;
     if ([' ', 'k', 'ArrowLeft', 'ArrowRight', 'm', 'f'].includes(event.key)) event.preventDefault();
     if (event.key === ' ' || event.key === 'k') toggle();
@@ -105,10 +135,12 @@ export function VideoPlayer({ asset, mediaRef, initialSeconds = 0, onEnded, onMi
         : !playing ? <button className="kiwi-big-play" aria-label="Play video" onClick={toggle}><Play size={30} weight="fill" /></button>
         : waiting && <span className="kiwi-buffering" role="status">Buffering…</span>}
     </div>
-    <div className="kiwi-controls">
+    <div className={`kiwi-controls ${isFullscreen && controlsVisible ? 'controls-visible' : ''}`}>
       <input className="kiwi-seek" aria-label="Seek video" aria-valuetext={`${time(position)} of ${time(duration)}`} type="range" min="0" max={duration || 1} step="0.1" value={Math.min(position, duration || 1)} disabled={!duration || preparing || failed} onInput={event => seek(Number(event.currentTarget.value))} style={{ '--progress': `${duration ? position / duration * 100 : 0}%` }} />
       <div className="kiwi-control-row">
+        <button aria-label="Previous video in playlist" title="Previous video" disabled={!onPrevious} onClick={onPrevious}><SkipBack weight="fill" /></button>
         <button aria-label={playing ? 'Pause' : 'Play'} disabled={preparing || failed} onClick={toggle}>{playing ? <Pause weight="fill" /> : <Play weight="fill" />}</button>
+        <button aria-label="Next video in playlist" title="Next video" disabled={!onNext} onClick={onNext}><SkipForward weight="fill" /></button>
         <button className="kiwi-skip" aria-label="Back 10 seconds" onClick={() => seek(position - 10)}><ArrowCounterClockwise /></button>
         <span className="kiwi-time">{time(position)} <span>/ {time(duration)}</span></span>
         <div className="kiwi-control-spacer" />
