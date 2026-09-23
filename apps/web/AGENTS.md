@@ -27,6 +27,8 @@ Remember playback position and automatically resume unfinished videos/audio when
 
 ## Visual direction
 
+Video grids, including home spotlights and related videos, use a single column on mobile (680px and below).
+
 The September 2026 user references replace the earlier light mock: use charcoal surfaces, quiet dividers, spacious media thumbnails, restrained Kiwi green accents, and a collapsible left navigation. Home should feature real library media and topics; the regular player has a related-media column on wide screens. Carry the dark theme through search, topics, feeds, history, settings, and dialogs. Preserve responsive behavior and the existing full-viewport Shorts and uncropped regular-player rules.
 
 Likes should feel playful: each of the five likes advances the heart animation, from a small pop to a richer celebration inspired by mobile social-app reactions. Show only the heart and label; do not show tick marks, progress bars, or a numeric fraction. Keep the five-like cap and a reduced-motion alternative. Do not show a Clear button beside Like.

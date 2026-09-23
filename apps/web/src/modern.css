@@ -202,8 +202,7 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
   .favorite-topics { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; padding: 6px 15px; }
   .favorite-topic:nth-child(2) { border-top: 0; }
   .all-topics { grid-column: 1 / -1; padding-bottom: 10px; }
-  .media-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .related-media { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .media-grid, .spotlight-grid, .related-media { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 580px) {
   :root { --topbar: 54px; }
