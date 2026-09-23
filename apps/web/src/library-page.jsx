@@ -1,7 +1,8 @@
 "use client";
 
 import { TopicLabel } from "./topic-label.jsx";
-import { useEffect, useRef, useState } from "react";
+import { InfiniteScroll } from "./infinite-scroll.jsx";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, ArrowUpRight, Compass, Heart, SquaresFour, Tag } from "@phosphor-icons/react";
 
 export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty }) {
@@ -12,8 +13,10 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
+  const [seed] = useState(() => Math.floor(Math.random() * 10000) + 1);
   const generation = useRef(0);
-  const pageUrl = (offset = 0) => `/api/v1/assets?limit=60&offset=${offset}${selected !== "all" ? `&topic=${encodeURIComponent(selected)}` : ""}`;
+  const pending = useRef(false);
+  const pageUrl = (offset = 0) => `/api/v1/assets?kind=video&sort=shuffle&seed=${seed}&limit=60&offset=${offset}${selected !== "all" ? `&topic=${encodeURIComponent(selected)}` : ""}`;
 
   useEffect(() => { api("/api/v1/topics").then(setTopics).catch(() => {}); }, [api]);
   useEffect(() => {
@@ -27,7 +30,9 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty }) {
     return () => { generation.current++; };
   }, [selected, retry]);
 
-  const loadMore = async () => {
+  const loadMore = useCallback(async () => {
+    if (pending.current || !assets || !hasMore) return;
+    pending.current = true;
     const current = generation.current;
     setLoadingMore(true); setError("");
     try {
@@ -36,8 +41,8 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty }) {
         setAssets(previous => [...previous, ...rows]); setHasMore(rows.length === 60);
       }
     } catch (e) { if (generation.current === current) setError(e.message); }
-    finally { if (generation.current === current) setLoadingMore(false); }
-  };
+    finally { pending.current = false; if (generation.current === current) setLoadingMore(false); }
+  }, [assets, hasMore, selected, seed]);
 
   const followed = topics.filter(topic => topic.followed);
   const suggested = (followed.length ? followed : topics).slice(0, 4);
@@ -45,10 +50,6 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty }) {
   const libraryAssets = showSpotlight ? assets.slice(2) : assets;
 
   return <div className="content library-page">
-    <div className="section-heading library-heading">
-      <div><span className="eyebrow">A WORLD OF YOUR OWN</span><h1>Your library<span className="heading-dot">.</span></h1><p>Everything you love, a little closer.</p></div>
-      <AppLink className="text-link" href="/topics" navigate={navigate}>Explore topics <ArrowUpRight size={18} /></AppLink>
-    </div>
     <div className="chips" role="group" aria-label="Filter library by topic">
       <button aria-pressed={selected === "all"} className={selected === "all" ? "selected" : ""} onClick={() => setSelected("all")}><SquaresFour size={17} weight={selected === "all" ? "fill" : "regular"} /> All media</button>
       {topics.slice(0, 6).map(topic => <button key={topic.id} aria-pressed={selected === topic.slug} className={selected === topic.slug ? "selected" : ""} onClick={() => setSelected(topic.slug)}><TopicLabel topic={topic} /></button>)}
@@ -72,7 +73,7 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty }) {
         <div className="row-heading library-section-heading"><h2 id="library-section-heading"><SquaresFour size={21} />{selected === "all" ? "Browse your library" : topics.find(topic => topic.slug === selected)?.name || "Your media"}</h2><span>{assets.length.toLocaleString()}{hasMore ? "+" : ""} items</span></div>
         <div className="media-grid">{libraryAssets.map(asset => <MediaCard key={asset.id} asset={asset} navigate={navigate} />)}</div>
       </section> : !error && <Empty />}
-      {hasMore && <div className="load-more"><button className="outline-button" disabled={loadingMore} onClick={loadMore}>{loadingMore ? "Loading…" : "Load more"}<ArrowRight size={17} /></button></div>}
+      <InfiniteScroll enabled={hasMore && !error} loading={loadingMore} onLoadMore={loadMore} />
     </>}
   </div>;
 }

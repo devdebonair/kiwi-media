@@ -7,9 +7,13 @@ import { randomUUID } from "node:crypto";
 import mime from "mime-types";
 import { db, generatedDir, rebuildSearch, assetWithTopics } from "@kiwi/database";
 import { fileURLToPath } from "node:url";
+import { createPlaybackCache } from "./playback.js";
 import { parseRange } from "./range.js";
 
 const app = Fastify({ logger: true });
+const playbackCache = createPlaybackCache(resolve(generatedDir, "playback"), {
+  onError: error => app.log.error({ err: error }, "Video compatibility conversion failed"),
+});
 const host = process.env.KIWI_HOST || "0.0.0.0";
 const port = Number(process.env.KIWI_API_PORT || 3333);
 const userId = "user-local";
@@ -27,9 +31,9 @@ const engagement = id => ({
   my_likes: db.prepare("SELECT count FROM asset_likes WHERE asset_id=? AND user_id=?").get(id,userId)?.count || 0,
 });
 const enrichAsset = row => ({ ...assetWithTopics(row), ...engagement(row.id) });
-const listAssets = (where = "1=1", params = [], limit = 60, offset = 0) => db.prepare(`
+const listAssets = (where = "1=1", params = [], limit = 60, offset = 0, orderBy = "a.added_at DESC,a.id DESC") => db.prepare(`
   SELECT a.*, EXISTS(SELECT 1 FROM saved_assets sa WHERE sa.asset_id=a.id AND sa.user_id=?) saved
-  FROM assets a WHERE ${where} ORDER BY a.added_at DESC,a.id DESC LIMIT ? OFFSET ?
+  FROM assets a WHERE ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?
 `).all(userId, ...params, limit, offset).map(enrichAsset);
 
 const searchHits = (query, kind = "all") => {
@@ -55,11 +59,15 @@ const searchHits = (query, kind = "all") => {
 app.get("/api/v1/health", async () => ({ ok: true, service: "kiwi", database: "sqlite", time: new Date().toISOString() }));
 
 app.get("/api/v1/assets", async (req, reply) => {
-  const { kind, topic, limit = 60, offset = 0 } = req.query;
+  const { kind, topic, sort, seed, limit = 60, offset = 0 } = req.query;
   if (!Number.isSafeInteger(Number(limit)) || Number(limit) < 1 || Number(limit) > 200 || !Number.isSafeInteger(Number(offset)) || Number(offset) < 0) return reply.code(400).send({ error: "limit must be 1–200 and offset must be a nonnegative integer" });
-  if (topic) return listAssets("EXISTS(SELECT 1 FROM annotations an JOIN annotation_topics at ON at.annotation_id=an.id JOIN topics t ON t.id=at.topic_id WHERE an.asset_id=a.id AND (t.slug=? OR t.id=?))", [topic, topic], Number(limit), Number(offset));
-  if (kind) return listAssets("a.kind=?", [kind], Number(limit), Number(offset));
-  return listAssets("1=1", [], Number(limit), Number(offset));
+  if (sort && sort !== "shuffle") return reply.code(400).send({ error: "Invalid sort" });
+  if (sort === "shuffle" && (!Number.isSafeInteger(Number(seed)) || Number(seed) < 1 || Number(seed) > 10000)) return reply.code(400).send({ error: "seed must be an integer from 1 to 10000" });
+  const orderBy = sort === "shuffle" ? `((a.rowid * (1103515245 + ${Number(seed)} * 123457)) % 2147483647), a.id` : "a.added_at DESC,a.id DESC";
+  const filters = [], params = [];
+  if (kind) { filters.push("a.kind=?"); params.push(kind); }
+  if (topic) { filters.push("EXISTS(SELECT 1 FROM annotations an JOIN annotation_topics at ON at.annotation_id=an.id JOIN topics t ON t.id=at.topic_id WHERE an.asset_id=a.id AND (t.slug=? OR t.id=?))"); params.push(topic, topic); }
+  return listAssets(filters.join(" AND ") || "1=1", params, Number(limit), Number(offset), orderBy);
 });
 
 const shortsLimit = () => db.prepare("SELECT shorts_max_seconds FROM user_settings WHERE user_id=?").get(userId)?.shorts_max_seconds ?? 90;
@@ -97,9 +105,22 @@ app.get("/api/v1/assets/:id", async (req, reply) => {
   return { ...enrichAsset(row), progress_ms: progress?.progress_ms ?? 0, completed: progress?.completed ?? 0 };
 });
 
+app.post("/api/v1/assets/:id/playback", async (req, reply) => {
+  const asset = db.prepare("SELECT file_path,kind FROM assets WHERE id=?").get(req.params.id);
+  if (!asset?.file_path || !existsSync(asset.file_path)) return reply.code(404).send({ error: "Original file is unavailable" });
+  if (asset.kind !== "video") return reply.code(400).send({ error: "Only videos can be converted" });
+  const result = playbackCache.prepare(asset.file_path);
+  return reply.header("Cache-Control", "no-store").send(result);
+});
+
 app.get("/api/v1/assets/:id/file", async (req, reply) => {
   const asset = db.prepare("SELECT file_path FROM assets WHERE id=?").get(req.params.id);
   if (!asset?.file_path || !existsSync(asset.file_path)) return reply.code(404).send({ error: "Original file is unavailable" });
+  if (req.query.compatible === "1") {
+    const file = playbackCache.fileFor(asset.file_path);
+    if (!existsSync(file)) return reply.code(409).send({ error: "Compatible video is not ready" });
+    asset.file_path = file;
+  }
   const size = statSync(asset.file_path).size;
   const contentType = mime.lookup(asset.file_path) || "application/octet-stream";
   const range = req.headers.range;

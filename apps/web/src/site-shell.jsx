@@ -37,12 +37,11 @@ export function Header({ query, setQuery, onSubmit, openMenu, navigate, mobileOp
       <Brand navigate={navigate} />
     </div>
     <SearchBar query={query} setQuery={setQuery} onSubmit={onSubmit} navigate={navigate} inputRef={searchRef} />
-    <div className="header-actions"><span className="local-label"><span /> Personal library</span><button className="avatar" onClick={() => navigate("/settings")} aria-label="Library settings" title="Library settings"><Gear size={21} /></button></div>
   </header>;
 }
 
 const groups = [
-  { label: "DISCOVER", items: [["/", "Your library", "home", Compass], ["/shorts", "Shorts", "shorts", Play], ["/topics", "Topics", "topics", Tag]] },
+  { label: "DISCOVER", items: [["/", "Home", "home", Compass], ["/library", "Library", "library", FolderOpen], ["/shorts", "Shorts", "shorts", Play], ["/topics", "Topics", "topics", Tag]] },
   { label: "COLLECTION", items: [["/feeds", "Your feeds", "feeds", Rows], ["/history", "Watch history", "history", ClockCounterClockwise], ["/search", "Explore", "search", FolderOpen]] },
 ];
 

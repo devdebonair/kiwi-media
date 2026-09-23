@@ -38,5 +38,10 @@ The watch page's related-video column has no visible heading or divider above it
 Like and Save are compact pills with matching 38px heights, 20px icons, and 13px labels. The header search is a compact 38px pill (36px on phones) and suggests matching library media and topics as the user types, with mouse, touch, and keyboard selection.
 
 Keep the top navbar compact: 60px on desktop, 56px on tablets, and 54px on phones. Page and sidebar offsets must track its height.
+Keep the header free of the “Personal library” label and settings gear; Settings remains in the sidebar. Do not show a “Back to browsing” link above the regular watch player.
 
 Do not show the promotional “A space for your interests” block or the “A little curiosity goes a long way” footer label in the sidebar.
+Do not show the home page's “A world of your own / Your library / Everything you love” heading block or its “Explore topics” link above the library filters.
+Home keeps the discovery layout and shows shuffled videos. The separate Library page shows videos in newest-first order. Both pages load more videos automatically as the user scrolls.
+
+The regular video player uses custom charcoal controls with Kiwi green accents and offers automatic codec compatibility fallback plus a manual compatibility option. Preserve uncropped aspect ratios and playback resume behavior.

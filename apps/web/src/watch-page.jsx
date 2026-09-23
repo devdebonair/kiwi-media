@@ -1,8 +1,9 @@
 "use client";
 
+import { VideoPlayer } from "./video-player.jsx";
 import { TopicLabel } from "./topic-label.jsx";
 import { useEffect, useRef, useState } from "react";
-import { BookmarkSimple, CaretLeft, DownloadSimple } from "@phosphor-icons/react";
+import { BookmarkSimple, DownloadSimple } from "@phosphor-icons/react";
 import { LikeButton, ViewCount, usePlaybackTracking } from "./engagement.jsx";
 import { resumeSeconds } from "./playback-progress.mjs";
 
@@ -49,11 +50,10 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
   };
 
   return <div className="content watch-page">
-    <button className="back-button" onClick={() => history.length > 1 ? history.back() : navigate("/")}><CaretLeft size={17} /> Back to browsing</button>
     <div className={`watch-layout ${related.length ? "" : "without-related"}`}>
       <div className="watch-primary">
         <div className="player-shell">
-          {hasFile && asset.kind === "video" ? <video ref={mediaRef} src={src} poster={asset.thumbnail_url} controls autoPlay playsInline onError={() => setPlaybackError(true)} />
+          {hasFile && asset.kind === "video" ? <VideoPlayer key={asset.id} asset={asset} mediaRef={mediaRef} initialSeconds={resumeSeconds(asset, typeof window === "undefined" ? null : new URLSearchParams(location.search).get("t"))} />
             : hasFile && asset.kind === "audio" ? <div className="audio-player">{asset.thumbnail_url && <img src={asset.thumbnail_url} alt="" />}<audio ref={mediaRef} src={src} controls autoPlay onError={() => setPlaybackError(true)} /></div>
             : <div className="poster-player">{(asset.kind === "image" && hasFile) || asset.thumbnail_url ? <img src={asset.kind === "image" && hasFile ? src : asset.thumbnail_url} alt={asset.title} /> : <div className="media-unavailable">No preview available</div>}{hasFile && asset.kind !== "image" && <a className="outline-button original-link" href={src} download><DownloadSimple size={18} /> Open original</a>}</div>}
         </div>

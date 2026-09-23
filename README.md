@@ -121,3 +121,20 @@ The default Docker Compose setup exposes Caddy on port 80 instead. Access contro
 - Derived thumbnails: `data/generated/`
 - Originals are never modified.
 - `GET /api/v1/health` reports server and database health.
+
+### Video compatibility
+
+The watch player tries the original video first. Browser decoding errors automatically
+prepare an H.264/AAC MP4 using FFmpeg. Compatible H.264/AAC streams in containers
+such as FLV are repackaged without re-encoding; other codecs are converted. The
+player also offers a manual compatibility
+option for issues such as unsupported audio. Conversion requires `ffmpeg` on PATH
+(already included in the Docker image). A single conversion runs at a time, and the
+player waits while another video is being prepared. The first conversion must finish
+before playback; large videos can take several minutes. Damaged or unsupported inputs
+retain a download-original option.
+
+Compatible copies live in `data/generated/playback/` (under `KIWI_DATA_DIR` when set),
+with cache keys based on source path, size, and modification time. Originals remain
+unchanged. These derived files can be deleted to reclaim disk space when no conversion
+is running; they are recreated on demand. The cache has no automatic size limit.
