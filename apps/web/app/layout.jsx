@@ -5,6 +5,7 @@ import "../src/modern.css";
 import "../src/animated-like-button.css";
 import "../src/playlist.css";
 import "../src/add-tag.css";
+import "../src/tag-editor.css";
 
 export const metadata = {
   title: "Kiwi — your media, connected",

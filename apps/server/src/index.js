@@ -9,6 +9,7 @@ import { db, generatedDir, rebuildSearch, reindexAssetSearch, reindexTopicSearch
 import { fileURLToPath } from "node:url";
 import { createPlaybackCache } from "./playback.js";
 import { parseRange } from "./range.js";
+import { registerTagMetadata, tagMetadata } from "./tag-metadata.js";
 
 const app = Fastify({ logger: true });
 const playbackCache = createPlaybackCache(resolve(generatedDir, "playback"), {
@@ -24,6 +25,7 @@ const webPublic = resolve(workspaceRoot, "apps/web/public/assets");
 await app.register(cors, { origin: true, credentials: true });
 await app.register(fastifyStatic, { root: generatedDir, prefix: "/generated/", decorateReply: false });
 await app.register(fastifyStatic, { root: webPublic, prefix: "/assets/", decorateReply: false });
+registerTagMetadata(app);
 
 const engagement = id => ({
   view_count: db.prepare("SELECT count(*) count FROM asset_views WHERE asset_id=?").get(id).count,
@@ -249,7 +251,7 @@ app.get("/api/v1/topics/:slug", async (req, reply) => {
     WHERE t.id != ? GROUP BY t.id ORDER BY item_count DESC LIMIT 8
   `).all(topic.id, topic.id);
   const { item_count } = db.prepare("SELECT count(*) item_count FROM effective_asset_topics WHERE topic_id=?").get(topic.id);
-  return { ...topic, item_count, assets, related };
+  return { ...topic, item_count, assets, related, providerLinks: tagMetadata(topic.id).links };
 });
 
 app.post("/api/v1/topics/:id/follow", async req => {

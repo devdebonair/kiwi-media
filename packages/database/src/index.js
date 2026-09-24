@@ -47,6 +47,12 @@ export function migrate() {
       topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
       created_at TEXT NOT NULL, PRIMARY KEY(library_root_id, topic_id)
     );
+    CREATE TABLE IF NOT EXISTS topic_provider_links (
+      topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL, external_id TEXT NOT NULL, entity_type TEXT NOT NULL,
+      source_url TEXT NOT NULL, snapshot_json TEXT NOT NULL DEFAULT '{}', fetched_at TEXT,
+      PRIMARY KEY(topic_id, provider)
+    );
     CREATE INDEX IF NOT EXISTS folder_topics_topic_idx ON folder_topics(topic_id);
     CREATE INDEX IF NOT EXISTS files_root_asset_idx ON files(library_root_id, asset_id);
     CREATE TABLE IF NOT EXISTS topic_aliases (
@@ -269,7 +275,7 @@ export function reindexAssetSearch(assetId) {
 
 export function reindexTopicSearch(topicId) {
   db.prepare("DELETE FROM search_index WHERE entity_type='topic' AND entity_id=?").run(topicId);
-  db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) SELECT id,'topic',name,coalesce(summary,'') || ' ' || coalesce(body_markdown,''),'' FROM topics WHERE id=?").run(topicId);
+  db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) SELECT id,'topic',name,coalesce(summary,'') || ' ' || coalesce(body_markdown,''),coalesce((SELECT group_concat(alias,' ') FROM topic_aliases WHERE topic_id=topics.id),'') FROM topics WHERE id=?").run(topicId);
 }
 
 export function rebuildSearch() {
@@ -279,7 +285,10 @@ export function rebuildSearch() {
     const tags = db.prepare("SELECT t.name FROM topics t JOIN annotation_topics at ON at.topic_id=t.id JOIN annotations a ON a.id=at.annotation_id WHERE a.asset_id=?").all(row.id).map(x => x.name).join(" ");
     insert.run(row.id, "asset", row.title, row.description || "", tags);
   }
-  for (const row of db.prepare("SELECT id,name,summary,body_markdown FROM topics").all()) insert.run(row.id, "topic", row.name, `${row.summary || ""} ${row.body_markdown || ""}`, "");
+  for (const row of db.prepare("SELECT id,name,summary,body_markdown FROM topics").all()) {
+    const aliases = db.prepare("SELECT alias FROM topic_aliases WHERE topic_id=?").all(row.id).map(x => x.alias).join(" ");
+    insert.run(row.id, "topic", row.name, `${row.summary || ""} ${row.body_markdown || ""}`, aliases);
+  }
 }
 
 function syncAnimeFixtures() {

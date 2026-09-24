@@ -111,6 +111,36 @@ preserve manually edited topic fields. `--offline` skips profile lookups but may
 still download uncached portraits. To refresh metadata, remove the relevant
 cache files before running the preview command again.
 
+## Link metadata to a tag
+
+Open a tag's topic page and choose **Edit tag**. Edit its name, description,
+picture URL, type, and aliases, or search a metadata provider by name, provider
+ID, or profile URL. Select a result to preview its details, choose the fields to
+import, and link it. This enriches the existing tag without matching or changing
+its media associations.
+
+Wikidata is available without credentials and supplements verified identities
+with English Wikipedia summaries. StashDB and ThePornDB provide performer
+identities using the same server-side credentials as the scanner (see
+`.env.example`). Unconfigured providers appear disabled. Credentials never go
+to the browser. TMDB and MusicBrainz are not integrated.
+
+Tags support one identity per provider and multiple providers per tag. Each link
+stores a stable ID, source URL, fetched metadata, and refresh time. **Refresh**
+fetches the saved identity and updates selected, provider-managed fields;
+manually edited fields, including intentionally cleared fields, are preserved.
+**Make preferred** applies that source's selected fields where existing values
+are empty or provider-managed. **Change match** previews a replacement identity.
+**Unlink** keeps imported values and attribution while stopping that source's
+updates. Refresh is manual; there is no background refresh schedule.
+
+Existing batch-imported StashDB/ThePornDB identities are brought into the editor
+once on server startup. Links live in `topic_provider_links`; field ownership,
+manual overrides, and attribution are recorded in topic metadata. Provider
+adapters are in `apps/server/src/tag-providers.js`; each supplies `search` and
+`get` operations returning the shared entity shape. Preview tokens expire after
+10 minutes or a server restart; select a match again if a preview expires.
+
 ## Production
 
 ```bash
