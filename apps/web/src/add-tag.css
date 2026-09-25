@@ -18,3 +18,14 @@
 .tag-empty { color: #a5a6b1; padding: 12px 8px; font-size: 13px; }
 @media (max-width: 680px) { .add-tag-trigger { min-height: 34px; font-size: 13px; } .tag-search { height: 36px; font-size: 16px; } }
 .tag-error { color: #ffb5b5; }
+.thumb > .add-tag.compact { position: absolute; z-index: 2; right: 8px; bottom: 8px; }
+.thumb > .add-to-playlist + .add-tag.compact { right: 40px; }
+.thumb-add-tag { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 1px solid #ffffff30; border-radius: 7px; color: #fff; background: #17181eeb; opacity: 0; pointer-events: none; transition: opacity .15s; }
+.thumb:hover .thumb-add-tag, .thumb:focus-within .thumb-add-tag, .thumb-add-tag[aria-expanded="true"] { opacity: 1; pointer-events: auto; }
+.thumb-add-tag:hover, .thumb-add-tag[aria-expanded="true"] { color: var(--green); }
+.thumb-add-tag:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.thumb:has(.thumb-add-tag[aria-expanded="true"]) .duration { visibility: hidden; }
+@media (hover: none) { .thumb-add-tag { opacity: 1; pointer-events: auto; } .thumb .duration { right: 42px; } .thumb:has(.add-to-playlist) .duration { right: 74px; } }
+@media (prefers-reduced-motion: reduce) { .thumb-add-tag { transition: none; } }
+.thumb .tag-popover img { transform: none; transition: none; }
+.bulk-tag-notice { margin: 6px 0 0; color: var(--green); font-size: 13px; }

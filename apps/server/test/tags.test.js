@@ -61,3 +61,30 @@ test('tag saves update only the affected search entries and preserve existing ta
   assert.equal((await add({ topicId: existing.id })).statusCode, 200);
   assert.deepEqual(db.prepare('SELECT rowid,* FROM search_index ORDER BY rowid').all(), saved);
 });
+
+test('topic tags apply to every item under the topic once', async () => {
+  const bulk = (payload, topicId = 'topic-jazz') => app.inject({ method: 'POST', url: `/api/v1/topics/${topicId}/topics`, payload });
+  const members = () => db.prepare("SELECT DISTINCT asset_id FROM effective_asset_topics WHERE topic_id='topic-jazz' ORDER BY asset_id").all().map(row => row.asset_id);
+  const response = await bulk({ name: 'Bulk jazz tag' });
+  assert.equal(response.statusCode, 200);
+  const { topic, tagged, total } = response.json();
+  assert.equal(topic.name, 'Bulk jazz tag');
+  assert.equal(tagged, members().length);
+  assert.equal(total, members().length);
+  assert.deepEqual(db.prepare('SELECT DISTINCT asset_id FROM effective_asset_topics WHERE topic_id=? ORDER BY asset_id').all(topic.id).map(row => row.asset_id), members());
+  assert.ok((await app.inject('/api/v1/search?q=Bulk')).json().some(row => row.id === members()[0] && row.entityType === 'asset'));
+
+  const again = (await bulk({ topicId: topic.id })).json();
+  assert.equal(again.tagged, 0);
+  assert.equal(db.prepare('SELECT count(*) n FROM annotation_topics WHERE topic_id=?').get(topic.id).n, members().length);
+});
+
+test('invalid topic tag requests change nothing', async () => {
+  const bulk = (payload, topicId = 'topic-jazz') => app.inject({ method: 'POST', url: `/api/v1/topics/${topicId}/topics`, payload });
+  const before = db.prepare('SELECT (SELECT count(*) FROM topics) topics, (SELECT count(*) FROM annotations) annotations').get();
+  assert.equal((await bulk({ topicId: 'topic-jazz' })).statusCode, 400);
+  assert.equal((await bulk({ name: '' })).statusCode, 400);
+  assert.equal((await bulk({ topicId: 'missing' })).statusCode, 404);
+  assert.equal((await bulk({ name: 'Orphan tag' }, 'missing')).statusCode, 404);
+  assert.deepEqual(db.prepare('SELECT (SELECT count(*) FROM topics) topics, (SELECT count(*) FROM annotations) annotations').get(), before);
+});

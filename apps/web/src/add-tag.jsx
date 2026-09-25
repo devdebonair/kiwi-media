@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Check, MagnifyingGlass, Plus, Tag } from "@phosphor-icons/react";
 
-export function AddTag({ asset, api, onChange, endpoint = `/api/v1/assets/${asset.id}/topics` }) {
+export function AddTag({ asset, api, onChange, endpoint = `/api/v1/assets/${asset.id}/topics`, label = "Add tag", compact = false }) {
   const panel = useRef(null), trigger = useRef(null), input = useRef(null), busy = useRef(false);
   const uid = useId();
   const [open, setOpen] = useState(false);
@@ -56,14 +56,14 @@ export function AddTag({ asset, api, onChange, endpoint = `/api/v1/assets/${asse
       const value = await api(endpoint, {
         method: "POST", body: JSON.stringify(topic.create ? { name: topic.name } : { topicId: topic.id }),
       });
-      onChange(value.topics); close(); trigger.current?.focus();
+      onChange(value.topics, value); close(); trigger.current?.focus();
     } catch (e) { setError(e.message); }
     finally { busy.current = false; setSaving(false); }
   };
 
-  return <div className="add-tag">
-    <button ref={trigger} className="add-tag-trigger" onClick={() => { if (!open) { setQuery(""); setSelected(0); setLoaded(false); setLoading(true); } }} popoverTarget={`${uid}-panel`} aria-expanded={open} aria-haspopup="dialog"><Plus size={16}/>Add tag</button>
-    <div ref={panel} id={`${uid}-panel`} popover="auto" role="dialog" aria-label="Add tag" className="tag-popover" onToggle={event => setOpen(event.newState === "open")}>
+  return <div className={`add-tag ${compact ? "compact" : ""}`}>
+    <button ref={trigger} type="button" className={compact ? "thumb-add-tag" : "add-tag-trigger"} onClick={event => { event.stopPropagation(); if (!open) { setQuery(""); setSelected(0); setLoaded(false); setLoading(true); } }} popoverTarget={`${uid}-panel`} aria-expanded={open} aria-haspopup="dialog" aria-label={compact ? `Add tag to ${asset.title}` : undefined} title={compact ? label : undefined}>{compact ? <Tag size={16}/> : <><Plus size={16}/>{label}</>}</button>
+    <div ref={panel} id={`${uid}-panel`} popover="auto" role="dialog" aria-label={label} className="tag-popover" onToggle={event => setOpen(event.newState === "open")}>
       <div className="tag-search-field"><MagnifyingGlass size={18} aria-hidden="true"/>
       <input ref={input} className="tag-search" role="combobox" aria-label="Find or create a tag" placeholder="Find or create a tag…" maxLength={100} autoComplete="off" aria-expanded={open} aria-controls={`${uid}-list`} aria-autocomplete="list" aria-activedescendant={!loading && options.length ? `${uid}-option-${active}` : undefined} disabled={saving} value={query} onChange={event => { setQuery(event.target.value); setSelected(0); }} onKeyDown={event => {
         if (event.nativeEvent.isComposing) return;
