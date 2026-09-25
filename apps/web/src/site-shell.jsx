@@ -2,7 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { SearchBar } from "./search-bar.jsx";
-import { ClockCounterClockwise, Compass, FolderOpen, Gear, Leaf, List, Play, Rows, Tag, X } from "@phosphor-icons/react";
+import { ClockCounterClockwise, Compass, FolderOpen, Gear, Leaf, List, Play, Rows, Tag } from "@phosphor-icons/react";
+
+// Below this width (phones, tablets, laptops) the sidebar is an overlay drawer; wider desktops keep it docked.
+export const DRAWER_NAV_QUERY = "(max-width: 1799px)";
 
 export function Brand({ navigate }) {
   return <a href="/" className="brand" aria-label="Kiwi home" onClick={event => {
@@ -15,7 +18,7 @@ export function Header({ query, setQuery, onSubmit, openMenu, navigate, mobileOp
   const searchRef = useRef(null);
   const [mobile, setMobile] = useState(false);
   useEffect(() => {
-    const query = window.matchMedia("(max-width: 860px)");
+    const query = window.matchMedia(DRAWER_NAV_QUERY);
     const update = () => setMobile(query.matches);
     update();
     query.addEventListener("change", update);
@@ -49,6 +52,13 @@ export function Sidebar({ route, navigate, open, close, AppLink }) {
   const sidebarRef = useRef(null);
   useEffect(() => {
     if (!open) return;
+    const query = window.matchMedia(DRAWER_NAV_QUERY);
+    const closeOnDock = () => { if (!query.matches) close(); };
+    query.addEventListener("change", closeOnDock);
+    return () => query.removeEventListener("change", closeOnDock);
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
     const previousFocus = document.activeElement;
     sidebarRef.current?.querySelector("button")?.focus();
     const handleKey = event => {
@@ -67,7 +77,7 @@ export function Sidebar({ route, navigate, open, close, AppLink }) {
   return <>
     {open && <button className="scrim" onClick={close} aria-label="Close navigation" />}
     <aside ref={sidebarRef} id="site-navigation" className={`sidebar ${open ? "open" : ""}`}>
-      <div className="mobile-sidebar-heading"><Brand navigate={href => { close(); navigate(href); }} /><button className="icon-button" onClick={close} aria-label="Close navigation"><X size={22} /></button></div>
+      <div className="drawer-heading brand-group"><button className="menu-toggle icon-button" onClick={close} aria-label="Close navigation"><List size={23} /></button><Brand navigate={href => { close(); navigate(href); }} /></div>
       {groups.map(group => <nav className="nav-group" aria-label={group.label.toLowerCase()} key={group.label}>
         {group.label !== "DISCOVER" && <span className="nav-label">{group.label}</span>}
         {group.items.map(([href, label, page, Icon]) => <AppLink key={page} href={href} navigate={navigate} onClick={close} title={label} aria-current={route.page === page || (page === "feeds" && route.page === "feed") ? "page" : undefined} className={route.page === page || (page === "feeds" && route.page === "feed") ? "active" : ""}><Icon size={22} /><span>{label}</span></AppLink>)}

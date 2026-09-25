@@ -42,6 +42,7 @@ The watch page's related-video column has no visible heading or divider above it
 Like and Save are compact pills with matching 38px heights, 20px icons, and 13px labels. The header search is a compact 38px pill (36px on phones) and suggests matching library media and topics as the user types, with mouse, touch, and keyboard selection.
 
 Keep the top navbar compact: 60px on desktop, 56px on tablets, and 54px on phones. Page and sidebar offsets must track its height.
+Below 1800px wide (phones, tablets, laptops) the sidebar is hidden and the hamburger opens it as a YouTube-style overlay drawer over a dimmed page, with its own hamburger and logo aligned to the topbar's. Only full desktops (1800px+) dock the sidebar, where the hamburger collapses it to an icon rail. The breakpoint lives in `DRAWER_NAV_QUERY` (`src/site-shell.jsx`) and the matching `max-width: 1799px` block in `src/modern.css`.
 Keep the header free of the “Personal library” label and settings gear; Settings remains in the sidebar. Do not show a “Back to browsing” link above the regular watch player.
 
 Do not show the promotional “A space for your interests” block or the “A little curiosity goes a long way” footer label in the sidebar.
