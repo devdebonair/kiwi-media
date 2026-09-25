@@ -10,10 +10,10 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
 .app { --sidebar: 212px; }
 .topbar { padding: 0 30px 0 24px; grid-template-columns: calc(var(--sidebar) - 24px) minmax(240px, 580px); gap: 32px; }
 .brand-group { display: flex; align-items: center; gap: 20px; }
-.brand { color: var(--text); gap: 9px; font-size: 31px; letter-spacing: -1.5px; }
+.brand { color: var(--text); gap: 8px; font-size: 25px; letter-spacing: -1.2px; }
 .brand-dot { color: var(--green); }
-.brand-mark { width: 33px; height: 35px; border-radius: 11px 11px 11px 3px; background: var(--green); color: #202b17; transform: rotate(-8deg); }
-.brand-mark svg { transform: rotate(8deg); }
+.brand-mark { width: 27px; height: 28px; border-radius: 9px 9px 9px 3px; background: var(--green); color: #202b17; transform: rotate(-8deg); }
+.brand-mark svg { width: 18px; height: 18px; transform: rotate(8deg); }
 .icon-button { color: #b7b8c3; border-radius: 9px; }
 .icon-button:hover { color: var(--text); background: #ffffff0a; }
 .search { position: relative; min-width: 0; height: 38px; border-radius: 999px; background: #ffffff04; border-color: #ffffff06; color: #858694; }
@@ -187,7 +187,7 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
   .sidebar { top: 0; z-index: 60; width: 250px; padding: 0 16px 20px; visibility: hidden; transform: translateX(-100%); transition: transform .2s, visibility .2s; box-shadow: 18px 0 50px #0000004d; }
   .sidebar.open { visibility: visible; transform: none; transition: transform .2s; }
   .drawer-heading { display: flex; flex-shrink: 0; height: var(--topbar); margin: 0 0 18px 8px; }
-  .sidebar .drawer-heading .brand { height: auto; padding: 0; border-radius: 0; background: none; color: var(--text); font-size: 31px; gap: 9px; }
+  .sidebar .drawer-heading .brand { height: auto; padding: 0; border-radius: 0; background: none; color: var(--text); font-size: 25px; gap: 8px; }
   .nav-collapsed .sidebar a { justify-content: flex-start; padding: 0 13px; }
   .nav-collapsed .sidebar a > span, .nav-collapsed .nav-label { display: block; }
   .scrim { display: block; position: fixed; z-index: 55; inset: 0; border: 0; background: #06070b99; backdrop-filter: blur(4px); }
@@ -196,11 +196,12 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
   :root { --topbar: 56px; }
   .topbar, .nav-collapsed .topbar { grid-template-columns: 142px minmax(0, 1fr); gap: 14px; padding: 0 18px; }
   .brand-group { gap: 14px; }
-  .brand { display: flex; font-size: 27px; }
-  .brand-mark { width: 29px; height: 30px; }
+  .brand { display: flex; font-size: 23px; }
+  .brand-mark { width: 25px; height: 26px; }
+  .brand-mark svg { width: 17px; height: 17px; }
   .search kbd { display: none; }
   .drawer-heading { margin-left: 2px; }
-  .sidebar .drawer-heading .brand { font-size: 27px; }
+  .sidebar .drawer-heading .brand { font-size: 23px; }
   .content { padding: 28px 24px 60px; }
   .discovery-row { grid-template-columns: minmax(0, 1fr) 220px; gap: 22px; }
   .row-heading h2 { font-size: 13px; }
@@ -224,7 +225,7 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
   .brand-group .brand > span:last-child { display: none; }
   .menu-toggle { padding: 4px; }
   .drawer-heading { margin-left: -2px; }
-  .brand-group .brand-mark { width: 28px; height: 29px; }
+  .brand-group .brand-mark { width: 25px; height: 26px; }
   .search { height: 36px; padding: 0 10px; gap: 7px; }
   .search input { font-size: 12px; }
   .search > svg { width: 17px; flex-shrink: 0; }
