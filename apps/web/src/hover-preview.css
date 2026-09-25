@@ -1,0 +1,14 @@
+.hover-preview { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.hover-preview video { width: 100%; height: 100%; object-fit: contain; background: #000; opacity: 0; transition: opacity .2s; }
+.hover-preview.is-playing video { opacity: 1; }
+.hover-preview-mute { position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; color: #fff; background: #101116b3; pointer-events: auto; }
+.hover-preview-mute:hover { color: var(--green); }
+.hover-preview-mute:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.hover-preview-scrubber { position: absolute; left: 0; right: 0; bottom: 0; height: 14px; display: flex; align-items: flex-end; cursor: pointer; pointer-events: auto; touch-action: none; }
+.hover-preview-track { width: 100%; height: 3px; background: #ffffff40; transition: height .12s; }
+.hover-preview-scrubber:hover .hover-preview-track, .hover-preview-scrubber.is-dragging .hover-preview-track { height: 5px; }
+.hover-preview-progress { height: 100%; background: var(--green); transform-origin: left; transition: transform .25s linear; }
+.hover-preview-scrubber.is-dragging .hover-preview-progress { transition: none; }
+.hover-preview-time { position: absolute; bottom: 12px; transform: translateX(-50%); padding: 2px 6px; border-radius: 4px; background: #101116d9; color: #fff; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
+.thumb.is-previewing > .add-to-playlist, .thumb.is-previewing > .add-tag.compact { bottom: 16px; }
+.thumb.is-previewing img { transform: none !important; }
