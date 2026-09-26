@@ -8,6 +8,7 @@ import "../src/add-tag.css";
 import "../src/tag-editor.css";
 import "../src/hover-preview.css";
 import "../src/downloads.css";
+import "../src/liked.css";
 
 export const metadata = {
   title: "Kiwi — your media, connected",

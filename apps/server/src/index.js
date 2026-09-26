@@ -348,6 +348,29 @@ app.get("/api/v1/history", async (req, reply) => {
   `).all(userId, Number(limit), Number(offset)).map(enrichAsset);
 });
 
+const likedVideos = "FROM asset_likes l JOIN assets a ON a.id=l.asset_id WHERE l.user_id=? AND l.count>0 AND a.kind='video'";
+app.get("/api/v1/liked", async (req, reply) => {
+  const { likes, topic, limit = 60, offset = 0 } = req.query;
+  if (!Number.isSafeInteger(Number(limit)) || Number(limit) < 1 || Number(limit) > 200 || !Number.isSafeInteger(Number(offset)) || Number(offset) < 0) return reply.code(400).send({ error: "limit must be 1–200 and offset must be a nonnegative integer" });
+  if (likes !== undefined && !/^[1-5]$/.test(likes)) return reply.code(400).send({ error: "likes must be between 1 and 5" });
+  const filters = [], params = [];
+  if (likes) { filters.push("l.count=?"); params.push(Number(likes)); }
+  if (topic) { filters.push("EXISTS(SELECT 1 FROM effective_asset_topics et JOIN topics t ON t.id=et.topic_id WHERE et.asset_id=a.id AND (t.slug=? OR t.id=?))"); params.push(topic, topic); }
+  return db.prepare(`SELECT a.*, EXISTS(SELECT 1 FROM saved_assets sa WHERE sa.asset_id=a.id AND sa.user_id=l.user_id) saved
+    ${likedVideos}${filters.map(filter => ` AND ${filter}`).join("")}
+    ORDER BY l.count DESC, a.added_at DESC, a.id DESC LIMIT ? OFFSET ?
+  `).all(userId, ...params, Number(limit), Number(offset)).map(enrichAsset);
+});
+// Filter pills: how many liked videos sit at each like level, and the topics most common among them.
+// Topics that tag every liked video would not narrow anything down, so they are left out.
+app.get("/api/v1/liked/filters", async () => ({
+  levels: db.prepare(`SELECT l.count likes, count(*) item_count ${likedVideos} GROUP BY l.count ORDER BY l.count DESC`).all(userId),
+  topics: db.prepare(`SELECT t.id, t.slug, t.name, t.avatar_url, count(DISTINCT a.id) item_count
+    FROM asset_likes l JOIN assets a ON a.id=l.asset_id JOIN effective_asset_topics et ON et.asset_id=a.id JOIN topics t ON t.id=et.topic_id
+    WHERE l.user_id=? AND l.count>0 AND a.kind='video' GROUP BY t.id
+    HAVING item_count < (SELECT count(*) ${likedVideos}) ORDER BY item_count DESC, t.name LIMIT 12`).all(userId, userId),
+}));
+
 app.put("/api/v1/assets/:id/progress", async (req, reply) => {
   if (!db.prepare("SELECT 1 FROM assets WHERE id=?").get(req.params.id)) return reply.code(404).send({ error: "Asset not found" });
   const progress = Number(req.body?.progressMs ?? 0);

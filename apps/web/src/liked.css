@@ -1,0 +1,10 @@
+/* Like-level pills tint their heart with the same palette the like button advances through. */
+.like-level-chip { --like-color: #f18aac; }
+.like-level-chip[data-level="2"] { --like-color: #fa709a; }
+.like-level-chip[data-level="3"] { --like-color: #ec82d0; }
+.like-level-chip[data-level="4"] { --like-color: #c8a0ff; }
+.like-level-chip[data-level="5"] { --like-color: #ffd38a; }
+.like-level-chip svg { color: var(--like-color); }
+.like-level-chip.selected svg { color: currentColor; }
+.chips .chip-count { margin-left: 2px; font-size: 12px; font-weight: 500; opacity: .6; }
+.chips .chip-divider { flex: 0 0 1px; align-self: stretch; margin: 6px 3px; background: var(--line); }
