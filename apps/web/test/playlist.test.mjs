@@ -27,3 +27,14 @@ test('invalid storage recovers and nonvideos are never queued', () => {
   assert.deepEqual(state.items.map(a => a.id), ['a', 'b']); assert.equal(state.activeId, 'a');
   assert.deepEqual(reduce(emptyPlaylist(), { type: 'add', asset: { ...a, kind: 'audio' } }), emptyPlaylist());
 });
+test('queued videos keep duration and topic, and replaying fills in details missing from older queues', () => {
+  let state = reduce(emptyPlaylist(), { type: 'add', asset: { ...a, duration_ms: 61000, topics: [{ name: 'Nature' }] } });
+  assert.equal(state.items[0].duration_ms, 61000); assert.equal(state.items[0].topic, 'Nature');
+  assert.deepEqual(restorePlaylist(JSON.stringify(state)), state);
+  state = reduce(state, { type: 'play', asset: state.items[0] });
+  assert.equal(state.items[0].duration_ms, 61000); assert.equal(state.items[0].topic, 'Nature');
+  state = restorePlaylist(JSON.stringify({ items: [b], activeId: 'b' }));
+  assert.equal(state.items[0].duration_ms, null);
+  state = reduce(state, { type: 'play', asset: { ...b, duration_ms: 5000, topics: [] } });
+  assert.equal(state.items[0].duration_ms, 5000); assert.equal(state.items[0].topic, null);
+});

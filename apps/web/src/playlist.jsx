@@ -36,7 +36,7 @@ export function AddToPlaylist({ asset }) {
   }}>{added ? <Check size={16} /> : <ListPlus size={16} />}</button>;
 }
 
-export function PlaylistQueue({ navigate, mini = false }) {
+export function PlaylistQueue({ navigate, mini = false, formatDuration }) {
   const { items, activeId, dispatch } = usePlaylist();
   const [open, setOpen] = useState(!mini);
   const listRef = useRef(null);
@@ -52,11 +52,15 @@ export function PlaylistQueue({ navigate, mini = false }) {
     else if (row.bottom > viewport.bottom) list.scrollTop += row.bottom - viewport.bottom;
   }, [activeId, open, mini, items.length]);
   if (!items.length) return null;
+  const position = items.findIndex(asset => asset.id === activeId) + 1;
+  const count = `${items.length} ${items.length === 1 ? 'video' : 'videos'}`;
   return <section className="playlist-queue" aria-label="Playlist">
-    <button className="playlist-heading" aria-expanded={open} onClick={() => setOpen(value => !value)}><Playlist size={20} /><strong>Playlist</strong><span>{items.length} {items.length === 1 ? 'video' : 'videos'}</span><span className="playlist-chevron" aria-hidden="true">{open ? <CaretUp size={16} /> : <CaretDown size={16} />}</span></button>
-    {open && <ol ref={listRef}>{items.map(asset => <li key={asset.id} ref={asset.id === activeId ? activeItemRef : null} className={asset.id === activeId ? 'is-playing' : ''}>
+    <button className="playlist-heading" aria-expanded={open} onClick={() => setOpen(value => !value)}><Playlist size={20} /><strong>Playlist</strong><span>{position ? `${position} / ${count}` : count}</span><span className="playlist-chevron" aria-hidden="true">{open ? <CaretUp size={16} /> : <CaretDown size={16} />}</span></button>
+    {open && <ol ref={listRef}>{items.map((asset, index) => <li key={asset.id} ref={asset.id === activeId ? activeItemRef : null} className={asset.id === activeId ? 'is-playing' : ''}>
       <button className="playlist-item" onClick={() => { dispatch({ type: 'play', asset }); if (!mini) navigate(`/watch/${asset.id}`); }} aria-label={`Play ${asset.title}`}>
-        {asset.thumbnail_url ? <img src={asset.thumbnail_url} alt="" /> : <Play size={24} />}<span><strong>{asset.title}</strong>{asset.id === activeId && <small>Now playing</small>}</span>
+        <span className="playlist-index" aria-hidden="true">{asset.id === activeId ? <Play size={11} weight="fill" /> : index + 1}</span>
+        <span className="playlist-thumb">{asset.thumbnail_url ? <img src={asset.thumbnail_url} alt="" /> : <Play size={24} />}{asset.duration_ms && formatDuration && <span className="playlist-duration">{formatDuration(asset.duration_ms)}</span>}</span>
+        <span className="playlist-copy"><strong>{asset.title}</strong>{asset.id === activeId ? <small>Now playing</small> : asset.topic && <em>{asset.topic}</em>}</span>
       </button><button className="icon-button" aria-label={`Remove ${asset.title} from playlist`} onClick={() => {
         const next = playlistReducer({ items, activeId }, { type: 'remove', id: asset.id });
         dispatch({ type: 'remove', id: asset.id });

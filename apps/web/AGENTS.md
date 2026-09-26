@@ -37,7 +37,7 @@ Library filter tags and topic labels below the player share the same pill stylin
 
 Mobile filter pills must keep their full content width, including avatars and label padding, inside the horizontally scrollable row.
 
-The watch page's related-video column has no visible heading or divider above it; its first thumbnail must align with the top of the main player.
+The watch page's related-video column has no visible heading or divider above it; its first item (the playlist when one exists, otherwise the first thumbnail) must align with the top of the main player.
 
 Like and Save are compact pills with matching 38px heights, 20px icons, and 13px labels. The header search is a compact 38px pill (36px on phones) and suggests matching library media and topics as the user types, with mouse, touch, and keyboard selection.
 
@@ -58,6 +58,7 @@ Keep the mini player compact, with a smaller thumbnail Add to Playlist button. H
 The playlist queue automatically scrolls its own list to reveal the currently playing video when playback changes or the queue expands, without scrolling the surrounding page.
 In fullscreen, video controls fade away until the cursor moves, then fade away again after movement stops. Include previous and next playlist controls in the player, disabled at the ends of the queue.
 The regular player has a theater toggle that expands the video across the viewport below the top bar, moves related videos below it, and restores the standard layout when toggled off.
+On the regular watch page the playlist queue sits at the top of the right-hand column, above related videos, and stretches to the player's height (YouTube-style real estate). The side column is 400px (440px at 1720px+, 340px at 1250px and below) with an 18px gap to the player. The watch page uses slim 16px gutters on the left and right of the viewport (max width 2400px) so the player and side column fill the screen. Queue rows show the position number (a play icon for the current video), a 16:9 thumbnail with a duration badge, a two-line title, and the first topic; the remove button appears on hover. In theater mode, and in the single-column layout at 860px and below, the queue moves directly under the video instead.
 
 The watch page supports adding tags from a fixed-size searchable popover beside the topic pills. Match the mini player's charcoal background, border color, and 12px radius; show tag avatars and names, support arrow keys and Enter to select or create a tag.
 The tag popover search field uses the same pill corner radius and compact height as the navbar search field: 38px on desktop and 36px on phones, with a leading search icon.

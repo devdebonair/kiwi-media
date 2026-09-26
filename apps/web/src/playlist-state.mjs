@@ -1,6 +1,10 @@
 export const PLAYLIST_KEY = 'kiwi.playlist.v1';
 export const emptyPlaylist = () => ({ items: [], activeId: null });
-const item = asset => ({ id: asset.id, title: asset.title, kind: 'video', thumbnail_url: asset.thumbnail_url || null });
+const item = asset => ({
+  id: asset.id, title: asset.title, kind: 'video', thumbnail_url: asset.thumbnail_url || null,
+  duration_ms: Number.isFinite(asset.duration_ms) && asset.duration_ms > 0 ? asset.duration_ms : null,
+  topic: typeof asset.topic === 'string' ? asset.topic : asset.topics?.[0]?.name || null,
+});
 export function restorePlaylist(raw) {
   try {
     const value = JSON.parse(raw);
@@ -14,7 +18,11 @@ export function playlistReducer(state, action) {
   if (action.type === 'clear') return emptyPlaylist();
   if (action.type === 'add' || action.type === 'play') {
     if (action.asset.kind !== 'video') return state;
-    const items = state.items.some(a => a.id === action.asset.id) ? state.items : [...state.items, item(action.asset)];
+    // Re-adding or playing a queued video refreshes its stored details (older queues lack duration and topic).
+    const fresh = item(action.asset);
+    const items = state.items.some(a => a.id === fresh.id)
+      ? state.items.map(a => a.id === fresh.id ? { ...fresh, duration_ms: fresh.duration_ms ?? a.duration_ms, topic: fresh.topic ?? a.topic } : a)
+      : [...state.items, fresh];
     return { items, activeId: action.type === 'play' ? action.asset.id : state.activeId || items[0].id };
   }
   if (action.type === 'remove') {
