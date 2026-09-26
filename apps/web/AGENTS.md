@@ -63,3 +63,5 @@ The watch page supports adding tags from a fixed-size searchable popover beside 
 The tag popover search field uses the same pill corner radius and compact height as the navbar search field: 38px on desktop and 36px on phones, with a leading search icon.
 The tag search field matches the navbar search background in resting and focused states; use a quiet neutral focus border instead of a green highlight.
 Keep the tag popover minimal: only the search field and tag list, with no visible heading, close button, or keyboard-hint footer. Dismiss with Escape or an outside click.
+
+The top bar has a compact **Upload** pill at the right edge (icon only on phones), showing a green count badge while downloads are active. It opens the “Upload from the web” dialog for links, destination library folder and subfolder, downloader, and VPN, with a route preview and recent downloads. Dialogs render into `document.body` (`src/modal.jsx`) because the blurred topbar would contain a fixed backdrop. Downloaders, VPN profiles, and VPN-by-website rules live in Settings under `#downloads`.

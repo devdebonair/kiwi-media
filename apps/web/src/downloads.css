@@ -1,0 +1,135 @@
+/* Navbar upload button, download dialog, and download settings. */
+.topbar { grid-template-columns: calc(var(--sidebar) - 24px) minmax(240px, 580px) minmax(0, 1fr); }
+.nav-collapsed .topbar { grid-template-columns: 156px minmax(240px, 580px) minmax(0, 1fr); }
+.topbar-actions { justify-self: end; display: flex; align-items: center; gap: 8px; }
+.upload-button { position: relative; display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 16px 0 13px; border-radius: 999px; border: 1px solid #ffffff12; background: #23242c; color: #e4e5ec; font-size: 13px; font-weight: 600; }
+.upload-button:hover { border-color: #b6df8360; background: #2a2c32; }
+.upload-button > svg { color: var(--green); }
+.upload-badge { position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--green); color: #182013; font-size: 11px; font-weight: 700; display: grid; place-items: center; box-shadow: 0 0 0 2px #18191f; }
+
+.dialog.download-dialog, .dialog.settings-dialog { width: min(680px, 100%); max-height: calc(100dvh - 40px); overflow-y: auto; overscroll-behavior: contain; }
+.dialog.settings-dialog { width: min(560px, 100%); }
+.dialog select, .dialog textarea, .download-settings select, .download-settings input:not([type="checkbox"]) { width: 100%; min-width: 0; border: 1px solid #454650; border-radius: 8px; background: #191a21; color: var(--text); padding: 0 12px; outline: none; font: inherit; font-size: 14px; }
+.dialog select, .download-settings select, .download-settings input:not([type="checkbox"]) { height: 44px; }
+.dialog textarea { padding: 11px 12px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.5; }
+.dialog select:focus, .dialog textarea:focus, .dialog input:focus, .download-settings input:focus, .download-settings select:focus { border-color: #8d8e99; }
+.dialog input[type="file"] { height: auto; padding: 10px 0; border: 0; background: none; }
+.dialog .config-toggle, .dialog .config-field > label { font-weight: 600; }
+.dialog .config-field > label { display: block; }
+.download-loading { display: flex; align-items: center; gap: 10px; color: var(--muted); padding: 20px 0; }
+
+.download-tabs { display: flex; gap: 6px; margin-bottom: 18px; }
+.download-tabs button { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid #ffffff10; background: transparent; color: #b1b2bf; font-size: 13px; }
+.download-tabs button.active { background: var(--green); border-color: var(--green); color: #1c2514; font-weight: 600; }
+
+.download-form, .settings-form { display: flex; flex-direction: column; gap: 8px; }
+.download-form > label { font-weight: 600; }
+.download-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px; }
+.config-fields { display: flex; flex-direction: column; gap: 14px; }
+.settings-form { gap: 14px; }
+.config-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.config-field > label { font-size: 13px; }
+.optional { color: var(--muted); font-weight: 400; font-size: 12px; }
+.field-help { color: var(--muted); font-size: 12px; line-height: 1.5; font-weight: 400; }
+.field-error { color: #f2a7a7; font-size: 12px; line-height: 1.5; }
+.dialog label.config-toggle, .config-toggle { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; font-size: 13px; cursor: pointer; }
+.config-toggle input { margin-top: 3px; accent-color: var(--green); width: 16px; height: 16px; flex-shrink: 0; }
+.config-toggle span { display: flex; flex-direction: column; gap: 3px; }
+.dialog .primary-button { align-self: flex-end; }
+.settings-form > .primary-button { width: 100%; margin-top: 6px; }
+
+.plan-preview { display: flex; align-items: flex-start; gap: 9px; margin-top: 8px; padding: 11px 13px; border-radius: 10px; background: #1b1c23; border: 1px solid #ffffff0c; font-size: 13px; line-height: 1.45; color: #cfd0d8; }
+.plan-preview > svg { flex-shrink: 0; margin-top: 1px; color: var(--muted); }
+.plan-preview.is-error { color: #f2c4c4; background: #332629; border-color: #a6656550; }
+.vpn-on, .plan-preview > .vpn-on { color: var(--green); }
+.download-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
+.text-button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 6px 0; color: var(--muted); font-size: 13px; }
+.text-button:hover { color: var(--text); }
+.text-button.small { font-size: 12px; padding: 2px 0; margin-top: 4px; }
+.dialog .notice, .dialog .error-notice { margin: 4px 0 0; font-size: 13px; }
+
+.download-search form { display: flex; gap: 10px; margin-bottom: 14px; }
+.download-search form select { width: 160px; flex-shrink: 0; }
+.download-search-field { flex: 1; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border-radius: 999px; background: #191a21; border: 1px solid #454650; color: var(--muted); }
+.dialog .download-search-field input { flex: 1; height: 100%; border: 0; background: none; padding: 0; }
+.search-results { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
+.search-results li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.search-results li > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.search-results strong { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.search-results small { color: var(--muted); }
+.search-results .outline-button { height: 32px; padding: 0 12px; flex-shrink: 0; }
+
+.download-list { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 18px; }
+.download-list h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.download-list ul { list-style: none; margin: 0; padding: 0; }
+.download-item { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.download-item:last-child { border-bottom: 0; }
+.download-item-head { display: flex; align-items: flex-start; gap: 11px; }
+.download-item-head > svg { flex-shrink: 0; margin-top: 2px; color: var(--muted); }
+.status-completed .download-item-head > svg { color: var(--green); }
+.status-failed .download-item-head > svg { color: #e58c8c; }
+.download-item-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.download-item-copy strong { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.download-item-copy small { color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.download-route svg { vertical-align: -2px; }
+.download-item-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.download-item-actions .icon-button { padding: 6px; }
+.download-progress { position: relative; height: 4px; margin: 9px 0 0 29px; border-radius: 999px; background: #ffffff12; overflow: hidden; }
+.download-progress > span { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--green); transition: width .4s; }
+.download-progress.is-indeterminate > span { width: 35%; animation: download-indeterminate 1.3s ease-in-out infinite; }
+@keyframes download-indeterminate { from { left: -35%; } to { left: 100%; } }
+.download-error { margin: 7px 0 0 29px; font-size: 12px; color: #f2a7a7; line-height: 1.5; overflow-wrap: anywhere; }
+.download-item > .text-button { margin-left: 29px; }
+.download-log { margin: 8px 0 0 29px; max-height: 220px; overflow: auto; padding: 10px 12px; border-radius: 8px; background: #16171c; border: 1px solid #ffffff0d; font-size: 11px; line-height: 1.55; color: #b9bac5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.spin-slow { animation: spin 1.6s linear infinite; }
+
+.settings-card.download-settings { display: block; }
+.settings-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 8px; }
+.settings-card-head p { max-width: 640px; }
+.settings-list { list-style: none; margin: 0; padding: 0; }
+.settings-list > li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 15px 0; border-bottom: 1px solid var(--line); }
+.settings-list > li:last-child { border-bottom: 0; }
+.settings-list-copy { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.settings-list-copy strong { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-weight: 500; }
+.settings-list-copy small { color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.settings-list-copy small svg { vertical-align: -2px; }
+.settings-list-copy .field-error { color: #f2a7a7; }
+.vpn-result { color: var(--green) !important; }
+.settings-list-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.settings-list-actions .outline-button { height: 34px; padding: 0 13px; }
+.pill { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: 999px; background: #ffffff10; color: #b1b2bf; font-size: 11px; font-weight: 600; }
+.pill.accent { background: #b6df8318; color: var(--green); }
+.settings-footnote { margin-top: 14px !important; font-size: 12px !important; }
+.settings-footnote code { overflow-wrap: anywhere; }
+.download-settings .error-notice { margin: 12px 0 0; }
+.rule-form { display: flex; gap: 10px; margin-top: 14px; }
+.rule-form input { flex: 1.3; }
+.rule-form select { flex: 1; }
+.rule-form .outline-button { flex-shrink: 0; height: 44px; }
+.choice-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.choice-list button { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 13px 15px; border-radius: 11px; border: 1px solid #ffffff10; background: #1b1c23; text-align: left; }
+.choice-list button:hover { border-color: #b6df8360; background: #202128; }
+.choice-list strong { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+.choice-list small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.preset-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.preset-row .outline-button { height: 34px; padding: 0 13px; }
+
+@media (max-width: 860px) {
+  .topbar, .nav-collapsed .topbar { grid-template-columns: 142px minmax(0, 1fr) auto; }
+}
+@media (max-width: 580px) {
+  .topbar, .nav-collapsed .topbar { grid-template-columns: 68px minmax(0, 1fr) auto; }
+  .upload-button { width: 36px; height: 36px; padding: 0; justify-content: center; }
+  .upload-button > span:not(.upload-badge) { display: none; }
+  .download-grid { grid-template-columns: 1fr; }
+  .download-search form { flex-wrap: wrap; }
+  .download-search form select { width: 100%; }
+  .settings-card-head, .settings-list > li { flex-direction: column; align-items: stretch; }
+  .settings-list-actions { flex-wrap: wrap; }
+  .rule-form { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .download-progress.is-indeterminate > span { animation: none; width: 100%; opacity: .4; }
+  .spin-slow { animation: none; }
+}
+.library-folder-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }

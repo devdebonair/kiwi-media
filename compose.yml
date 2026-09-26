@@ -8,6 +8,8 @@ services:
     volumes:
       - kiwi-data:/data
       - ./media:/media:ro
+      # Writable folder for web downloads; add /downloads in Settings → Media libraries.
+      - ./downloads:/downloads
   web:
     build: .
     restart: unless-stopped
@@ -23,6 +25,8 @@ services:
     volumes:
       - kiwi-data:/data
       - ./media:/media:ro
+      # Writable folder for web downloads; add /downloads in Settings → Media libraries.
+      - ./downloads:/downloads
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped

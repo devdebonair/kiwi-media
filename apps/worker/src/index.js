@@ -1,5 +1,6 @@
 import { db, rebuildSearch } from "@kiwi/database";
-import { scanRoot, enrichRoot, enqueue } from "./library.js";
+import { createDownloadRunner } from "@kiwi/downloads/runner";
+import { scanRoot, enrichRoot, enqueue, importDownloadedFiles } from "./library.js";
 
 const workerId = `worker-${process.pid}`;
 const now = () => new Date().toISOString();
@@ -32,6 +33,11 @@ async function poll() {
     }
   } finally { busy = false; }
 }
+
+// Downloads run on their own queue so a long download never blocks library scans.
+const downloads = createDownloadRunner({ workerId, importFiles: importDownloadedFiles });
+downloads.start();
+for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => downloads.stop().finally(() => process.exit(0)));
 
 console.log(`Kiwi worker ${workerId} ready`);
 setInterval(() => poll().catch(console.error), 1500);

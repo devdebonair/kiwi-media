@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const packageDir = dirname(fileURLToPath(import.meta.url));
-const dataDir = resolve(process.env.KIWI_DATA_DIR || resolve(packageDir, "../../../data"));
+export const dataDir = resolve(process.env.KIWI_DATA_DIR || resolve(packageDir, "../../../data"));
 export const dbPath = resolve(dataDir, "kiwi.db");
 export const generatedDir = resolve(dataDir, "generated");
 mkdirSync(dirname(dbPath), { recursive: true });
@@ -160,11 +160,48 @@ export function migrate() {
       locked_by TEXT, progress REAL NOT NULL DEFAULT 0, error TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
+    -- One-time setup markers, so removed defaults are not recreated on restart.
+    CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS vpn_profiles (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, config_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    -- A configured instance of a downloader plugin; one plugin may have several (e.g. two accounts).
+    CREATE TABLE IF NOT EXISTS downloaders (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, plugin TEXT NOT NULL, config_json TEXT NOT NULL DEFAULT '{}',
+      vpn_profile_id TEXT REFERENCES vpn_profiles(id), enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+      is_default INTEGER NOT NULL DEFAULT 0 CHECK(is_default IN (0,1)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS vpn_domain_rules (
+      domain TEXT PRIMARY KEY, vpn_profile_id TEXT NOT NULL REFERENCES vpn_profiles(id), created_at TEXT NOT NULL
+    );
+    -- Download history keeps plain IDs so removing a downloader or folder never rewrites past jobs.
+    CREATE TABLE IF NOT EXISTS downloads (
+      id TEXT PRIMARY KEY, source TEXT NOT NULL, title TEXT, downloader_id TEXT NOT NULL, plugin TEXT NOT NULL,
+      library_root_id TEXT NOT NULL, subfolder TEXT NOT NULL DEFAULT '',
+      vpn_mode TEXT NOT NULL DEFAULT 'auto' CHECK(vpn_mode IN ('auto','none','profile')), vpn_profile_id TEXT, vpn_reason TEXT,
+      status TEXT NOT NULL DEFAULT 'queued', progress REAL, bytes_done INTEGER, bytes_total INTEGER, speed REAL, eta_seconds INTEGER,
+      message TEXT, error TEXT, log_text TEXT NOT NULL DEFAULT '', files_json TEXT NOT NULL DEFAULT '[]', asset_ids_json TEXT NOT NULL DEFAULT '[]',
+      attempts INTEGER NOT NULL DEFAULT 0, locked_by TEXT, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS downloads_status_idx ON downloads(status, created_at);
     CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
       entity_id UNINDEXED, entity_type UNINDEXED, title, body, tags,
       tokenize='unicode61 remove_diacritics 2'
     );
   `);
+  // Seed the built-in yt-dlp downloader once; users may later remove it.
+  if (!db.prepare("SELECT 1 FROM app_state WHERE key='downloaders-seeded'").get()) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      if (!db.prepare("SELECT 1 FROM downloaders").get()) {
+        db.prepare("INSERT INTO downloaders (id,name,plugin,config_json,is_default,created_at,updated_at) VALUES (?,?,?,?,?,?,?)")
+          .run("downloader-yt-dlp", "yt-dlp", "yt-dlp", "{}", 1, new Date().toISOString(), new Date().toISOString());
+      }
+      db.prepare("INSERT INTO app_state VALUES ('downloaders-seeded', ?)").run(new Date().toISOString());
+      db.exec("COMMIT");
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
+  }
   // Views, not materialized mappings: new imports inherit folder tags and topic rules immediately.
   db.exec(`CREATE VIEW IF NOT EXISTS direct_asset_topics AS
     SELECT a.asset_id, at.topic_id FROM annotations a

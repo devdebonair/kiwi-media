@@ -10,3 +10,4 @@ design-qa-*.png
 design-qa.md
 media/**/*.webm
 media/**/*.ogg
+/downloads/

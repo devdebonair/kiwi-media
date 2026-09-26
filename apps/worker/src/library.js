@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import mime from "mime-types";
-import { db, generatedDir } from "@kiwi/database";
+import { db, generatedDir, reindexAssetSearch } from "@kiwi/database";
 
 const exec = promisify(execFile);
 const now = () => new Date().toISOString();
@@ -26,6 +26,8 @@ async function walk(root) {
   const found = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
     const path = resolve(root, entry.name);
+    // In-progress downloads are staged here and moved into place when complete.
+    if (entry.isDirectory() && entry.name.startsWith(".kiwi-download-")) continue;
     if (entry.isDirectory()) found.push(...await walk(path));
     else if (entry.isFile() && mediaKinds[extname(entry.name).toLowerCase()]) found.push(path);
   }
@@ -39,23 +41,54 @@ export async function scanRoot(input, progress = () => {}) {
   const rootId = db.prepare("SELECT id FROM library_roots WHERE absolute_path=?").get(root).id;
   let imported = 0;
   for (const [index, path] of files.entries()) {
-    if (!db.prepare("SELECT 1 FROM assets WHERE file_path=?").get(path)) {
-      const info = await stat(path), ext = extname(path).toLowerCase();
-      const id = randomUUID(), timestamp = now();
-      db.exec("BEGIN IMMEDIATE");
-      try {
-        // Registration needs no full-file checksum, thumbnail, or external metadata.
-        db.prepare("INSERT INTO assets (id,kind,title,description,file_path,added_at,updated_at,visibility) VALUES (?,?,?,?,?,?,?,?)")
-          .run(id, mediaKinds[ext], basename(path, ext), `Imported from ${basename(root)}`, path, timestamp, timestamp, "private");
-        db.prepare("INSERT INTO files VALUES (?,?,?,?,?,?,?,?,?)")
-          .run(randomUUID(), id, "original", rootId, relative(root, path), mime.lookup(path) || null, info.size, null, timestamp);
-        db.exec("COMMIT");
-        imported++;
-      } catch (error) { db.exec("ROLLBACK"); throw error; }
-    }
+    if (await registerFile(root, rootId, path)) imported++;
     if (index % 50 === 0 || index === files.length - 1) progress((index + 1) / files.length);
   }
   return { total: files.length, imported };
+}
+
+// Registration needs no full-file checksum, thumbnail, or external metadata. Returns the new asset ID.
+async function registerFile(root, rootId, path, { title, description = `Imported from ${basename(root)}`, sourceUrl = null } = {}) {
+  if (db.prepare("SELECT 1 FROM assets WHERE file_path=?").get(path)) return null;
+  const info = await stat(path), ext = extname(path).toLowerCase();
+  const id = randomUUID(), timestamp = now();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare("INSERT INTO assets (id,kind,title,description,source_url,file_path,added_at,updated_at,visibility) VALUES (?,?,?,?,?,?,?,?,?)")
+      .run(id, mediaKinds[ext], title || basename(path, ext), description, sourceUrl, path, timestamp, timestamp, "private");
+    db.prepare("INSERT INTO files VALUES (?,?,?,?,?,?,?,?,?)")
+      .run(randomUUID(), id, "original", rootId, relative(root, path), mime.lookup(path) || null, info.size, null, timestamp);
+    if (sourceUrl) {
+      db.prepare("INSERT INTO asset_sources (id,asset_id,source_url,canonical_url,site_name,retrieved_at) VALUES (?,?,?,?,?,?)")
+        .run(randomUUID(), id, sourceUrl, sourceUrl, siteName(sourceUrl), timestamp);
+    }
+    db.exec("COMMIT");
+    return id;
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
+}
+
+const siteName = source => { try { return new URL(source).hostname.replace(/^www\./, ""); } catch { return null; } };
+
+// Adds finished downloads to the library right away and prepares thumbnails, without rescanning the folder.
+// A single media file takes the downloader's title (e.g. the video title rather than its file name).
+export async function importDownloadedFiles({ root, files, source, title }) {
+  const media = files.filter(path => mediaKinds[extname(path).toLowerCase()]);
+  const sourceUrl = /^https?:\/\//i.test(source) ? source : null;
+  const site = siteName(source);
+  const ids = [];
+  for (const path of media) {
+    const id = await registerFile(root.absolute_path, root.id, path, {
+      title: media.length === 1 && title ? title : undefined,
+      description: site ? `Downloaded from ${site}` : "Downloaded from the web",
+      sourceUrl,
+    });
+    // A file saved over a path that was imported before keeps its existing asset.
+    if (!id) { ids.push(db.prepare("SELECT id FROM assets WHERE file_path=?").get(path).id); continue; }
+    ids.push(id);
+    reindexAssetSearch(id);
+    try { await enrichFile(db.prepare("SELECT * FROM assets WHERE id=?").get(id)); } catch {}
+  }
+  return ids;
 }
 
 export async function enrichFile(asset) {

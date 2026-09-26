@@ -1,0 +1,14 @@
+{
+  "name": "@kiwi/downloads",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./runner": "./src/runner.js"
+  },
+  "scripts": { "test": "node --test test/*.test.js" },
+  "dependencies": {
+    "@kiwi/database": "*",
+    "undici": "^7.16.0"
+  }
+}

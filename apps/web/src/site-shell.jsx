@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { SearchBar } from "./search-bar.jsx";
+import { UploadButton } from "./download-dialog.jsx";
 import { ClockCounterClockwise, Compass, FolderOpen, Gear, Leaf, List, Play, Rows, Tag } from "@phosphor-icons/react";
 
 // Below this width (phones, tablets, laptops) the sidebar is an overlay drawer; wider desktops keep it docked.
@@ -14,7 +15,7 @@ export function Brand({ navigate }) {
   }}><span className="brand-mark"><Leaf size={22} weight="fill" /></span><span>kiwi<span className="brand-dot">.</span></span></a>;
 }
 
-export function Header({ query, setQuery, onSubmit, openMenu, navigate, mobileOpen, collapsed }) {
+export function Header({ query, setQuery, onSubmit, openMenu, navigate, mobileOpen, collapsed, api }) {
   const searchRef = useRef(null);
   const [mobile, setMobile] = useState(false);
   useEffect(() => {
@@ -40,6 +41,7 @@ export function Header({ query, setQuery, onSubmit, openMenu, navigate, mobileOp
       <Brand navigate={navigate} />
     </div>
     <SearchBar query={query} setQuery={setQuery} onSubmit={onSubmit} navigate={navigate} inputRef={searchRef} />
+    <div className="topbar-actions"><UploadButton api={api} navigate={navigate} /></div>
   </header>;
 }
 

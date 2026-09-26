@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { createPlaybackCache } from "./playback.js";
 import { parseRange } from "./range.js";
 import { registerTagMetadata, tagMetadata } from "./tag-metadata.js";
+import { registerDownloads } from "./downloads.js";
 
 const app = Fastify({ logger: true });
 const playbackCache = createPlaybackCache(resolve(generatedDir, "playback"), {
@@ -26,6 +27,7 @@ await app.register(cors, { origin: true, credentials: true });
 await app.register(fastifyStatic, { root: generatedDir, prefix: "/generated/", decorateReply: false });
 await app.register(fastifyStatic, { root: webPublic, prefix: "/assets/", decorateReply: false });
 registerTagMetadata(app);
+registerDownloads(app);
 
 const engagement = id => ({
   view_count: db.prepare("SELECT count(*) count FROM asset_views WHERE asset_id=?").get(id).count,
@@ -372,13 +374,17 @@ app.post("/api/v1/library/roots", async (req, reply) => {
   } catch { return reply.code(400).send({ error: "Folder must exist on the server" }); }
   if (db.prepare("SELECT id FROM library_roots WHERE absolute_path=?").get(path)) return reply.code(409).send({ error: "Folder is already connected" });
   const id = randomUUID();
-  db.prepare("INSERT INTO library_roots (id,name,absolute_path,read_only,created_at) VALUES (?,?,?,?,?)").run(id, basename(path) || path, path, 1, new Date().toISOString());
+  db.prepare("INSERT INTO library_roots (id,name,absolute_path,read_only,created_at) VALUES (?,?,?,?,?)").run(id, basename(path) || path, path, 0, new Date().toISOString());
   return reply.code(201).send(db.prepare("SELECT * FROM library_roots WHERE id=?").get(id));
 });
 
+// Updates scanning (enabled) and whether downloads may be saved into the folder (readOnly).
 app.patch("/api/v1/library/roots/:id", async (req, reply) => {
-  if (typeof req.body?.enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" });
-  const result = db.prepare("UPDATE library_roots SET enabled=? WHERE id=?").run(Number(req.body.enabled), req.params.id);
+  const { enabled, readOnly } = req.body || {};
+  if ((enabled === undefined && readOnly === undefined) || (enabled !== undefined && typeof enabled !== "boolean") || (readOnly !== undefined && typeof readOnly !== "boolean"))
+    return reply.code(400).send({ error: "enabled and readOnly must be booleans" });
+  const result = db.prepare("UPDATE library_roots SET enabled=coalesce(?,enabled),read_only=coalesce(?,read_only) WHERE id=?")
+    .run(enabled === undefined ? null : Number(enabled), readOnly === undefined ? null : Number(readOnly), req.params.id);
   if (!result.changes) return reply.code(404).send({ error: "Folder not found" });
   return db.prepare("SELECT * FROM library_roots WHERE id=?").get(req.params.id);
 });
