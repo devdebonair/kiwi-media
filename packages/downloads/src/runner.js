@@ -37,6 +37,9 @@ async function moveInto(file, workDir, destination) {
   return target;
 }
 
+// Read at import time: tags may be added while a download is still running.
+const currentTopicIds = id => JSON.parse(db.prepare("SELECT topic_ids_json FROM downloads WHERE id=?").get(id)?.topic_ids_json || "[]");
+
 class Canceled extends Error {}
 class Stopped extends Error {}
 
@@ -167,7 +170,7 @@ export function createDownloadRunner({ workerId, concurrency = Number(process.en
       await rm(workDir, { recursive: true, force: true });
       flush();
       let assetIds = [];
-      try { assetIds = await importFiles({ root, files, source: row.source, title: state.title }); }
+      try { assetIds = await importFiles({ root, files, source: row.source, title: state.title, topicIds: currentTopicIds(row.id) }); }
       catch (error) { writeLog(`Import failed: ${error.message}. Scan the library to add these files.`); }
       Object.assign(state, { message: `Saved ${files.length} file${files.length === 1 ? "" : "s"}`, progress: 1, eta_seconds: 0 });
       dirty = true; flush();

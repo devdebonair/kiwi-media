@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { db } from "@kiwi/database";
+import { db, tagAssetWithTopic } from "@kiwi/database";
 import {
   ConfigError, cookiesPath, createHttp, createTunnelManager, describePlugins, destinationFor, getDownloader, getPlugin, getVpnProfile,
   listVpnTypes, normalizeDomain, piaRegions, planDownload, publicDownloader, publicVpnProfile, downloadBlocker, serializeDownload,
@@ -32,7 +32,36 @@ const handle = fn => async (req, reply) => {
   }
 };
 
-export function registerDownloads(app) {
+// Section filters for the Downloads page. Canceled downloads are listed with failures.
+const statusFilters = { active: "status IN ('queued','running','canceling')", completed: "status='completed'", failed: "status IN ('failed','canceled')" };
+
+export function registerDownloads(app, { resolveTopic } = {}) {
+  // Resolves tag choices ({ topicId } or { name }), creating named tags. Call inside a transaction.
+  const topicIdsFor = (choices, timestamp) => {
+    if (choices === undefined) return [];
+    if (!Array.isArray(choices) || choices.length > 50) throw new ConfigError("Tags must be a list of up to 50 tags.");
+    return [...new Set(choices.map(choice => {
+      const { topic, code, error } = resolveTopic(choice, timestamp, true);
+      if (!topic) throw new ConfigError(error, code);
+      return topic.id;
+    }))];
+  };
+  // Adds tags to downloads: completed ones tag their media now, others when they finish.
+  const tagDownloads = (rows, choice) => {
+    const timestamp = now();
+    transaction(() => {
+      const [topicId] = topicIdsFor([choice], timestamp);
+      for (const row of rows) {
+        const ids = JSON.parse(row.topic_ids_json || "[]");
+        if (!ids.includes(topicId)) db.prepare("UPDATE downloads SET topic_ids_json=?,updated_at=? WHERE id=?").run(JSON.stringify([...ids, topicId]), timestamp, row.id);
+        if (row.status === "completed") for (const assetId of JSON.parse(row.asset_ids_json)) {
+          if (db.prepare("SELECT 1 FROM assets WHERE id=?").get(assetId)) tagAssetWithTopic(assetId, topicId, timestamp);
+        }
+      }
+    });
+  };
+  const listed = row => { const { log, ...rest } = serializeDownload(row, { withAssets: true }); return rest; };
+
   const tunnels = createTunnelManager({ idleMs: 30_000, log: message => app.log.info(message) });
   app.addHook("onClose", async () => tunnels.closeAll());
 
@@ -185,10 +214,42 @@ export function registerDownloads(app) {
     return { downloader: { id: plan.downloader.id, name: plan.downloader.name, plugin: plan.plugin.id }, vpn: vpnSummary(plan) };
   }));
 
+  // Active first, then newest. `status` narrows to one Downloads page section; `q` matches title or link.
   app.get("/api/v1/downloads", handle(async req => {
-    const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 200);
-    const rows = db.prepare(`SELECT * FROM downloads ORDER BY CASE WHEN status IN ${activeStatuses} THEN 0 ELSE 1 END, created_at DESC, id LIMIT ?`).all(limit);
-    return rows.map(row => { const { log, ...rest } = serializeDownload(row); return rest; });
+    const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 200), offset = Math.max(Number(req.query.offset) || 0, 0);
+    if (req.query.status && !statusFilters[req.query.status]) throw new ConfigError("status must be active, completed, or failed.");
+    const filters = [statusFilters[req.query.status] || "1=1"], params = [];
+    const query = String(req.query.q || "").trim().toLowerCase();
+    if (query) { filters.push("(instr(lower(coalesce(title,'')),?) OR instr(lower(source),?))"); params.push(query, query); }
+    const rows = db.prepare(`SELECT * FROM downloads WHERE ${filters.join(" AND ")} ORDER BY CASE WHEN status IN ${activeStatuses} THEN 0 ELSE 1 END, created_at DESC, id LIMIT ? OFFSET ?`).all(...params, limit, offset);
+    return rows.map(req.query.status ? listed : row => { const { log, assets, ...rest } = listed(row); return rest; });
+  }));
+  app.get("/api/v1/downloads/summary", handle(async () => {
+    const counts = Object.fromEntries(Object.entries(statusFilters).map(([key, where]) => [key, db.prepare(`SELECT count(*) n FROM downloads WHERE ${where}`).get().n]));
+    return counts;
+  }));
+  app.post("/api/v1/downloads/topics", handle(async req => {
+    const ids = req.body?.downloadIds;
+    if (!Array.isArray(ids) || !ids.length || ids.length > 500 || ids.some(id => typeof id !== "string")) throw new ConfigError("Choose 1–500 downloads.");
+    const rows = ids.map(id => db.prepare("SELECT * FROM downloads WHERE id=?").get(id)).filter(Boolean);
+    tagDownloads(rows, req.body);
+    return { downloads: rows.map(row => listed(db.prepare("SELECT * FROM downloads WHERE id=?").get(row.id))) };
+  }));
+  app.post("/api/v1/downloads/:id/topics", handle(async req => {
+    const row = db.prepare("SELECT * FROM downloads WHERE id=?").get(req.params.id);
+    if (!row) throw new ConfigError("Download not found.", 404);
+    tagDownloads([row], req.body);
+    const download = listed(db.prepare("SELECT * FROM downloads WHERE id=?").get(row.id));
+    return { topics: download.topics, download };
+  }));
+  // Only queued tags can be removed here; tags on imported media are managed on the media itself.
+  app.delete("/api/v1/downloads/:id/topics/:topicId", handle(async req => {
+    const row = db.prepare("SELECT * FROM downloads WHERE id=?").get(req.params.id);
+    if (!row) throw new ConfigError("Download not found.", 404);
+    if (row.status === "completed") throw new ConfigError("This download finished; remove the tag from the media instead.", 409);
+    db.prepare("UPDATE downloads SET topic_ids_json=?,updated_at=? WHERE id=?").run(JSON.stringify(JSON.parse(row.topic_ids_json).filter(id => id !== req.params.topicId)), now(), row.id);
+    const download = listed(db.prepare("SELECT * FROM downloads WHERE id=?").get(row.id));
+    return { topics: download.topics, download };
   }));
   app.get("/api/v1/downloads/:id", handle(async req => {
     const row = db.prepare("SELECT * FROM downloads WHERE id=?").get(req.params.id);
@@ -198,9 +259,9 @@ export function registerDownloads(app) {
 
   app.post("/api/v1/downloads", handle(async (req, reply) => {
     const body = req.body || {};
-    const sources = (Array.isArray(body.sources) ? body.sources : [body.source]).filter(value => typeof value === "string").map(value => value.trim()).filter(Boolean);
+    const sources = [...new Set((Array.isArray(body.sources) ? body.sources : [body.source]).filter(value => typeof value === "string").map(value => value.trim()).filter(Boolean))];
     if (!sources.length) throw new ConfigError("Paste at least one link.");
-    if (sources.length > 50) throw new ConfigError("Add at most 50 links at a time.");
+    if (sources.length > 200) throw new ConfigError("Add at most 200 links at a time.");
     if (sources.some(source => source.length > 4096)) throw new ConfigError("Links must be shorter than 4096 characters.");
     const { root, subfolder } = destinationFor(body.libraryRootId, body.subfolder || "");
     const blocked = downloadBlocker(root);
@@ -210,13 +271,16 @@ export function registerDownloads(app) {
       try { plans.push({ source, ...await planDownload({ source, downloaderId: body.downloaderId || undefined, vpn: body.vpn || "auto" }) }); }
       catch (error) { if (error.statusCode) error.message = sources.length > 1 ? `${source.slice(0, 80)}: ${error.message}` : error.message; throw error; }
     }
-    const timestamp = now(), ids = [];
+    const start = Date.now(), ids = [];
     transaction(() => {
-      const insert = db.prepare("INSERT INTO downloads (id,source,downloader_id,plugin,library_root_id,subfolder,vpn_mode,vpn_profile_id,vpn_reason,status,message,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
-      for (const plan of plans) {
+      const topicIds = JSON.stringify(topicIdsFor(body.topics, new Date(start).toISOString()));
+      const insert = db.prepare("INSERT INTO downloads (id,source,downloader_id,plugin,library_root_id,subfolder,vpn_mode,vpn_profile_id,vpn_reason,status,message,topic_ids_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+      for (const [index, plan] of plans.entries()) {
         const id = randomUUID();
         ids.push(id);
-        insert.run(id, plan.source, plan.downloader.id, plan.plugin.id, root.id, subfolder, plan.vpnMode, plan.profile?.id || null, plan.reason, "queued", "Waiting to start", timestamp, timestamp);
+        // Millisecond steps keep pasted links queued in their original order.
+        const timestamp = new Date(start + index).toISOString();
+        insert.run(id, plan.source, plan.downloader.id, plan.plugin.id, root.id, subfolder, plan.vpnMode, plan.profile?.id || null, plan.reason, "queued", "Waiting to start", topicIds, timestamp, timestamp);
       }
     });
     return reply.code(202).send(ids.map(id => serializeDownload(db.prepare("SELECT * FROM downloads WHERE id=?").get(id))));

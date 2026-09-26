@@ -97,3 +97,34 @@ test("downloads target writable library folders and can be planned, canceled, re
   assert.equal((await call("GET", "/api/v1/downloads")).body.length, 1);
   chmodSync(readOnly, 0o755);
 });
+
+test("the Downloads page lists sections, counts them, and tags queued and completed downloads", async () => {
+  const library = join(directory, "page-library");
+  mkdirSync(library);
+  const root = (await call("POST", "/api/v1/library/roots", { path: library })).body;
+  db.exec("DELETE FROM downloads");
+  const created = await call("POST", "/api/v1/downloads", { sources: ["https://a.example/1", "https://a.example/2", "https://a.example/1"], libraryRootId: root.id, downloaderId: "downloader-yt-dlp", vpn: "none", topics: [{ name: "Queued tag" }] });
+  assert.equal(created.status, 202);
+  assert.equal(created.body.length, 2, "duplicate links are queued once");
+  assert.deepEqual(created.body.map(item => item.topics.map(topic => topic.name)), [["Queued tag"], ["Queued tag"]]);
+  const [first, second] = created.body;
+
+  // Simulate the worker finishing the first download into a library item.
+  const assetId = db.prepare("SELECT id FROM assets LIMIT 1").get().id;
+  db.prepare("UPDATE downloads SET status='completed',asset_ids_json=? WHERE id=?").run(JSON.stringify([assetId]), first.id);
+  db.prepare("UPDATE downloads SET status='failed',error='boom' WHERE id=?").run(second.id);
+  assert.deepEqual((await call("GET", "/api/v1/downloads/summary")).body, { active: 0, completed: 1, failed: 1 });
+  const completed = (await call("GET", "/api/v1/downloads?status=completed")).body;
+  assert.deepEqual([completed.length, completed[0].assets[0].id], [1, assetId]);
+  assert.equal((await call("GET", "/api/v1/downloads?status=failed&q=A.EXAMPLE/2")).body[0].id, second.id);
+  assert.equal((await call("GET", "/api/v1/downloads?status=bogus")).status, 400);
+
+  const bulk = await call("POST", "/api/v1/downloads/topics", { downloadIds: [first.id, second.id], name: "Bulk tag" });
+  assert.equal(bulk.status, 200);
+  const tagged = bulk.body.downloads.find(item => item.id === first.id);
+  assert.ok(tagged.assets[0].topics.some(topic => topic.name === "Bulk tag"), "completed media is tagged immediately");
+  assert.deepEqual(bulk.body.downloads.find(item => item.id === second.id).topics.map(topic => topic.name), ["Bulk tag", "Queued tag"]);
+  const bulkTopic = db.prepare("SELECT id FROM topics WHERE name='Bulk tag'").get().id;
+  assert.equal((await call("DELETE", `/api/v1/downloads/${first.id}/topics/${bulkTopic}`)).status, 409);
+  assert.deepEqual((await call("DELETE", `/api/v1/downloads/${second.id}/topics/${bulkTopic}`)).body.topics.map(topic => topic.name), ["Queued tag"]);
+});

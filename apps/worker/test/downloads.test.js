@@ -27,7 +27,9 @@ test("finished downloads join the library with their source and title; scans ski
     assert.equal(db.prepare("SELECT site_name FROM asset_sources WHERE asset_id=?").get(asset.id).site_name, "example.com");
     assert.equal(db.prepare("SELECT library_root_id FROM files WHERE asset_id=?").get(asset.id).library_root_id, "r");
     assert.ok(db.prepare("SELECT 1 FROM search_index WHERE entity_id=? AND title='A Real Title'").get(asset.id));
-    assert.deepEqual(await importDownloadedFiles({ root: { id: "r", absolute_path: root }, files: [video], source: "magnet:?xt=1" }), ids, "already imported files keep their asset");
+    db.prepare("INSERT INTO topics (id,slug,name,created_at,updated_at) VALUES ('t1','t1','Queued',?,?)").run(new Date().toISOString(), new Date().toISOString());
+    assert.deepEqual(await importDownloadedFiles({ root: { id: "r", absolute_path: root }, files: [video], source: "magnet:?xt=1", topicIds: ["t1", "deleted-topic"] }), ids, "already imported files keep their asset");
+    assert.ok(db.prepare("SELECT 1 FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE a.asset_id=? AND at.topic_id='t1'").get(ids[0]), "queued tags are applied; deleted ones are skipped");
     assert.equal(db.prepare("SELECT count(*) n FROM assets WHERE file_path=?").get(video).n, 1);
     assert.deepEqual(await scanRoot(root), { total: 1, imported: 0 });
   } finally { db.close(); await rm(dir, { recursive: true, force: true }); }

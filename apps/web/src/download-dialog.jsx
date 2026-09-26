@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowClockwise, ArrowSquareOut, CheckCircle, GearSix, LinkSimple, MagnifyingGlass, Plus, ShieldCheck, ShieldSlash, SpinnerGap, Trash, UploadSimple, WarningCircle, X } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowSquareOut, CheckCircle, DownloadSimple, GearSix, LinkSimple, MagnifyingGlass, Plus, ShieldCheck, ShieldSlash, SpinnerGap, Trash, UploadSimple, WarningCircle, X } from "@phosphor-icons/react";
 import { Modal } from "./modal.jsx";
+import { AddTag } from "./add-tag.jsx";
+import { TopicLabel } from "./topic-label.jsx";
 
-const active = status => ["queued", "running", "canceling"].includes(status);
+export const active = status => ["queued", "running", "canceling"].includes(status);
 const formStorage = "kiwi.download.form";
 export const formatBytes = bytes => {
   if (bytes == null) return "";
@@ -12,7 +14,7 @@ export const formatBytes = bytes => {
   while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
   return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
 };
-const formatEta = seconds => {
+export const formatEta = seconds => {
   if (!seconds) return "";
   const h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60), s = Math.round(seconds % 60);
   return h ? `${h}h ${m}m left` : m ? `${m}m ${s}s left` : `${s}s left`;
@@ -40,13 +42,14 @@ export function UploadButton({ api, navigate }) {
   </>;
 }
 
-function DownloadDialog({ api, navigate, close, onCount }) {
+// Link form shared by the Upload dialog and the Downloads page: links, destination, downloader, VPN, and tags.
+export function DownloadForm({ api, onQueued, footer, rows = 3 }) {
   const saved = useMemo(() => { try { return JSON.parse(localStorage.getItem(formStorage) || "{}"); } catch { return {}; } }, []);
   const [options, setOptions] = useState(null), [loadError, setLoadError] = useState("");
   const [sources, setSources] = useState(""), [rootId, setRootId] = useState(saved.rootId || ""), [subfolder, setSubfolder] = useState(saved.subfolder || "");
   const [downloaderId, setDownloaderId] = useState(saved.downloaderId || ""), [vpn, setVpn] = useState(saved.vpn || "auto");
+  const [topics, setTopics] = useState([]);
   const [tab, setTab] = useState("link"), [busy, setBusy] = useState(false), [message, setMessage] = useState(null);
-  const [downloads, setDownloads] = useState(null);
 
   useEffect(() => {
     Promise.all([api("/api/v1/downloads/destinations"), api("/api/v1/downloaders"), api("/api/v1/vpn/profiles")]).then(([roots, downloaders, profiles]) => {
@@ -57,6 +60,78 @@ function DownloadDialog({ api, navigate, close, onCount }) {
       setVpn(current => current === "auto" || current === "none" || profiles.some(profile => profile.id === current) ? current : "auto");
     }).catch(error => setLoadError(error.message));
   }, []);
+
+  const lines = [...new Set(sources.split("\n").map(line => line.trim()).filter(Boolean))];
+  const submit = async event => {
+    event.preventDefault();
+    setBusy(true); setMessage(null);
+    try {
+      const created = await api("/api/v1/downloads", { method: "POST", body: JSON.stringify({
+        sources: lines, libraryRootId: rootId, subfolder, downloaderId: downloaderId || undefined, vpn,
+        topics: topics.map(topic => topic.id ? { topicId: topic.id } : { name: topic.name }),
+      }) });
+      localStorage.setItem(formStorage, JSON.stringify({ rootId, subfolder, downloaderId, vpn }));
+      setSources("");
+      setMessage({ kind: "ok", text: `${created.length === 1 ? "Download" : `${created.length} downloads`} queued.` });
+      onQueued?.(created);
+    } catch (error) { setMessage({ kind: "error", text: error.message }); }
+    finally { setBusy(false); }
+  };
+  const searchable = options?.downloaders.filter(item => item.searchable) || [];
+  const roots = options?.roots || [];
+  const noWritable = options && !roots.some(root => root.writable);
+
+  if (loadError) return <div className="error-notice">{loadError}</div>;
+  if (!options) return <div className="download-loading"><SpinnerGap className="spin" size={22} /> Loading…</div>;
+  return <>
+    {searchable.length > 0 && <div className="download-tabs" role="tablist">
+      <button type="button" role="tab" aria-selected={tab === "link"} className={tab === "link" ? "active" : ""} onClick={() => setTab("link")}><LinkSimple size={16} /> Links</button>
+      <button type="button" role="tab" aria-selected={tab === "search"} className={tab === "search" ? "active" : ""} onClick={() => setTab("search")}><MagnifyingGlass size={16} /> Search</button>
+    </div>}
+    {tab === "search" && <SearchPanel api={api} downloaders={searchable} onPick={(source, downloader) => { setSources(current => `${current.trim() ? `${current.trim()}\n` : ""}${source}`); setDownloaderId(downloader); setTab("link"); }} />}
+    {tab === "link" && <form className="download-form" onSubmit={submit}>
+      <label htmlFor="download-sources">Links</label>
+      <textarea id="download-sources" autoFocus rows={rows} value={sources} onChange={event => setSources(event.target.value)} spellCheck={false}
+        placeholder={"https://www.youtube.com/watch?v=…\nmagnet:?xt=urn:btih:…"} />
+      <small className="field-help">One link, magnet, or ID per line{lines.length > 1 ? ` · ${lines.length} links` : ""}.</small>
+      <div className="download-grid">
+        <div className="config-field"><label htmlFor="download-root">Save to</label>
+          <select id="download-root" value={rootId} onChange={event => setRootId(event.target.value)} required>
+            {!roots.length && <option value="">No library folders yet</option>}
+            {roots.map(root => <option key={root.id} value={root.id} disabled={!root.writable}>{root.name}{root.writable ? "" : root.read_only ? " (read-only)" : " (not writable)"}</option>)}
+          </select></div>
+        <div className="config-field"><label htmlFor="download-subfolder">Subfolder <span className="optional">optional</span></label>
+          <input id="download-subfolder" value={subfolder} onChange={event => setSubfolder(event.target.value)} placeholder="e.g. Web/2026" spellCheck={false} /></div>
+        <div className="config-field"><label htmlFor="download-downloader">Downloader</label>
+          <select id="download-downloader" value={downloaderId} onChange={event => setDownloaderId(event.target.value)}>
+            <option value="">Automatic</option>
+            {options.downloaders.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select></div>
+        <div className="config-field"><label htmlFor="download-vpn">VPN</label>
+          <select id="download-vpn" value={vpn} onChange={event => setVpn(event.target.value)}>
+            <option value="auto">Automatic (rules)</option>
+            <option value="none">No VPN</option>
+            {options.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+          </select></div>
+      </div>
+      <div className="config-field"><span className="field-label">Tags <span className="optional">added when each download finishes</span></span>
+        <div className="download-topics chips">
+          {topics.map(topic => <button type="button" key={topic.id || topic.name} title={`Remove ${topic.name}`} aria-label={`Remove tag ${topic.name}`} onClick={() => setTopics(current => current.filter(item => item !== topic))}><TopicLabel topic={topic} /><X size={14} /></button>)}
+          <AddTag asset={{ title: "new downloads", topics }} api={api} label="Add tag" onPick={topic => setTopics(current => current.some(item => item.name.toLowerCase() === topic.name.toLowerCase()) ? current : [...current, topic.create ? { name: topic.name } : topic])} />
+        </div></div>
+      <PlanPreview api={api} source={lines[0]} downloaderId={downloaderId} vpn={vpn} extra={lines.length - 1} />
+      {noWritable && <div className="error-notice">{roots.length ? roots.find(root => root.blocked_reason)?.blocked_reason : "Add a media library folder in Settings first."}</div>}
+      {message && <div className={message.kind === "error" ? "error-notice" : "notice"} role="status">{message.text}</div>}
+      <div className="download-actions">
+        {footer || <span />}
+        <button className="primary-button" disabled={busy || !lines.length || !rootId}>{busy ? <SpinnerGap className="spin" size={16} /> : <Plus size={16} />} {lines.length > 1 ? `Download ${lines.length}` : "Download"}</button>
+      </div>
+    </form>}
+  </>;
+}
+
+function DownloadDialog({ api, navigate, close, onCount }) {
+  const [downloads, setDownloads] = useState(null);
   useEffect(() => {
     let timer, stopped = false;
     const poll = async () => {
@@ -68,67 +143,13 @@ function DownloadDialog({ api, navigate, close, onCount }) {
     return () => { stopped = true; clearTimeout(timer); };
   }, []);
   const refresh = () => api("/api/v1/downloads?limit=30").then(rows => { setDownloads(rows); onCount(rows.filter(item => active(item.status)).length); }).catch(() => {});
-
-  const lines = sources.split("\n").map(line => line.trim()).filter(Boolean);
-  const submit = async event => {
-    event.preventDefault();
-    setBusy(true); setMessage(null);
-    try {
-      const created = await api("/api/v1/downloads", { method: "POST", body: JSON.stringify({ sources: lines, libraryRootId: rootId, subfolder, downloaderId: downloaderId || undefined, vpn }) });
-      localStorage.setItem(formStorage, JSON.stringify({ rootId, subfolder, downloaderId, vpn }));
-      setSources("");
-      setMessage({ kind: "ok", text: `${created.length === 1 ? "Download" : `${created.length} downloads`} queued.` });
-      refresh();
-    } catch (error) { setMessage({ kind: "error", text: error.message }); }
-    finally { setBusy(false); }
-  };
-  const searchable = options?.downloaders.filter(item => item.searchable) || [];
-  const roots = options?.roots || [];
-  const noWritable = options && !roots.some(root => root.writable);
-  const openSettings = () => { close(); navigate("/settings#downloads"); };
-
+  const go = href => { close(); navigate(href); };
   return <Modal title="Upload from the web" close={close} className="download-dialog">
-    {loadError ? <div className="error-notice">{loadError}</div> : !options ? <div className="download-loading"><SpinnerGap className="spin" size={22} /> Loading…</div> : <>
-      {searchable.length > 0 && <div className="download-tabs" role="tablist">
-        <button type="button" role="tab" aria-selected={tab === "link"} className={tab === "link" ? "active" : ""} onClick={() => setTab("link")}><LinkSimple size={16} /> Links</button>
-        <button type="button" role="tab" aria-selected={tab === "search"} className={tab === "search" ? "active" : ""} onClick={() => setTab("search")}><MagnifyingGlass size={16} /> Search</button>
-      </div>}
-      {tab === "search" && <SearchPanel api={api} downloaders={searchable} onPick={(source, downloader) => { setSources(current => `${current.trim() ? `${current.trim()}\n` : ""}${source}`); setDownloaderId(downloader); setTab("link"); }} />}
-      {tab === "link" && <form className="download-form" onSubmit={submit}>
-        <label htmlFor="download-sources">Links</label>
-        <textarea id="download-sources" autoFocus rows={3} value={sources} onChange={event => setSources(event.target.value)} spellCheck={false}
-          placeholder={"https://www.youtube.com/watch?v=…\nmagnet:?xt=urn:btih:…"} />
-        <small className="field-help">One link, magnet, or ID per line.</small>
-        <div className="download-grid">
-          <div className="config-field"><label htmlFor="download-root">Save to</label>
-            <select id="download-root" value={rootId} onChange={event => setRootId(event.target.value)} required>
-              {!roots.length && <option value="">No library folders yet</option>}
-              {roots.map(root => <option key={root.id} value={root.id} disabled={!root.writable}>{root.name}{root.writable ? "" : root.read_only ? " (read-only)" : " (not writable)"}</option>)}
-            </select></div>
-          <div className="config-field"><label htmlFor="download-subfolder">Subfolder <span className="optional">optional</span></label>
-            <input id="download-subfolder" value={subfolder} onChange={event => setSubfolder(event.target.value)} placeholder="e.g. Web/2026" spellCheck={false} /></div>
-          <div className="config-field"><label htmlFor="download-downloader">Downloader</label>
-            <select id="download-downloader" value={downloaderId} onChange={event => setDownloaderId(event.target.value)}>
-              <option value="">Automatic</option>
-              {options.downloaders.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select></div>
-          <div className="config-field"><label htmlFor="download-vpn">VPN</label>
-            <select id="download-vpn" value={vpn} onChange={event => setVpn(event.target.value)}>
-              <option value="auto">Automatic (rules)</option>
-              <option value="none">No VPN</option>
-              {options.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-            </select></div>
-        </div>
-        <PlanPreview api={api} source={lines[0]} downloaderId={downloaderId} vpn={vpn} extra={lines.length - 1} />
-        {noWritable && <div className="error-notice">{roots.length ? roots.find(root => root.blocked_reason)?.blocked_reason : "Add a media library folder in Settings first."}</div>}
-        {message && <div className={message.kind === "error" ? "error-notice" : "notice"} role="status">{message.text}</div>}
-        <div className="download-actions">
-          <button type="button" className="text-button" onClick={openSettings}><GearSix size={16} /> Downloaders &amp; VPN</button>
-          <button className="primary-button" disabled={busy || !lines.length || !rootId}>{busy ? <SpinnerGap className="spin" size={16} /> : <Plus size={16} />} {lines.length > 1 ? `Download ${lines.length}` : "Download"}</button>
-        </div>
-      </form>}
-    </>}
-    <DownloadList downloads={downloads} api={api} refresh={refresh} openAsset={id => { close(); navigate(`/watch/${id}`); }} />
+    <DownloadForm api={api} onQueued={refresh} footer={<div className="download-links">
+      <button type="button" className="text-button" onClick={() => go("/downloads")}><DownloadSimple size={16} /> All downloads</button>
+      <button type="button" className="text-button" onClick={() => go("/settings#downloads")}><GearSix size={16} /> Downloaders &amp; VPN</button>
+    </div>} />
+    <DownloadList downloads={downloads?.slice(0, 8)} api={api} refresh={refresh} openAsset={id => go(`/watch/${id}`)} />
   </Modal>;
 }
 
@@ -184,7 +205,7 @@ function DownloadList({ downloads, api, refresh, openAsset }) {
   </section>;
 }
 
-function DownloadItem({ item, api, refresh, openAsset }) {
+export function DownloadItem({ item, api, refresh, openAsset }) {
   const [details, setDetails] = useState(null), [busy, setBusy] = useState(false);
   const act = async (path, method = "POST") => { setBusy(true); try { await api(`/api/v1/downloads/${item.id}${path}`, { method, ...(method === "POST" ? { body: "{}" } : {}) }); await refresh(); } catch {} finally { setBusy(false); } };
   const toggleDetails = async () => setDetails(details ? null : await api(`/api/v1/downloads/${item.id}`).catch(error => ({ log: error.message })));

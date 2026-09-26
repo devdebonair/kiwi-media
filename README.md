@@ -158,6 +158,23 @@ complete. Existing files are never overwritten: a new copy gets a name like
 `Video (1).mp4`. Finished media is added to the library immediately, with its
 source link, title, and thumbnail, and folder tags apply as usual.
 
+### Downloads page
+
+**Downloads** in the sidebar lists your download history in three sections:
+**In progress** first, then **Failed & canceled**, then **Completed**. Failed
+and Completed collapse, and Kiwi remembers your choice. Switch between a table
+and a thumbnail grid. Completed videos use library thumbnails, so hovering plays
+a preview, as on Home. Filter by title or link.
+
+**Add downloads** takes many links at once, one per line. Duplicates are
+skipped, and links are queued in the order you pasted them, up to 200 at a time.
+Tags chosen there are added to each item when its download finishes. Tag a
+single download from its row or card, or select several and use **Tag selected**.
+Completed downloads tag their library items right away. Tags on unfinished
+downloads can be removed until they finish. Selected downloads can also be
+retried, canceled, or removed from the history. Removing a download from the
+history keeps the downloaded files and library items.
+
 ### Downloaders
 
 Manage downloaders in **Settings → Downloaders**. You can add several of the same

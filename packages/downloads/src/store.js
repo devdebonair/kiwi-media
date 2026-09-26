@@ -1,6 +1,6 @@
 import { accessSync, constants, existsSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { dataDir, db } from "@kiwi/database";
+import { assetWithTopics, dataDir, db } from "@kiwi/database";
 import { ConfigError, maskConfig } from "./fields.js";
 import { getPlugin, loadPlugins, pluginAccepts, pluginSearchable } from "./registry.js";
 import { vpnTypes } from "./vpn.js";
@@ -121,11 +121,20 @@ export function rootWritable(path) {
   try { if (!statSync(path).isDirectory()) return false; accessSync(path, constants.W_OK); return true; } catch { return false; }
 }
 
-export const serializeDownload = row => {
+const topicsById = ids => ids.length ? db.prepare(`SELECT id,slug,name,avatar_url FROM topics WHERE id IN (${ids.map(() => "?").join(",")}) ORDER BY name`).all(...ids) : [];
+
+// `withAssets` adds the imported library items (thumbnail, duration, tags) for completed downloads.
+// A completed download shows its media's tags; earlier states show the tags queued for import.
+export const serializeDownload = (row, { withAssets = false } = {}) => {
+  const assetIds = JSON.parse(row.asset_ids_json);
+  const assets = row.status === "completed" && assetIds.length
+    ? assetIds.map(id => db.prepare("SELECT * FROM assets WHERE id=?").get(id)).filter(Boolean).map(assetWithTopics) : [];
+  const topics = assets.length ? [...new Map(assets.flatMap(asset => asset.topics).map(topic => [topic.id, topic])).values()].sort((a, b) => a.name.localeCompare(b.name))
+    : topicsById(JSON.parse(row.topic_ids_json || "[]"));
   const root = db.prepare("SELECT name,absolute_path FROM library_roots WHERE id=?").get(row.library_root_id);
   const downloader = db.prepare("SELECT name FROM downloaders WHERE id=?").get(row.downloader_id);
   const vpn = row.vpn_profile_id ? db.prepare("SELECT name FROM vpn_profiles WHERE id=?").get(row.vpn_profile_id) : null;
-  const { files_json, asset_ids_json, log_text, locked_by, ...rest } = row;
-  return { ...rest, files: JSON.parse(files_json), asset_ids: JSON.parse(asset_ids_json), log: log_text, root_name: root?.name || "Removed folder",
+  const { files_json, asset_ids_json, topic_ids_json, log_text, locked_by, ...rest } = row;
+  return { ...rest, files: JSON.parse(files_json), asset_ids: assetIds, topics, ...(withAssets ? { assets } : {}), log: log_text, root_name: root?.name || "Removed folder",
     downloader_name: downloader?.name || row.plugin, vpn_name: vpn?.name || (row.vpn_profile_id ? "Deleted profile" : null) };
 };

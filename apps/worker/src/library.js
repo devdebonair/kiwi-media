@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import mime from "mime-types";
-import { db, generatedDir, reindexAssetSearch } from "@kiwi/database";
+import { db, generatedDir, reindexAssetSearch, tagAssetWithTopic } from "@kiwi/database";
 
 const exec = promisify(execFile);
 const now = () => new Date().toISOString();
@@ -67,11 +67,21 @@ async function registerFile(root, rootId, path, { title, description = `Imported
   } catch (error) { db.exec("ROLLBACK"); throw error; }
 }
 
+// Tags deleted since the download was queued are skipped.
+function tagTopics(assetId, topicIds) {
+  if (!topicIds.length) return;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const topicId of topicIds) if (db.prepare("SELECT 1 FROM topics WHERE id=?").get(topicId)) tagAssetWithTopic(assetId, topicId);
+    db.exec("COMMIT");
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
+}
+
 const siteName = source => { try { return new URL(source).hostname.replace(/^www\./, ""); } catch { return null; } };
 
 // Adds finished downloads to the library right away and prepares thumbnails, without rescanning the folder.
 // A single media file takes the downloader's title (e.g. the video title rather than its file name).
-export async function importDownloadedFiles({ root, files, source, title }) {
+export async function importDownloadedFiles({ root, files, source, title, topicIds = [] }) {
   const media = files.filter(path => mediaKinds[extname(path).toLowerCase()]);
   const sourceUrl = /^https?:\/\//i.test(source) ? source : null;
   const site = siteName(source);
@@ -83,8 +93,10 @@ export async function importDownloadedFiles({ root, files, source, title }) {
       sourceUrl,
     });
     // A file saved over a path that was imported before keeps its existing asset.
-    if (!id) { ids.push(db.prepare("SELECT id FROM assets WHERE file_path=?").get(path).id); continue; }
-    ids.push(id);
+    const assetId = id || db.prepare("SELECT id FROM assets WHERE file_path=?").get(path).id;
+    ids.push(assetId);
+    tagTopics(assetId, topicIds);
+    if (!id) continue;
     reindexAssetSearch(id);
     try { await enrichFile(db.prepare("SELECT * FROM assets WHERE id=?").get(id)); } catch {}
   }

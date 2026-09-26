@@ -244,6 +244,10 @@ export function migrate() {
     if (!db.prepare("PRAGMA table_info(library_roots)").all().some(column => column.name === "enabled")) {
       db.exec("ALTER TABLE library_roots ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1))");
     }
+    // Tags chosen for a download, applied to its media when it is imported.
+    if (!db.prepare("PRAGMA table_info(downloads)").all().some(column => column.name === "topic_ids_json")) {
+      db.exec("ALTER TABLE downloads ADD COLUMN topic_ids_json TEXT NOT NULL DEFAULT '[]'");
+    }
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
 }
@@ -328,6 +332,16 @@ export function seed() {
   feedStmt.run("feed-jazz", userId, "jazz", "Jazz", "Performances, albums, photos, and writing.", JSON.stringify({ topicIds: ["topic-jazz"] }), "public", now(), now());
   feedStmt.run("feed-anime", userId, "anime", "Anime", "Japanese animation and theme music from across the library.", JSON.stringify({ topicIds: ["topic-anime"] }), "public", now(), now());
   rebuildSearch();
+}
+
+// Tags an asset directly. Returns false when it already carries the tag. Call inside a transaction.
+export function tagAssetWithTopic(assetId, topicId, timestamp = now()) {
+  if (db.prepare("SELECT 1 FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE a.asset_id=? AND at.topic_id=?").get(assetId, topicId)) return false;
+  const id = randomUUID();
+  db.prepare("INSERT INTO annotations (id,asset_id,motivation,origin,visibility,created_at,updated_at) VALUES (?,?,'tagging','manual','private',?,?)").run(id, assetId, timestamp, timestamp);
+  db.prepare("INSERT INTO annotation_topics VALUES (?,?,?)").run(id, topicId, "subject");
+  reindexAssetSearch(assetId);
+  return true;
 }
 
 export function reindexAssetSearch(assetId) {

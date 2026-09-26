@@ -5,7 +5,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { basename, isAbsolute, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import mime from "mime-types";
-import { db, generatedDir, rebuildSearch, reindexAssetSearch, reindexTopicSearch, assetWithTopics } from "@kiwi/database";
+import { db, generatedDir, rebuildSearch, reindexAssetSearch, reindexTopicSearch, assetWithTopics, tagAssetWithTopic } from "@kiwi/database";
 import { fileURLToPath } from "node:url";
 import { createPlaybackCache } from "./playback.js";
 import { parseRange } from "./range.js";
@@ -27,7 +27,8 @@ await app.register(cors, { origin: true, credentials: true });
 await app.register(fastifyStatic, { root: generatedDir, prefix: "/generated/", decorateReply: false });
 await app.register(fastifyStatic, { root: webPublic, prefix: "/assets/", decorateReply: false });
 registerTagMetadata(app);
-registerDownloads(app);
+// Lazy: resolveTopic is declared further down.
+registerDownloads(app, { resolveTopic: (...args) => resolveTopic(...args) });
 
 const engagement = id => ({
   view_count: db.prepare("SELECT count(*) count FROM asset_views WHERE asset_id=?").get(id).count,
@@ -211,14 +212,7 @@ const resolveTopic = (body, timestamp, indexNew) => {
 };
 
 // Returns true when the asset did not already carry the tag directly.
-const tagAsset = (assetId, topicId, timestamp) => {
-  if (db.prepare("SELECT 1 FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE a.asset_id=? AND at.topic_id=?").get(assetId, topicId)) return false;
-  const id = randomUUID();
-  db.prepare("INSERT INTO annotations (id,asset_id,motivation,origin,visibility,created_at,updated_at) VALUES (?,?,'tagging','manual','private',?,?)").run(id, assetId, timestamp, timestamp);
-  db.prepare("INSERT INTO annotation_topics VALUES (?,?,?)").run(id, topicId, "subject");
-  reindexAssetSearch(assetId);
-  return true;
-};
+const tagAsset = tagAssetWithTopic;
 
 const addTopic = folder => async (req, reply) => {
   const asset = db.prepare(folder ? "SELECT * FROM library_roots WHERE id=?" : "SELECT * FROM assets WHERE id=?").get(req.params.id);
