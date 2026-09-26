@@ -53,6 +53,13 @@ export function migrate() {
       source_url TEXT NOT NULL, snapshot_json TEXT NOT NULL DEFAULT '{}', fetched_at TEXT,
       PRIMARY KEY(topic_id, provider)
     );
+    -- Standing rule: every item carrying the source topic also carries the target topic.
+    CREATE TABLE IF NOT EXISTS topic_rules (
+      source_topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+      target_topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL, PRIMARY KEY(source_topic_id, target_topic_id),
+      CHECK(source_topic_id != target_topic_id)
+    );
     CREATE INDEX IF NOT EXISTS folder_topics_topic_idx ON folder_topics(topic_id);
     CREATE INDEX IF NOT EXISTS files_root_asset_idx ON files(library_root_id, asset_id);
     CREATE TABLE IF NOT EXISTS topic_aliases (
@@ -158,8 +165,8 @@ export function migrate() {
       tokenize='unicode61 remove_diacritics 2'
     );
   `);
-  // A view, not a materialized mapping: new imports inherit folder tags immediately.
-  db.exec(`CREATE VIEW IF NOT EXISTS effective_asset_topics AS
+  // Views, not materialized mappings: new imports inherit folder tags and topic rules immediately.
+  db.exec(`CREATE VIEW IF NOT EXISTS direct_asset_topics AS
     SELECT a.asset_id, at.topic_id FROM annotations a
     JOIN annotation_topics at ON at.annotation_id=a.id
     UNION
@@ -173,6 +180,27 @@ export function migrate() {
     JOIN library_roots r ON r.id=ft.library_root_id
     JOIN assets a ON substr(a.file_path,1,length(rtrim(r.absolute_path,'/'))+1)=rtrim(r.absolute_path,'/') || '/'
   `);
+  // Rules chain (A→B→C gives A items C); UNION stops cycles from recursing forever.
+  db.exec(`CREATE VIEW IF NOT EXISTS implied_topics AS
+    WITH RECURSIVE implied(source_topic_id, topic_id) AS (
+      SELECT source_topic_id, target_topic_id FROM topic_rules
+      UNION
+      SELECT implied.source_topic_id, r.target_topic_id FROM implied JOIN topic_rules r ON r.source_topic_id=implied.topic_id
+    ) SELECT source_topic_id, topic_id FROM implied
+  `);
+  // Kept separate from direct_asset_topics (not a shared CTE) so asset_id filters push down.
+  const effectiveView = `CREATE VIEW effective_asset_topics AS
+    SELECT asset_id, topic_id FROM direct_asset_topics
+    UNION
+    SELECT d.asset_id, i.topic_id FROM direct_asset_topics d JOIN implied_topics i ON i.source_topic_id=d.topic_id`;
+  if (db.prepare("SELECT sql FROM sqlite_master WHERE type='view' AND name='effective_asset_topics'").get()?.sql !== effectiveView) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec("DROP VIEW IF EXISTS effective_asset_topics");
+      db.exec(effectiveView);
+      db.exec("COMMIT");
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
+  }
   // Additive migration: preserve root IDs and every existing file relationship.
   db.exec("BEGIN IMMEDIATE");
   try {

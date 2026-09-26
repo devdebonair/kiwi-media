@@ -28,4 +28,6 @@
 @media (hover: none) { .thumb-add-tag { opacity: 1; pointer-events: auto; } .thumb .duration { right: 42px; } .thumb:has(.add-to-playlist) .duration { right: 74px; } }
 @media (prefers-reduced-motion: reduce) { .thumb-add-tag { transition: none; } }
 .thumb .tag-popover img { transform: none; transition: none; }
-.bulk-tag-notice { margin: 6px 0 0; color: var(--green); font-size: 13px; }
+.topic-rules { margin-top: 14px; }
+.topic-rules > p { margin: 0; color: #a5a6b1; font-size: 13px; }
+.topic-rules .folder-tags.chips { margin-top: 8px; }

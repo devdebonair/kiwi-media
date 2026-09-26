@@ -243,8 +243,9 @@ const addTopic = folder => async (req, reply) => {
 };
 app.post("/api/v1/assets/:id/topics", addTopic(false));
 app.post("/api/v1/library/roots/:id/topics", addTopic(true));
-// Tags every item currently under a topic, including items inherited through folder tags.
-// Items added to the topic later are not tagged automatically.
+const topicRules = id => db.prepare("SELECT t.id,t.slug,t.name,t.avatar_url FROM topics t JOIN topic_rules r ON r.target_topic_id=t.id WHERE r.source_topic_id=? ORDER BY t.name").all(id);
+// Adds a standing rule: every item under the topic, now or later, also carries the tag.
+// Rule tags are derived through effective_asset_topics, so removing the rule removes them.
 app.post("/api/v1/topics/:id/topics", async (req, reply) => {
   const source = db.prepare("SELECT id FROM topics WHERE id=?").get(req.params.id);
   if (!source) return reply.code(404).send({ error: "Topic not found" });
@@ -256,12 +257,15 @@ app.post("/api/v1/topics/:id/topics", async (req, reply) => {
       db.exec("ROLLBACK");
       return reply.code(topic ? 400 : code).send({ error: topic ? "A topic cannot be tagged with itself" : error });
     }
-    const assetIds = db.prepare("SELECT DISTINCT asset_id FROM effective_asset_topics WHERE topic_id=?").all(source.id).map(row => row.asset_id);
-    const tagged = assetIds.filter(assetId => tagAsset(assetId, topic.id, timestamp)).length;
+    db.prepare("INSERT OR IGNORE INTO topic_rules VALUES (?,?,?)").run(source.id, topic.id, timestamp);
     db.exec("COMMIT");
-    const { id, slug, name, avatar_url } = db.prepare("SELECT * FROM topics WHERE id=?").get(topic.id);
-    return { topic: { id, slug, name, avatar_url }, tagged, total: assetIds.length };
+    return { topics: topicRules(source.id) };
   } catch (error) { db.exec("ROLLBACK"); throw error; }
+});
+app.delete("/api/v1/topics/:id/topics/:topicId", async (req, reply) => {
+  if (!db.prepare("SELECT 1 FROM topics WHERE id=?").get(req.params.id)) return reply.code(404).send({ error: "Topic not found" });
+  db.prepare("DELETE FROM topic_rules WHERE source_topic_id=? AND target_topic_id=?").run(req.params.id, req.params.topicId);
+  return { topics: topicRules(req.params.id) };
 });
 app.delete("/api/v1/library/roots/:id/topics/:topicId", async (req, reply) => {
   if (!db.prepare("SELECT 1 FROM library_roots WHERE id=?").get(req.params.id)) return reply.code(404).send({ error: "Folder not found" });
@@ -280,7 +284,7 @@ app.get("/api/v1/topics/:slug", async (req, reply) => {
     WHERE t.id != ? GROUP BY t.id ORDER BY item_count DESC LIMIT 8
   `).all(topic.id, topic.id);
   const { item_count } = db.prepare("SELECT count(*) item_count FROM effective_asset_topics WHERE topic_id=?").get(topic.id);
-  return { ...topic, item_count, assets, related, providerLinks: tagMetadata(topic.id).links };
+  return { ...topic, item_count, assets, related, rules: topicRules(topic.id), providerLinks: tagMetadata(topic.id).links };
 });
 
 app.post("/api/v1/topics/:id/follow", async req => {

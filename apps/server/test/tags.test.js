@@ -62,29 +62,43 @@ test('tag saves update only the affected search entries and preserve existing ta
   assert.deepEqual(db.prepare('SELECT rowid,* FROM search_index ORDER BY rowid').all(), saved);
 });
 
-test('topic tags apply to every item under the topic once', async () => {
-  const bulk = (payload, topicId = 'topic-jazz') => app.inject({ method: 'POST', url: `/api/v1/topics/${topicId}/topics`, payload });
-  const members = () => db.prepare("SELECT DISTINCT asset_id FROM effective_asset_topics WHERE topic_id='topic-jazz' ORDER BY asset_id").all().map(row => row.asset_id);
-  const response = await bulk({ name: 'Bulk jazz tag' });
+test('topic tag rules apply to current and future items until removed', async () => {
+  const rule = (payload, topicId = 'topic-jazz') => app.inject({ method: 'POST', url: `/api/v1/topics/${topicId}/topics`, payload });
+  const members = topicId => db.prepare('SELECT DISTINCT asset_id FROM effective_asset_topics WHERE topic_id=? ORDER BY asset_id').all(topicId).map(row => row.asset_id);
+  const annotations = () => db.prepare('SELECT count(*) n FROM annotations').get().n;
+  const before = annotations();
+  const response = await rule({ name: 'Rule jazz tag' });
   assert.equal(response.statusCode, 200);
-  const { topic, tagged, total } = response.json();
-  assert.equal(topic.name, 'Bulk jazz tag');
-  assert.equal(tagged, members().length);
-  assert.equal(total, members().length);
-  assert.deepEqual(db.prepare('SELECT DISTINCT asset_id FROM effective_asset_topics WHERE topic_id=? ORDER BY asset_id').all(topic.id).map(row => row.asset_id), members());
-  assert.ok((await app.inject('/api/v1/search?q=Bulk')).json().some(row => row.id === members()[0] && row.entityType === 'asset'));
+  const [topic] = response.json().topics;
+  assert.equal(topic.name, 'Rule jazz tag');
+  assert.deepEqual(members(topic.id), members('topic-jazz'));
+  assert.equal(annotations(), before, 'rules derive tags instead of copying them');
+  assert.ok((await app.inject('/api/v1/search?q=Rule')).json().some(row => row.id === members('topic-jazz')[0] && row.entityType === 'asset'));
+  assert.deepEqual((await rule({ topicId: topic.id })).json().topics.map(t => t.id), [topic.id]);
+  assert.deepEqual((await app.inject('/api/v1/topics/jazz')).json().rules.map(t => t.id), [topic.id]);
 
-  const again = (await bulk({ topicId: topic.id })).json();
-  assert.equal(again.tagged, 0);
-  assert.equal(db.prepare('SELECT count(*) n FROM annotation_topics WHERE topic_id=?').get(topic.id).n, members().length);
+  const newcomer = db.prepare("SELECT id FROM assets WHERE id NOT IN (SELECT asset_id FROM effective_asset_topics WHERE topic_id='topic-jazz') LIMIT 1").get().id;
+  assert.ok(!members(topic.id).includes(newcomer));
+  assert.ok((await add({ topicId: 'topic-jazz' }, newcomer)).json().topics.some(t => t.id === topic.id));
+
+  const chained = (await rule({ name: 'Chained tag' }, topic.id)).json().topics[0];
+  assert.ok(members(chained.id).includes(newcomer));
+  assert.equal((await rule({ topicId: 'topic-jazz' }, chained.id)).statusCode, 200);
+  assert.ok(members('topic-jazz').includes(newcomer), 'cyclic rules still resolve');
+
+  const removed = await app.inject({ method: 'DELETE', url: `/api/v1/topics/topic-jazz/topics/${topic.id}` });
+  assert.deepEqual(removed.json().topics, []);
+  assert.deepEqual(members(topic.id), []);
+  assert.deepEqual(members(chained.id), []);
 });
 
-test('invalid topic tag requests change nothing', async () => {
+test('invalid topic tag rule requests change nothing', async () => {
   const bulk = (payload, topicId = 'topic-jazz') => app.inject({ method: 'POST', url: `/api/v1/topics/${topicId}/topics`, payload });
-  const before = db.prepare('SELECT (SELECT count(*) FROM topics) topics, (SELECT count(*) FROM annotations) annotations').get();
+  const before = db.prepare('SELECT (SELECT count(*) FROM topics) topics, (SELECT count(*) FROM topic_rules) rules').get();
   assert.equal((await bulk({ topicId: 'topic-jazz' })).statusCode, 400);
   assert.equal((await bulk({ name: '' })).statusCode, 400);
   assert.equal((await bulk({ topicId: 'missing' })).statusCode, 404);
   assert.equal((await bulk({ name: 'Orphan tag' }, 'missing')).statusCode, 404);
-  assert.deepEqual(db.prepare('SELECT (SELECT count(*) FROM topics) topics, (SELECT count(*) FROM annotations) annotations').get(), before);
+  assert.equal((await app.inject({ method: 'DELETE', url: '/api/v1/topics/missing/topics/topic-jazz' })).statusCode, 404);
+  assert.deepEqual(db.prepare('SELECT (SELECT count(*) FROM topics) topics, (SELECT count(*) FROM topic_rules) rules').get(), before);
 });
