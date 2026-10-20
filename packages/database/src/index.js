@@ -150,6 +150,17 @@ export function migrate() {
       user_id TEXT NOT NULL REFERENCES users(id), asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
       count INTEGER NOT NULL CHECK(count BETWEEN 0 AND 5), PRIMARY KEY(user_id, asset_id)
     );
+    -- TV guide channels built from a combination of tags; every tag also gets an automatic channel.
+    CREATE TABLE IF NOT EXISTS guide_channels (
+      id TEXT PRIMARY KEY, number INTEGER NOT NULL UNIQUE, name TEXT NOT NULL,
+      match_mode TEXT NOT NULL DEFAULT 'all' CHECK(match_mode IN ('all','any')),
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS guide_channel_topics (
+      channel_id TEXT NOT NULL REFERENCES guide_channels(id) ON DELETE CASCADE,
+      topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+      PRIMARY KEY(channel_id, topic_id)
+    );
     CREATE TABLE IF NOT EXISTS user_settings (
       user_id TEXT PRIMARY KEY REFERENCES users(id), shorts_max_seconds INTEGER NOT NULL DEFAULT 90
     );

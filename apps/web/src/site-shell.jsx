@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SearchBar } from "./search-bar.jsx";
 import { UploadButton } from "./download-dialog.jsx";
-import { ClockCounterClockwise, Compass, DownloadSimple, FolderOpen, Gear, Heart, Leaf, List, Play, Rows, Tag } from "@phosphor-icons/react";
+import { ClockCounterClockwise, Compass, DownloadSimple, FolderOpen, Gear, Heart, Leaf, List, Play, Rows, Tag, Television } from "@phosphor-icons/react";
 
 // Below this width (phones, tablets, laptops) the sidebar is an overlay drawer; wider desktops keep it docked.
 export const DRAWER_NAV_QUERY = "(max-width: 1799px)";
@@ -46,7 +46,7 @@ export function Header({ query, setQuery, onSubmit, openMenu, navigate, mobileOp
 }
 
 const groups = [
-  { label: "DISCOVER", items: [["/", "Home", "home", Compass], ["/library", "Library", "library", FolderOpen], ["/shorts", "Shorts", "shorts", Play], ["/topics", "Topics", "topics", Tag]] },
+  { label: "DISCOVER", items: [["/", "Home", "home", Compass], ["/library", "Library", "library", FolderOpen], ["/shorts", "Shorts", "shorts", Play], ["/guide", "TV Guide", "guide", Television], ["/topics", "Topics", "topics", Tag]] },
   { label: "COLLECTION", items: [["/feeds", "Your feeds", "feeds", Rows], ["/liked", "Liked videos", "liked", Heart], ["/history", "Watch history", "history", ClockCounterClockwise], ["/downloads", "Downloads", "downloads", DownloadSimple], ["/search", "Explore", "search", FolderOpen]] },
 ];
 

@@ -11,6 +11,7 @@ import { createPlaybackCache } from "./playback.js";
 import { parseRange } from "./range.js";
 import { registerTagMetadata, tagMetadata } from "./tag-metadata.js";
 import { registerDownloads } from "./downloads.js";
+import { registerGuide } from "./guide.js";
 
 const app = Fastify({ logger: true });
 const playbackCache = createPlaybackCache(resolve(generatedDir, "playback"), {
@@ -29,6 +30,7 @@ await app.register(fastifyStatic, { root: webPublic, prefix: "/assets/", decorat
 registerTagMetadata(app);
 // Lazy: resolveTopic is declared further down.
 registerDownloads(app, { resolveTopic: (...args) => resolveTopic(...args) });
+registerGuide(app);
 
 const engagement = id => ({
   view_count: db.prepare("SELECT count(*) count FROM asset_views WHERE asset_id=?").get(id).count,
@@ -159,7 +161,8 @@ app.get("/api/v1/search", async req => {
 });
 
 app.get("/api/v1/topics", async () => db.prepare(`
-  SELECT t.*, count(DISTINCT et.asset_id) item_count,
+  SELECT t.id, t.slug, t.name, t.avatar_url, t.topic_type,
+    count(DISTINCT et.asset_id) item_count,
     EXISTS(SELECT 1 FROM topic_follows f WHERE f.topic_id=t.id AND f.user_id=?) followed
   FROM topics t LEFT JOIN effective_asset_topics et ON et.topic_id=t.id GROUP BY t.id ORDER BY item_count DESC
 `).all(userId));
