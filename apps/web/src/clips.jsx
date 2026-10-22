@@ -178,7 +178,7 @@ export function ClipList({ tools, AppLink, navigate, onPlay, readOnly = false })
 
 // A clip elsewhere in the app (topic pages, and later a clips feed): opens the video at the clip and stops at its end.
 export function ClipCard({ clip, AppLink, navigate }) {
-  const href = `/watch/${clip.assetId}?t=${Math.floor(clip.startMs / 1000)}&clip=${clip.id}`;
+  const href = clipHref(clip);
   return <article className="clip-card">
     <AppLink href={href} navigate={navigate} className="clip-card-art" aria-label={`Play clip ${clip.title || ""} from ${clip.asset.title}`}>
       {clip.asset.thumbnail_url ? <img src={clip.asset.thumbnail_url} alt="" loading="lazy" /> : <span className="thumb-empty"><Scissors size={32} /></span>}
@@ -186,5 +186,23 @@ export function ClipCard({ clip, AppLink, navigate }) {
     </AppLink>
     <AppLink href={href} navigate={navigate}><h3>{clip.title || clip.topics.map(topic => topic.name).join(" · ") || "Untitled clip"}</h3></AppLink>
     <p>{clip.asset.title}</p>
+  </article>;
+}
+
+export const clipHref = clip => `/watch/${clip.assetId}?t=${Math.floor(clip.startMs / 1000)}&clip=${clip.id}`;
+
+// A clip in search results: where it comes from, its range, and its tags.
+export function ClipResult({ clip, AppLink, navigate }) {
+  const href = clipHref(clip);
+  return <article className="result-card clip-result">
+    <AppLink href={href} navigate={navigate} className="clip-card-art" aria-label={`Play clip from ${clip.asset.title}`}>
+      {clip.asset.thumbnail_url ? <img src={clip.asset.thumbnail_url} alt="" loading="lazy" /> : <span className="thumb-empty"><Scissors size={32} /></span>}
+      <span className="clip-card-range"><Scissors size={12} />{clipTime(clip.startMs, { tenths: false })}–{clipTime(clip.endMs, { tenths: false })}</span>
+    </AppLink>
+    <div>
+      <AppLink href={href} navigate={navigate}><span className="eyebrow">Clip · {clipLength(clip.endMs - clip.startMs)}</span><h2>{clip.title || clip.topics.map(topic => topic.name).join(" · ") || "Untitled clip"}</h2></AppLink>
+      <p>From {clip.asset.title}</p>
+      {clip.topics.length > 0 && <div className="clip-row-tags">{clip.topics.map(topic => <AppLink key={topic.id} href={`/topic/${topic.slug}`} navigate={navigate}><TopicLabel topic={topic} /></AppLink>)}</div>}
+    </div>
   </article>;
 }

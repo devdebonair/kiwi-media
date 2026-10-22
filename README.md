@@ -68,7 +68,7 @@ Known limits: seeking in a repackaged stream lands on the nearest keyframe befor
 
 ## Clips
 
-Tag a time range of any video to make a *virtual clip* — nothing is cut or copied. In the player, press the scissors button (or **I** and **O** at the playhead), drag the green edges on the seek bar or nudge the in and out points, add tags and an optional name, and save. Saved clips show as amber marks on the seek bar and in a list under the video; playing one stops at its end. Clip tags describe that range only, so they never add the tag to the whole video; topic pages list them under **Clips**, and `GET /api/v1/clips?topic=<slug>` returns them (newest first, including tags implied by topic rules) for a future clips feed in Shorts.
+Tag a time range of any video to make a *virtual clip* — nothing is cut or copied. In the player, press the scissors button (or **I** and **O** at the playhead), drag the green edges on the seek bar or nudge the in and out points, add tags and an optional name, and save. Saved clips show as amber marks on the seek bar and in a list under the video; playing one stops at its end. Clip tags describe that range only, so they never add the tag to the whole video. Search finds clips by name, by their tags (including tags implied by topic rules), and by the video they come from, with a **Clips** tab and clip suggestions in the header search; topic pages list them under **Clips**, and `GET /api/v1/clips?topic=<slug>` returns them (newest first, including tags implied by topic rules) for a future clips feed in Shorts.
 
 ## Run locally
 

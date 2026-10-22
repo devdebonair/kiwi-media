@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { db, reindexTopicSearch, reindexAssetSearch } from '@kiwi/database';
+import { db, reindexTopicSearch, reindexAssetSearch, reindexClipSearch } from '@kiwi/database';
 import { createTagProviders, entityId, ProviderError, safeURL } from './tag-providers.js';
 
 const fields = ['name', 'summary', 'avatar_url', 'topic_type', 'aliases'];
@@ -43,6 +43,7 @@ function write(row, metadata, values = {}) {
   db.prepare('UPDATE topics SET name=?,summary=?,avatar_url=?,topic_type=?,updated_at=?,metadata_json=? WHERE id=?').run(next.name, next.summary, next.avatar_url, next.topic_type, timestamp(), JSON.stringify(metadata), row.id);
   reindexTopicSearch(row.id);
   if (next.name !== row.name) for (const asset of db.prepare('SELECT DISTINCT asset_id FROM effective_asset_topics WHERE topic_id=?').all(row.id)) reindexAssetSearch(asset.asset_id);
+  if (next.name !== row.name) for (const clip of db.prepare('SELECT annotation_id FROM annotation_topics WHERE topic_id=?').all(row.id)) reindexClipSearch(clip.annotation_id);
 }
 function applyEntity(row, metadata, entity, selected, automatic = false) {
   const enrichment = metadata.tagEnrichment, values = {}, current = { ...row, aliases: aliases(row.id) };

@@ -78,3 +78,30 @@ test('older time-range annotations are treated as clips, and the watch page keep
   assert.equal(asset.moments.length, 1);
   assert.equal(asset.moments[0].start_ms, 45000);
 });
+
+test('clips are found by search through their name, their tags, rule-implied tags, and their video', async () => {
+  const made = (await post('/api/v1/assets/match/clips', { startMs: 120_000, endMs: 135_000, title: 'Bicycle kick', topics: [{ name: 'Acrobatics' }] })).json();
+  const search = async (q, kind = 'all') => (await get(`/api/v1/search?q=${encodeURIComponent(q)}&kind=${kind}`)).filter(item => item.entityType === 'clip').map(item => item.id);
+  assert.deepEqual(await search('bicycle'), [made.id], 'by name, with prefix matching');
+  assert.deepEqual(await search('acrobat'), [made.id], 'by its tag');
+  assert.ok((await search('cup final')).includes(made.id), 'by the video it comes from');
+  const acrobatics = db.prepare("SELECT id FROM topics WHERE name='Acrobatics'").get();
+  await post(`/api/v1/topics/${acrobatics.id}/topics`, { name: 'Highlights' });
+  assert.deepEqual(await search('highlights'), [made.id], 'by a tag implied by a topic rule');
+  const [result] = (await get('/api/v1/search?q=bicycle&kind=clips'));
+  assert.equal(result.entityType, 'clip');
+  assert.equal(result.asset.title, 'Cup final');
+  assert.equal(result.startMs, 120_000);
+  assert.ok((await get('/api/v1/search?q=bicycle&kind=videos')).every(item => item.entityType !== 'clip'), 'other tabs leave clips out');
+});
+
+test('search follows clip edits and deletions', async () => {
+  const [clip] = (await get('/api/v1/assets/match/clips')).filter(item => item.title === 'Bicycle kick');
+  const search = async q => (await get(`/api/v1/search?q=${encodeURIComponent(q)}&kind=clips`)).map(item => item.id);
+  await patch(`/api/v1/clips/${clip.id}`, { title: 'Overhead volley', topics: [{ name: 'Volleys' }] });
+  assert.deepEqual(await search('bicycle'), []);
+  assert.deepEqual(await search('overhead'), [clip.id]);
+  assert.deepEqual(await search('volleys'), [clip.id]);
+  await app.inject({ method: 'DELETE', url: `/api/v1/clips/${clip.id}` });
+  assert.deepEqual(await search('overhead'), []);
+});

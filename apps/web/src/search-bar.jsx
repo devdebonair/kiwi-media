@@ -2,7 +2,9 @@
 
 import { AddToPlaylist } from "./playlist.jsx";
 import { useEffect, useId, useRef, useState } from "react";
-import { ArrowUpRight, MagnifyingGlass, Play, Tag, X } from "@phosphor-icons/react";
+import { ArrowUpRight, FilmSlate, MagnifyingGlass, Play, Scissors, Tag, X } from "@phosphor-icons/react";
+import { clipHref } from "./clips.jsx";
+import { clipTime } from "./clip-range.mjs";
 
 const kindLabels = { video: "Video", audio: "Audio", image: "Photo", article: "Article", document: "Document" };
 
@@ -44,7 +46,11 @@ export function SearchBar({ query, setQuery, onSubmit, navigate, inputRef }) {
   function choose(index) {
     const item = items[index];
     setOpen(false); setActive(-1); inputRef.current?.blur();
-    navigate(item ? item.entityType === "topic" ? `/topic/${encodeURIComponent(item.slug)}` : `/watch/${encodeURIComponent(item.id)}` : `/search?q=${encodeURIComponent(term)}`);
+    navigate(!item ? `/search?q=${encodeURIComponent(term)}`
+      : item.entityType === "topic" ? `/topic/${encodeURIComponent(item.slug)}`
+      : item.entityType === "title" ? `/title/${encodeURIComponent(item.ref)}`
+      : item.entityType === "clip" ? clipHref(item)
+      : `/watch/${encodeURIComponent(item.id)}`);
   }
 
   function handleKey(event) {
@@ -70,11 +76,14 @@ export function SearchBar({ query, setQuery, onSubmit, navigate, inputRef }) {
       <div className="search-suggestions-heading" role="status">{status === "loading" ? "Searching your library…" : status === "error" ? "Suggestions unavailable. Press Enter to search." : items.length ? "From your library" : "No matches yet. Try another search."}</div>
       <div id={listId} ref={listRef} role="listbox" aria-label="Search suggestions" className="search-suggestions-list">
         {items.map((item, index) => {
-          const topic = item.entityType === "topic";
-          const picture = topic ? item.avatar_url : item.thumbnail_url;
+          const topic = item.entityType === "topic", title = item.entityType === "title", clip = item.entityType === "clip";
+          const picture = topic ? item.avatar_url : title ? item.poster : clip ? item.asset.thumbnail_url : item.thumbnail_url;
+          const name = topic ? item.name : clip ? item.title || item.topics.map(tag => tag.name).join(" · ") || "Untitled clip" : item.title;
+          const label = topic ? "Topic" : title ? `${item.type === "movie" ? "Movie" : item.isAnime ? "Anime" : "Series"}${item.year ? ` · ${item.year}` : ""}`
+            : clip ? `Clip · ${clipTime(item.startMs, { tenths: false })} in ${item.asset.title}` : kindLabels[item.kind] || "Media";
           return <div tabIndex={-1} role="option" aria-selected={active === index} id={`${listId}-${index}`} key={`${item.entityType}-${item.id}`} className="search-suggestion" onMouseDown={event => event.preventDefault()} onClick={() => choose(index)}>
-            <span className={`suggestion-image thumb ${topic ? "is-topic" : ""}`}>{topic ? <Tag size={18} /> : <Play size={18} />}{picture && <img src={picture} alt="" onError={event => { event.currentTarget.hidden = true; }} />}{!topic && <AddToPlaylist asset={item}/>}</span>
-            <span className="suggestion-copy"><strong>{topic ? item.name : item.title}</strong><small>{topic ? "Topic" : kindLabels[item.kind] || "Media"}</small></span><ArrowUpRight size={16} aria-hidden="true" />
+            <span className={`suggestion-image thumb ${topic ? "is-topic" : ""}`}>{topic ? <Tag size={18} /> : clip ? <Scissors size={18} /> : title ? <FilmSlate size={18} /> : <Play size={18} />}{picture && <img src={picture} alt="" onError={event => { event.currentTarget.hidden = true; }} />}{!topic && !title && !clip && <AddToPlaylist asset={item}/>}</span>
+            <span className="suggestion-copy"><strong>{name}</strong><small>{label}</small></span><ArrowUpRight size={16} aria-hidden="true" />
           </div>;
         })}
         <button type="button" tabIndex={-1} role="option" aria-selected={active === items.length} id={`${listId}-${items.length}`} className="search-suggestion search-all" onMouseDown={event => event.preventDefault()} onClick={() => choose(items.length)}><MagnifyingGlass size={18} /><span>Search for “{term}”</span><ArrowUpRight size={16} /></button>

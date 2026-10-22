@@ -305,13 +305,18 @@ export function applyProfiles(db, profiles, { runId, timestamp = new Date().toIS
       }
       report.topicIds.push(id);
     }
-    db.exec("DELETE FROM search_index");
+    // Only home media and topics are refreshed here; movies, shows, and clips keep their own index entries.
+    db.exec("DELETE FROM search_index WHERE entity_type IN ('asset','topic')");
     const insert = db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) VALUES(?,?,?,?,?)");
-    for (const asset of db.prepare("SELECT id,title,description FROM assets").all()) {
+    const catalog = db.prepare("PRAGMA table_info(assets)").all().some(column => column.name === "title_id");
+    for (const asset of db.prepare(`SELECT id,title,description FROM assets${catalog ? " WHERE title_id IS NULL" : ""}`).all()) {
       const tags = db.prepare("SELECT DISTINCT t.name FROM topics t JOIN annotation_topics at ON at.topic_id=t.id JOIN annotations a ON a.id=at.annotation_id WHERE a.asset_id=? AND a.motivation!='clipping'").all(asset.id).map(t => t.name).join(" ");
       insert.run(asset.id, "asset", asset.title, asset.description || "", tags);
     }
-    for (const topic of db.prepare("SELECT id,name,summary,body_markdown FROM topics").all()) insert.run(topic.id, "topic", topic.name, `${topic.summary || ""} ${topic.body_markdown || ""}`, "");
+    for (const topic of db.prepare("SELECT id,name,summary,body_markdown FROM topics").all()) {
+      const aliases = db.prepare("SELECT alias FROM topic_aliases WHERE topic_id=?").all(topic.id).map(row => row.alias).join(" ");
+      insert.run(topic.id, "topic", topic.name, `${topic.summary || ""} ${topic.body_markdown || ""}`, aliases);
+    }
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
   return report;

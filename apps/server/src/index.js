@@ -13,7 +13,7 @@ import { registerTagMetadata, tagMetadata } from "./tag-metadata.js";
 import { registerDownloads } from "./downloads.js";
 import { registerGuide } from "./guide.js";
 import { registerMedia } from "./media.js";
-import { listClips, registerClips } from "./clips.js";
+import { clipById, listClips, registerClips } from "./clips.js";
 import { registerPlugin } from "@kiwi/downloads";
 import { mediaDownloadPlugin, nextEpisodeAfter, previousEpisodeBefore, imageUrl } from "@kiwi/media";
 
@@ -61,13 +61,17 @@ const listAssets = (where = "1=1", params = [], limit = 60, offset = 0, orderBy 
 const searchHits = (query, kind = "all") => {
   const terms = query.split(/\s+/).filter(Boolean).map(term => `"${term.replaceAll('"', '')}"*`);
   if (!terms.length) return [];
+  // Videos and clips also match through their tags, including tags implied by topic rules.
   const matches = terms.map(() => `SELECT entity_id,entity_type FROM search_index WHERE search_index MATCH ?
     UNION SELECT et.asset_id,'asset' FROM effective_asset_topics et
       JOIN search_index ON search_index.entity_id=et.topic_id AND search_index.entity_type='topic'
+      WHERE search_index MATCH ?
+    UNION SELECT ct.clip_id,'clip' FROM clip_topics ct
+      JOIN search_index ON search_index.entity_id=ct.topic_id AND search_index.entity_type='topic'
       WHERE search_index MATCH ?`);
   const inheritedHits = db.prepare(`SELECT entity_id,entity_type FROM (
     ${matches.map(sql => `SELECT * FROM (${sql})`).join(" INTERSECT ")}
-  ) ORDER BY entity_type,entity_id LIMIT 80`).all(...terms.flatMap(term => [term, term]));
+  ) ORDER BY entity_type,entity_id LIMIT 80`).all(...terms.flatMap(term => [term, term, term]));
   const rankedHits = db.prepare("SELECT entity_id,entity_type FROM search_index WHERE search_index MATCH ? ORDER BY bm25(search_index) LIMIT 80").all(terms.join(" AND "));
   const seen = new Set();
   const hits = [...rankedHits, ...inheritedHits].filter(hit => {
@@ -92,6 +96,10 @@ const searchHits = (query, kind = "all") => {
       const map = { videos: "video", music: "audio", photos: "image", articles: "article" };
       if (map[kind] && row.kind !== map[kind]) return [];
       return [{ entityType: "asset", ...enrichAsset(row) }];
+    }
+    if (hit.entity_type === "clip" && (kind === "all" || kind === "clips")) {
+      const clip = clipById(hit.entity_id);
+      return clip ? [{ entityType: "clip", ...clip }] : [];
     }
     if (hit.entity_type === "topic" && (kind === "all" || kind === "topics")) {
       const row = db.prepare("SELECT * FROM topics WHERE id=?").get(hit.entity_id);

@@ -90,3 +90,7 @@
   .clip-row-actions { opacity: 1; }
   .clip-grid { grid-template-columns: 1fr; }
 }
+
+/* Clips in search results share the result-card layout with a 16:9 still and the clip's range. */
+.result-card.clip-result .clip-card-art { width: 100%; }
+.result-card.clip-result .clip-row-tags { justify-content: flex-start; margin-top: 8px; }

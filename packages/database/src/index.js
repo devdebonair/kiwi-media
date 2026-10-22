@@ -305,6 +305,16 @@ export function migrate() {
     SELECT at.annotation_id, i.topic_id FROM annotation_topics at
     JOIN annotations a ON a.id=at.annotation_id JOIN implied_topics i ON i.source_topic_id=at.topic_id WHERE a.motivation='clipping'
   `);
+  // Clips made before they were searchable get indexed once.
+  if (!db.prepare("SELECT 1 FROM app_state WHERE key='clips-search-indexed'").get()) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec("DELETE FROM search_index WHERE entity_type='clip'");
+      for (const row of db.prepare("SELECT id FROM annotations WHERE motivation='clipping'").all()) indexClip(row.id);
+      db.prepare("INSERT INTO app_state VALUES ('clips-search-indexed', ?)").run(new Date().toISOString());
+      db.exec("COMMIT");
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
+  }
   // Kept separate from direct_asset_topics (not a shared CTE) so asset_id filters push down.
   const effectiveView = `CREATE VIEW effective_asset_topics AS
     SELECT asset_id, topic_id FROM direct_asset_topics
@@ -464,6 +474,21 @@ export function reindexTitleSearch(titleId) {
   indexTitle(titleId);
 }
 
+// Clips are searchable by their name, their own tags, and the video (or series and episode) they come from.
+// Tags implied by topic rules are matched at query time through the clip_topics view, so they never go stale here.
+function indexClip(clipId, insert = db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) VALUES (?,?,?,?,?)")) {
+  const row = db.prepare(`SELECT a.id, a.note_markdown, v.title video, t.title series FROM annotations a JOIN assets v ON v.id=a.asset_id
+    LEFT JOIN titles t ON t.id=v.title_id WHERE a.id=? AND a.motivation='clipping'`).get(clipId);
+  if (!row) return;
+  const tags = db.prepare("SELECT t.name FROM annotation_topics at JOIN topics t ON t.id=at.topic_id WHERE at.annotation_id=?").all(clipId).map(x => x.name);
+  insert.run(row.id, "clip", row.note_markdown || "", [row.series, row.video].filter(Boolean).join(" "), tags.join(" "));
+}
+
+export function reindexClipSearch(clipId) {
+  db.prepare("DELETE FROM search_index WHERE entity_type='clip' AND entity_id=?").run(clipId);
+  indexClip(clipId);
+}
+
 export function rebuildSearch() {
   db.exec("DELETE FROM search_index");
   const insert = db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) VALUES (?,?,?,?,?)");
@@ -472,6 +497,7 @@ export function rebuildSearch() {
     insert.run(row.id, "asset", row.title, row.description || "", tags);
   }
   for (const row of db.prepare("SELECT id FROM titles").all()) indexTitle(row.id, insert);
+  for (const row of db.prepare("SELECT id FROM annotations WHERE motivation='clipping'").all()) indexClip(row.id, insert);
   for (const row of db.prepare("SELECT id,name,summary,body_markdown FROM topics").all()) {
     const aliases = db.prepare("SELECT alias FROM topic_aliases WHERE topic_id=?").all(row.id).map(x => x.alias).join(" ");
     insert.run(row.id, "topic", row.name, `${row.summary || ""} ${row.body_markdown || ""}`, aliases);

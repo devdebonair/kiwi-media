@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { db } from "@kiwi/database";
+import { db, reindexClipSearch } from "@kiwi/database";
 
 // Clips are tags on a time range of a video: "virtual clips" that can later be browsed as a feed without
 // cutting any files. Each is an annotation (motivation 'clipping') with one time-range selector, an optional
@@ -90,6 +90,7 @@ export function registerClips(app, { resolveTopic }) {
         .run(id, asset.id, "clipping", name, "manual", "private", timestamp, timestamp);
       db.prepare("INSERT INTO annotation_selectors (id,annotation_id,selector_type,start_ms,end_ms) VALUES (?,?,?,?,?)").run(randomUUID(), id, "time-range", startMs, endMs);
       setTopics(id, ids);
+      reindexClipSearch(id);
     });
     return reply.code(201).send(present(clipRow(id)));
   }));
@@ -106,6 +107,7 @@ export function registerClips(app, { resolveTopic }) {
       if (body.topics !== undefined) setTopics(current.id, topicIds(body.topics, timestamp));
       db.prepare("UPDATE annotation_selectors SET start_ms=?, end_ms=? WHERE annotation_id=? AND selector_type='time-range'").run(startMs, endMs, current.id);
       db.prepare("UPDATE annotations SET note_markdown=coalesce(?, note_markdown), updated_at=? WHERE id=?").run(name ?? null, timestamp, current.id);
+      reindexClipSearch(current.id);
     });
     return present(clipRow(current.id));
   }));
@@ -113,6 +115,7 @@ export function registerClips(app, { resolveTopic }) {
   app.delete("/api/v1/clips/:id", handle(async (req, reply) => {
     if (!clipRow(req.params.id)) return reply.code(404).send({ error: "Clip not found" });
     db.prepare("DELETE FROM annotations WHERE id=?").run(req.params.id);
+    db.prepare("DELETE FROM search_index WHERE entity_type='clip' AND entity_id=?").run(req.params.id);
     return reply.code(204).send();
   }));
 
@@ -125,8 +128,11 @@ export function registerClips(app, { resolveTopic }) {
   }));
 }
 
-export function listClips({ topic, asset, limit = 40, offset = 0 } = {}) {
+export const clipById = id => listClips({ id, limit: 1 })[0] || null;
+
+export function listClips({ topic, asset, id, limit = 40, offset = 0 } = {}) {
   const filters = [], params = [];
+  if (id) { filters.push("a.id=?"); params.push(id); }
   if (topic) {
     filters.push("EXISTS(SELECT 1 FROM clip_topics ct JOIN topics t ON t.id=ct.topic_id WHERE ct.clip_id=a.id AND (t.slug=? OR t.id=?))");
     params.push(topic, topic);
