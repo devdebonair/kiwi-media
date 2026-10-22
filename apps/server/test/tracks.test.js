@@ -97,3 +97,14 @@ test('Apple browsers get the repackaged video as HLS: a redirect to a playlist w
   assert.equal((await app.inject(`${base}../../etc/passwd`)).statusCode, 404);
   assert.equal((await app.inject(`/api/v1/hls/${'0'.repeat(24)}/index.m3u8`)).statusCode, 404);
 });
+
+test('repeated and concurrent requests for the same HLS stream share one session, as Safari needs', { skip }, async () => {
+  const url = '/api/v1/assets/clip/file?remux=1&hls=1&audio=0&video=copy&start=1';
+  const [first, second] = await Promise.all([app.inject(url), app.inject(url)]);
+  assert.equal(first.statusCode, 302);
+  assert.equal(first.headers.location, second.headers.location, 'two requests at once get the same playlist');
+  const again = await app.inject(url);
+  assert.equal(again.headers.location, first.headers.location, 'a later reload of the original address gets the same playlist');
+  const elsewhere = await app.inject('/api/v1/assets/clip/file?remux=1&hls=1&audio=0&video=copy&start=2');
+  assert.notEqual(elsewhere.headers.location, first.headers.location, 'a different start is a different stream');
+});

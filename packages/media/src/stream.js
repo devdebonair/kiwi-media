@@ -38,10 +38,14 @@ export function createHlsSessions({ directory, idleMs = 90_000, max = 4 } = {}) 
   rmSync(directory, { recursive: true, force: true });
   mkdirSync(directory, { recursive: true });
   const sessions = new Map();
+  // Safari asks for the same stream more than once (and reloads a growing playlist from its original address),
+  // so identical requests share one session instead of each starting a new encode.
+  const byKey = new Map();
   const close = id => {
     const session = sessions.get(id);
     if (!session) return;
     sessions.delete(id);
+    if (session.key && byKey.get(session.key) === id) byKey.delete(session.key);
     clearInterval(session.timer);
     if (!session.child.killed) session.child.kill("SIGKILL");
     rmSync(session.dir, { recursive: true, force: true });
@@ -49,7 +53,9 @@ export function createHlsSessions({ directory, idleMs = 90_000, max = 4 } = {}) 
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
   return {
-    async start({ input, start = 0, audioPosition = 0, video = "copy", videoCodec }) {
+    async start({ input, start = 0, audioPosition = 0, video = "copy", videoCodec, key }) {
+      const existing = key && sessions.get(byKey.get(key));
+      if (existing) { existing.touched = Date.now(); await existing.ready; return { id: byKey.get(key) }; }
       // Only a few at a time: a new one pushes out the one idle the longest.
       while (sessions.size >= max) close([...sessions.entries()].sort((a, b) => a[1].touched - b[1].touched)[0][0]);
       const id = randomBytes(12).toString("hex");
@@ -63,19 +69,24 @@ export function createHlsSessions({ directory, idleMs = 90_000, max = 4 } = {}) 
       let errors = "", exited = false;
       child.stderr.on("data", chunk => { errors = (errors + chunk).slice(-2000); });
       child.once("close", () => { exited = true; });
-      const session = { dir, child, touched: Date.now(), timer: null };
+      const session = { dir, child, key, touched: Date.now(), timer: null, ready: null };
       session.timer = setInterval(() => { if (Date.now() - session.touched > idleMs) close(id); }, 10_000);
       session.timer.unref?.();
       sessions.set(id, session);
+      if (key) byKey.set(key, id);
       // Ready once the first fragment is listed.
-      for (let tries = 0; tries < 300; tries++) {
-        const playlist = join(dir, "index.m3u8");
-        if (existsSync(playlist) && /#EXTINF/.test(readFileSync(playlist, "utf8"))) return { id };
-        if (exited) { close(id); throw new Error(errors.trim().split("\n").pop() || "The stream could not be prepared."); }
-        await wait(100);
-      }
-      close(id);
-      throw new Error("The stream took too long to start.");
+      session.ready = (async () => {
+        for (let tries = 0; tries < 300; tries++) {
+          const playlist = join(dir, "index.m3u8");
+          if (existsSync(playlist) && /#EXTINF/.test(readFileSync(playlist, "utf8"))) return;
+          if (exited) { close(id); throw new Error(errors.trim().split("\n").pop() || "The stream could not be prepared."); }
+          await wait(100);
+        }
+        close(id);
+        throw new Error("The stream took too long to start.");
+      })();
+      await session.ready;
+      return { id };
     },
     // The file for a request, or null for an unknown session or name. Every request counts as activity.
     file(id, name) {

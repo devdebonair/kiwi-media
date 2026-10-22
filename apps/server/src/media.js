@@ -291,7 +291,8 @@ export function registerMedia(app, { resolveTopic }) {
     const video = req.query.video === "transcode" ? "transcode" : "copy";
     const input = await sourceInput(assetId);
     if (req.query.hls === "1") {
-      const session = await hls.start({ input, start, audioPosition: audio, video, videoCodec: req.query.codec === "hevc" ? "hevc" : undefined });
+      const codec = req.query.codec === "hevc" ? "hevc" : undefined;
+      const session = await hls.start({ input, start, audioPosition: audio, video, videoCodec: codec, key: [assetId, Math.floor(start), audio, video, codec || ""].join("|") });
       return reply.header("Cache-Control", "no-store").redirect(`/api/v1/hls/${session.id}/index.m3u8`, 302);
     }
     const job = startRemux({ input, start, audioPosition: audio, video, videoCodec: req.query.codec === "hevc" ? "hevc" : undefined });
