@@ -20,7 +20,8 @@
 
 .guide-now-playing { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 4px; font-size: 13px; font-weight: 600; color: var(--green); }
 
-.guide-player { position: relative; aspect-ratio: 16 / 9; align-self: start; border-radius: 12px; overflow: hidden; background: #0e0f13; border: 1px solid var(--line); }
+.guide-screen { min-width: 0; align-self: start; display: flex; flex-direction: column; gap: 10px; }
+.guide-player { position: relative; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #0e0f13; border: 1px solid var(--line); }
 .guide-player > img, .guide-player > video { position: absolute; inset: 0; width: 100%; height: 100%; }
 .guide-player > img { object-fit: cover; filter: brightness(.45); }
 .guide-player > video { object-fit: contain; background: #000; }
@@ -35,6 +36,11 @@
 .guide-player-title small { font-size: 11px; color: #ffffffb3; }
 .guide-player-button { flex-shrink: 0; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; color: #fff; background: #ffffff1f; }
 .guide-player-button:hover { background: #ffffff38; }
+.guide-live-actions { display: flex; align-items: center; gap: 8px; min-height: 38px; min-width: 0; }
+.guide-live-actions .animated-like-control { flex-shrink: 0; }
+.watch-topics.guide-live-tags { flex: 1; flex-wrap: nowrap; min-width: 0; margin: 0; gap: 6px; overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
+.guide-live-tags a { flex-shrink: 0; }
+.guide-live-actions .add-tag { flex-shrink: 0; }
 .guide-row.is-tuned .guide-channel { box-shadow: inset 3px 0 var(--green); }
 .guide-row.is-tuned .guide-number { color: var(--green); }
 
@@ -132,7 +138,9 @@
 @media (max-width: 680px) {
   .content.guide-page { --ppm: 5px; --channel-col: 64px; --row-h: 56px; padding: 12px 0 0; gap: 10px; }
   .guide-hero { grid-template-columns: 1fr; gap: 10px; }
-  .guide-player { order: -1; border-radius: 0; border-width: 0 0 1px; }
+  .guide-screen { order: -1; }
+  .guide-player { border-radius: 0; border-width: 0 0 1px; }
+  .guide-live-actions { padding: 0 14px; }
   .guide-player-bar { opacity: 1; }
   .guide-info { padding: 0 14px; }
   .guide-description, .guide-tags, .guide-progress { display: none; }

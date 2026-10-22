@@ -4,10 +4,24 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowCounterClockwise, ArrowSquareOut, Broadcast, CaretLeft, CaretRight, CornersIn, CornersOut, MagnifyingGlass, PencilSimple, Play, Plus, SpeakerHigh, SpeakerSlash, Stack, Television } from "@phosphor-icons/react";
 import { InfiniteScroll } from "./infinite-scroll.jsx";
 import { ChannelEditor } from "./guide-channel-editor.jsx";
+import { LikeButton } from "./animated-like-button.jsx";
+import { AddTag } from "./add-tag.jsx";
+import { TopicLabel } from "./topic-label.jsx";
 import { airing, clock, dayLabel, halfHour, liveOffset, placement, programAt, slots, span } from "./guide-time.mjs";
 
 const HOURS = 4, PAGE = 40, STEP_MS = 2 * 3_600_000;
 const filters = [["all", "All channels"], ["custom", "My channels"], ["people", "People"], ["tags", "Tags"]];
+// The last channel watched on this device, so the guide turns back on where you left it.
+const LAST_CHANNEL_KEY = "kiwi.guide.channel.v1";
+const lastChannel = () => {
+  try { const value = JSON.parse(localStorage.getItem(LAST_CHANNEL_KEY)); return typeof value?.key === "string" ? value : null; } catch { return null; }
+};
+const rememberChannel = channel => {
+  try {
+    if (channel) localStorage.setItem(LAST_CHANNEL_KEY, JSON.stringify({ key: channel.key, number: channel.number, name: channel.name, type: channel.type, avatar_url: channel.avatar_url, slug: channel.slug }));
+    else localStorage.removeItem(LAST_CHANNEL_KEY);
+  } catch { /* The guide falls back to the top channel. */ }
+};
 
 // A DirecTV-style grid: every tag with enough videos is a channel looping its lineup on a shared clock.
 export function GuidePage({ api, navigate, Loading }) {
@@ -21,10 +35,11 @@ export function GuidePage({ api, navigate, Loading }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [version, setVersion] = useState(0);
-  const [selected, setSelected] = useState(null);
+  const [tuned, setTuned] = useState(lastChannel);
+  const [selected, setSelected] = useState(() => tuned && { key: tuned.key, start: null });
   const [editing, setEditing] = useState(null);
-  // The channel playing in the live player; the guide tunes the top channel on arrival.
-  const [tuned, setTuned] = useState(null);
+  // Until the last channel's row is on screen, keep loading pages so it can be shown and selected.
+  const revealing = useRef(Boolean(tuned));
   const gridRef = useRef(null), generation = useRef(0), queryKey = useRef(null), pending = useRef(false), dataRef = useRef(null);
   dataRef.current = data;
   const end = start + HOURS * 3_600_000;
@@ -72,6 +87,19 @@ export function GuidePage({ api, navigate, Loading }) {
     if (!tuned && channels.length) { setTuned(channels[0]); setSelected(value => value || { key: channels[0].key, start: null }); }
     else if (tuned) { const fresh = channels.find(item => item.key === tuned.key); if (fresh && fresh !== tuned) setTuned(fresh); }
   }, [channels]);
+  useEffect(() => { rememberChannel(tuned); }, [tuned?.key, tuned?.name, tuned?.number, tuned?.avatar_url]);
+  useEffect(() => {
+    if (!revealing.current || !data || !tuned) return;
+    const row = channels.findIndex(item => item.key === tuned.key);
+    if (row >= 0) {
+      revealing.current = false;
+      const grid = gridRef.current, element = grid?.querySelector(`[aria-rowindex="${row + 2}"]`);
+      if (element) grid.scrollTo({ top: Math.max(0, element.offsetTop - grid.clientHeight / 2 + element.offsetHeight / 2) });
+    } else if (channels.length < data.total && filter === "all" && !q) loadMore();
+    else revealing.current = false;
+  }, [data]);
+  // The remembered channel no longer exists (deleted, or too few videos): fall back to the top channel.
+  const lostChannel = useCallback(() => { revealing.current = false; setTuned(dataRef.current?.channels[0] || null); setSelected(null); }, []);
   // Keep the info panel on whatever is airing as programs end.
   useEffect(() => {
     if (following && channel && program && program.end <= now && program.end < end) setSelected({ key: channel.key, start: program.end });
@@ -116,7 +144,7 @@ export function GuidePage({ api, navigate, Loading }) {
 
   return <div className="content guide-page">
     <h1 className="sr-only">TV guide</h1>
-    <GuideHero api={api} channel={channel} program={program} now={now} tuned={tuned} onTune={tune} onEdit={setEditing} navigate={navigate} />
+    <GuideHero api={api} channel={channel} program={program} now={now} tuned={tuned} onTune={tune} onEdit={setEditing} onLost={lostChannel} navigate={navigate} />
 
     <div className="guide-toolbar">
       <div className="chips" role="group" aria-label="Filter channels">
@@ -189,7 +217,7 @@ const GuideRow = memo(function GuideRow({ channel, row, start, end, now, isTuned
   </div>;
 });
 
-function GuideHero({ api, channel, program, now, tuned, onTune, onEdit, navigate }) {
+function GuideHero({ api, channel, program, now, tuned, onTune, onEdit, onLost, navigate }) {
   const [details, setDetails] = useState(null);
   useEffect(() => {
     setDetails(null);
@@ -198,7 +226,7 @@ function GuideHero({ api, channel, program, now, tuned, onTune, onEdit, navigate
     const timer = setTimeout(() => api(`/api/v1/assets/${program.id}`).then(value => { if (active) setDetails(value); }).catch(() => {}), 250);
     return () => { active = false; clearTimeout(timer); };
   }, [program?.id, api]);
-  const player = tuned ? <GuidePlayer key="player" api={api} channel={tuned} navigate={navigate} /> : <div className="guide-player is-idle" />;
+  const player = tuned ? <GuidePlayer key="player" api={api} channel={tuned} navigate={navigate} onLost={onLost} /> : <div className="guide-player is-idle" />;
   if (!channel) return <section className="guide-hero" aria-label="Selected program"><div className="guide-info" />{player}</section>;
   if (!program) return <section className="guide-hero" aria-label="Selected program"><div className="guide-info"><ChannelLine channel={channel} navigate={navigate} onEdit={onEdit} /><h2>No programming</h2><p className="guide-meta">Tag more videos to fill this channel.</p></div>{player}</section>;
   const live = program.start <= now && now < program.end;
@@ -212,7 +240,7 @@ function GuideHero({ api, channel, program, now, tuned, onTune, onEdit, navigate
       <p className="guide-meta">{live && <span className="guide-live-pill"><Broadcast size={13} weight="fill" /> Live</span>}{clock(program.start)} – {clock(program.end)} · {span(program.duration_ms)} · {status}</p>
       {live && <div className="guide-progress" role="progressbar" aria-label="Elapsed" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}><span style={{ transform: `scaleX(${progress})` }} /></div>}
       {details?.description && <p className="guide-description">{details.description}</p>}
-      {details?.topics?.length > 0 && <p className="guide-tags">{details.topics.slice(0, 6).map(topic => topic.name).join(" · ")}</p>}
+      {!playing && details?.topics?.length > 0 && <p className="guide-tags">{details.topics.slice(0, 6).map(topic => topic.name).join(" · ")}</p>}
       <div className="guide-actions">
         {playing ? <span className="guide-now-playing"><SpeakerHigh size={16} weight="fill" /> Now playing</span>
           : <button className="primary-button" onClick={() => onTune(channel, program)}><Play size={16} weight="fill" />{live ? "Watch live" : "Watch"}</button>}
@@ -236,7 +264,7 @@ function ChannelLine({ channel, navigate, onEdit }) {
 
 // Live TV for the tuned channel: joins each program at the elapsed time and rolls into the next one,
 // like the picture-in-picture window on a satellite guide. It never touches the playlist.
-function GuidePlayer({ api, channel, navigate }) {
+function GuidePlayer({ api, channel, navigate, onLost }) {
   const [lineup, setLineup] = useState(null);
   const [airingStart, setAiringStart] = useState(null);
   const [muted, setMuted] = useState(false);
@@ -248,11 +276,12 @@ function GuidePlayer({ api, channel, navigate }) {
     let active = true;
     api(`/api/v1/guide?channel=${encodeURIComponent(channel.key)}&start=${Date.now()}&hours=3&limit=1`).then(value => {
       if (!active) return;
+      if (!value.total) { onLost(); return; }
       const programs = value.channels[0]?.programs || [];
       setLineup(programs); setAiringStart(airing(programs, Date.now())?.start ?? null);
     }).catch(() => { if (active) setLineup([]); });
     return () => { active = false; };
-  }, [api, channel.key]);
+  }, [api, channel.key, onLost]);
   useEffect(() => { setLineup(null); setFailed(false); return sync(); }, [sync]);
   useEffect(() => {
     const update = () => setFullscreen(document.fullscreenElement === shell.current);
@@ -285,18 +314,40 @@ function GuidePlayer({ api, channel, navigate }) {
   const toggleMute = () => { const next = !muted; setMuted(next); if (video.current) video.current.muted = next; };
   const toggleFullscreen = () => document.fullscreenElement ? document.exitFullscreen() : shell.current?.requestFullscreen?.();
 
-  return <div ref={shell} className={`guide-player ${fullscreen ? "is-fullscreen" : ""}`} onDoubleClick={toggleFullscreen}>
-    {program?.thumbnail_url && <img src={program.thumbnail_url} alt="" />}
-    {program && !failed && <video ref={video} key={`${program.id}:${program.start}`} src={`/api/v1/assets/${program.id}/file`} muted={muted} playsInline disablePictureInPicture preload="auto"
-      onLoadedMetadata={start} onPlaying={countView} onEnded={advance} onError={() => setFailed(true)} />}
-    {lineup && !program && <p className="guide-player-message">Nothing is airing on this channel right now.</p>}
-    {failed && <div className="guide-player-message"><p>This video can't play here.</p><button className="outline-button" onClick={() => navigate(`/watch/${program.id}?t=${liveOffset(program, Date.now()) ?? 0}`)}><ArrowSquareOut size={16} /> Open in player</button></div>}
-    <div className="guide-player-bar">
-      <span className="guide-live-pill"><Broadcast size={13} weight="fill" /> Live</span>
-      <span className="guide-player-title"><strong>{channel.number} · {channel.name}</strong>{program && <small>{program.title}</small>}</span>
-      <button className="guide-player-button" onClick={toggleMute} aria-label={muted ? "Unmute" : "Mute"} title={muted ? "Unmute" : "Mute"}>{muted ? <SpeakerSlash size={17} weight="fill" /> : <SpeakerHigh size={17} weight="fill" />}</button>
-      <button className="guide-player-button" onClick={toggleFullscreen} aria-label={fullscreen ? "Exit full screen" : "Full screen"} title={fullscreen ? "Exit full screen" : "Full screen"}>{fullscreen ? <CornersIn size={17} /> : <CornersOut size={17} />}</button>
+  return <div className="guide-screen">
+    <div ref={shell} className={`guide-player ${fullscreen ? "is-fullscreen" : ""}`} onDoubleClick={toggleFullscreen}>
+      {program?.thumbnail_url && <img src={program.thumbnail_url} alt="" />}
+      {program && !failed && <video ref={video} key={`${program.id}:${program.start}`} src={`/api/v1/assets/${program.id}/file`} muted={muted} playsInline disablePictureInPicture preload="auto"
+        onLoadedMetadata={start} onPlaying={countView} onEnded={advance} onError={() => setFailed(true)} />}
+      {lineup && !program && <p className="guide-player-message">Nothing is airing on this channel right now.</p>}
+      {failed && <div className="guide-player-message"><p>This video can't play here.</p><button className="outline-button" onClick={() => navigate(`/watch/${program.id}?t=${liveOffset(program, Date.now()) ?? 0}`)}><ArrowSquareOut size={16} /> Open in player</button></div>}
+      <div className="guide-player-bar">
+        <span className="guide-live-pill"><Broadcast size={13} weight="fill" /> Live</span>
+        <span className="guide-player-title"><strong>{channel.number} · {channel.name}</strong>{program && <small>{program.title}</small>}</span>
+        <button className="guide-player-button" onClick={toggleMute} aria-label={muted ? "Unmute" : "Mute"} title={muted ? "Unmute" : "Mute"}>{muted ? <SpeakerSlash size={17} weight="fill" /> : <SpeakerHigh size={17} weight="fill" />}</button>
+        <button className="guide-player-button" onClick={toggleFullscreen} aria-label={fullscreen ? "Exit full screen" : "Full screen"} title={fullscreen ? "Exit full screen" : "Full screen"}>{fullscreen ? <CornersIn size={17} /> : <CornersOut size={17} />}</button>
+      </div>
     </div>
+    {program && <LiveActions key={program.id} api={api} id={program.id} navigate={navigate} />}
+  </div>;
+}
+
+// Like and tag whatever is airing, below the picture rather than on top of it.
+function LiveActions({ api, id, navigate }) {
+  const [asset, setAsset] = useState(null);
+  useEffect(() => {
+    let active = true;
+    api(`/api/v1/assets/${id}`).then(value => { if (active) setAsset(value); }).catch(() => {});
+    return () => { active = false; };
+  }, [api, id]);
+  if (!asset) return <div className="guide-live-actions" aria-busy="true" />;
+  const update = values => setAsset(current => ({ ...current, ...values }));
+  return <div className="guide-live-actions" aria-label={`Now playing: ${asset.title}`} role="group">
+    <LikeButton asset={asset} api={api} onChange={update} />
+    <div className="watch-topics guide-live-tags">
+      {asset.topics?.map(topic => <a key={topic.id} href={`/topic/${topic.slug}`} onClick={event => { if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigate(`/topic/${topic.slug}`); }}><TopicLabel topic={topic} /></a>)}
+    </div>
+    <AddTag asset={asset} api={api} onChange={topics => update({ topics })} />
   </div>;
 }
 
