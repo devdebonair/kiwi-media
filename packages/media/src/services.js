@@ -64,7 +64,7 @@ export function describePrepared(assetId, prepared) {
   const chosenSubtitle = prepared.chosen?.subtitle ? tracks.find(track => track.origin === "embedded" && subtitles.listRows(assetId, key).find(row => row.id === track.id)?.stream_index === prepared.chosen.subtitle.index) : null;
   const source = prepared.sourceId ? db.prepare("SELECT * FROM playback_sources WHERE id=?").get(prepared.sourceId) : null;
   return {
-    status: "ready", origin: prepared.origin, source: source ? describeSource(source) : null, durationMs: prepared.info?.durationMs || asset.duration_ms, video: prepared.info?.video ? { codec: prepared.info.video.codec, width: prepared.info.video.width, height: prepared.info.video.height } : null,
+    status: "ready", origin: prepared.origin, source: source ? describeSource(source) : null, durationMs: prepared.info?.durationMs || asset.duration_ms, container: prepared.info?.container || null, video: prepared.info?.video ? { codec: prepared.info.video.codec, width: prepared.info.video.width, height: prepared.info.video.height } : null,
     playback: prepared.plan, audio: orderAudio(prepared.info?.audio || []),
     subtitles: orderSubtitles(tracks), chosen: { audioPosition: prepared.chosen?.audio?.position ?? null, subtitleId: chosenSubtitle?.id ?? null, subtitleReason: prepared.chosen?.subtitleReason ?? null },
     needsExternalSubtitles: Boolean(prepared.chosen?.needsExternalSubtitles), onlineSubtitles: getProvider("opensubtitles").configured,

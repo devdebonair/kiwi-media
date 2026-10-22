@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import mime from "mime-types";
-import { db, reindexTitleSearch } from "@kiwi/database";
+import { db, generatedDir, reindexTitleSearch } from "@kiwi/database";
+import { join } from "node:path";
 import { ConfigError, destinationFor, downloadBlocker } from "@kiwi/downloads";
 import {
   LANGUAGES, MEDIA_DOWNLOADER_ID, MEDIA_SCHEME, SourceError, assetSummary, cacheSummary, clearHttpCache, continueWatching, defaultRules, describeLocalTracks, describePrepared,
   getDownloadSettings, getMedia, getPlayback, getProvider, getRules, getTitle, imageUrl, libraryTitles, nextUp, openTitle, providerDefinitions,
-  publicProvider, publicSeasons, publicTitle, resetRules, saveDownloadSettings, savePlayback, saveProvider, saveRules, setAnime, setLibrary, startRemux, ensureSeason, ensureAllSeasons,
+  publicProvider, publicSeasons, publicTitle, resetRules, saveDownloadSettings, savePlayback, saveProvider, saveRules, setAnime, setLibrary, startRemux, createHlsSessions, ensureSeason, ensureAllSeasons,
 } from "@kiwi/media";
 
 const userId = "user-local";
@@ -273,12 +274,26 @@ export function registerMedia(app, { resolveTopic }) {
     return (await media().sources.streamUrl(assetId)).url;
   };
 
+  const hls = createHlsSessions({ directory: join(generatedDir, "hls") });
+  app.addHook("onClose", async () => hls.closeAll());
+  app.get("/api/v1/hls/:session/:file", async (req, reply) => {
+    const path = hls.file(req.params.session, req.params.file);
+    if (!path) return reply.code(404).send({ error: "Stream not found" });
+    const playlist = req.params.file.endsWith(".m3u8");
+    reply.header("Content-Type", playlist ? "application/vnd.apple.mpegurl" : "video/mp4").header("Cache-Control", playlist ? "no-store" : "private, max-age=3600");
+    return reply.send(createReadStream(path));
+  });
+
   // Repackaged playback: chosen audio track and/or re-encoded video, starting at `start` seconds.
   async function remux(req, reply, assetId) {
     const start = Math.max(0, Number(req.query.start) || 0);
     const audio = Math.max(0, Math.min(Number(req.query.audio) || 0, 31));
     const video = req.query.video === "transcode" ? "transcode" : "copy";
     const input = await sourceInput(assetId);
+    if (req.query.hls === "1") {
+      const session = await hls.start({ input, start, audioPosition: audio, video, videoCodec: req.query.codec === "hevc" ? "hevc" : undefined });
+      return reply.header("Cache-Control", "no-store").redirect(`/api/v1/hls/${session.id}/index.m3u8`, 302);
+    }
     const job = startRemux({ input, start, audioPosition: audio, video, videoCodec: req.query.codec === "hevc" ? "hevc" : undefined });
     reply.raw.on("close", () => job.stop());
     reply.header("Content-Type", "video/mp4").header("Cache-Control", "no-store").header("X-Accel-Buffering", "no");

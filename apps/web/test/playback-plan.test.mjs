@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { planPlayback, remuxUrl } from "../src/playback-plan.mjs";
+import { detectEnvironment, planPlayback, remuxUrl } from "../src/playback-plan.mjs";
 
 const info = (extra = {}) => ({ audio: [{ position: 0, codec: "aac", default: true }, { position: 1, codec: "aac", default: false }], video: { codec: "h264" }, playback: { mode: "direct" }, ...extra });
 
@@ -36,4 +36,28 @@ test("the default is the first flagged track in file order, even when the list i
   assert.equal(planPlayback(sorted).defaultAudio, 0);
   assert.equal(planPlayback(sorted, { audioPosition: 2 }).remux, true, "picking the English track needs repackaging when it is not first in the file");
   assert.equal(planPlayback(sorted, { audioPosition: 0 }).remux, false);
+});
+
+const iphone = { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/130.0 Mobile/15E148 Safari/604.1", vendor: "Apple Computer, Inc.", platform: "iPhone", maxTouchPoints: 5 };
+const chrome = { userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36", vendor: "Google Inc.", platform: "Linux x86_64", maxTouchPoints: 0 };
+const firefox = { userAgent: "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0", vendor: "", platform: "Linux x86_64", maxTouchPoints: 0 };
+const desktopSafari = { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15", vendor: "Apple Computer, Inc.", platform: "MacIntel", maxTouchPoints: 0 };
+
+test("browsers are told apart: every iOS browser is Apple, Chrome is Chromium, Firefox is neither", () => {
+  assert.deepEqual(detectEnvironment(iphone), { apple: true, chromium: false });
+  assert.deepEqual(detectEnvironment(chrome), { apple: false, chromium: true });
+  assert.deepEqual(detectEnvironment(firefox), { apple: false, chromium: false });
+  assert.deepEqual(detectEnvironment(desktopSafari), { apple: true, chromium: false });
+});
+
+test("Matroska plays directly only in Chromium; everything else gets a repackaged stream, as HLS on Apple", () => {
+  const mkv = info({ container: "matroska,webm" });
+  assert.equal(planPlayback(mkv, { env: detectEnvironment(chrome) }).remux, false);
+  const phone = planPlayback(mkv, { env: detectEnvironment(iphone) });
+  assert.equal(phone.remux, true);
+  assert.equal(phone.hls, true);
+  assert.equal(planPlayback(mkv, { env: detectEnvironment(firefox) }).remux, true);
+  assert.equal(planPlayback(mkv, { env: detectEnvironment(firefox) }).hls, false);
+  assert.equal(planPlayback(info({ container: "mov,mp4,m4a,3gp,3g2,mj2" }), { env: detectEnvironment(iphone) }).remux, false, "MP4 plays everywhere");
+  assert.match(remuxUrl("/f", phone, 12), /&hls=1&start=12$/);
 });

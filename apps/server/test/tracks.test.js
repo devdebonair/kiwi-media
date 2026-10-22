@@ -77,3 +77,23 @@ test('picks up sidecar subtitle files named after the video', { skip }, async ()
   const vtt = await app.inject(`/api/v1/subtitles/${sidecar.id}.vtt`);
   assert.match(vtt.body, /Bonjour/);
 });
+
+test('Apple browsers get the repackaged video as HLS: a redirect to a playlist with an init segment and fragments', { skip }, async () => {
+  const start = await app.inject('/api/v1/assets/clip/file?remux=1&hls=1&audio=1&video=copy&start=0');
+  assert.equal(start.statusCode, 302);
+  const playlistUrl = start.headers.location;
+  assert.match(playlistUrl, /^\/api\/v1\/hls\/[0-9a-f]{24}\/index\.m3u8$/);
+  const playlist = await app.inject(playlistUrl);
+  assert.equal(playlist.statusCode, 200);
+  assert.match(playlist.headers['content-type'], /mpegurl/);
+  assert.match(playlist.body, /^#EXTM3U/);
+  assert.match(playlist.body, /#EXT-X-MAP:URI="init\.mp4"/);
+  const base = playlistUrl.replace('index.m3u8', '');
+  const init = await app.inject(`${base}init.mp4`);
+  assert.equal(init.statusCode, 200);
+  assert.equal(init.rawPayload.subarray(4, 8).toString(), 'ftyp');
+  const segment = playlist.body.split('\n').find(line => /^seg\d{5}\.m4s$/.test(line));
+  assert.equal((await app.inject(`${base}${segment}`)).statusCode, 200);
+  assert.equal((await app.inject(`${base}../../etc/passwd`)).statusCode, 404);
+  assert.equal((await app.inject(`/api/v1/hls/${'0'.repeat(24)}/index.m3u8`)).statusCode, 404);
+});

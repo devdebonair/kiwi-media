@@ -7,7 +7,7 @@ import { SubtitleLayer, useSubtitleCues, useSubtitleStyle } from './subtitle-lay
 import { AudioMenu, SourceMenu, SubtitleMenu } from './player-menus.jsx';
 import { applyPreference, loadPreference, savePreference } from './track-preferences.mjs';
 import { bufferedEndOf, createTimelineMedia, planSeek } from './timeline-media.mjs';
-import { planPlayback, remuxUrl } from './playback-plan.mjs';
+import { detectEnvironment, planPlayback, remuxUrl } from './playback-plan.mjs';
 
 const time = seconds => {
   const value = Math.max(0, Math.floor(seconds || 0)), h = Math.floor(value / 3600), m = Math.floor(value % 3600 / 60), s = value % 60;
@@ -90,7 +90,8 @@ export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded,
   }, [info, applied, asset.id, api, prefKey]);
 
   const audioTracks = info?.audio || [];
-  const plan = planPlayback(info, { audioPosition: audioPos, transcode });
+  const [env] = useState(() => detectEnvironment());
+  const plan = planPlayback(info, { audioPosition: audioPos, transcode, env });
   const { remux, defaultAudio, audio: selectedAudio } = plan;
   const videoNeedsTranscode = plan.video === 'transcode';
   const ready = session.phase === 'ready' && (!catalog || applied);

@@ -11,7 +11,7 @@ import { AddTag } from "./add-tag.jsx";
 import { TopicLabel } from "./topic-label.jsx";
 import { airing, clock, dayLabel, halfHour, liveOffset, placement, programAt, slots, span } from "./guide-time.mjs";
 import { detectCaps, usePlaybackSession } from "./playback-session.jsx";
-import { planPlayback, remuxUrl } from "./playback-plan.mjs";
+import { detectEnvironment, planPlayback, remuxUrl } from "./playback-plan.mjs";
 import { applyPreference, loadPreference } from "./track-preferences.mjs";
 import { SubtitleLayer, useSubtitleCues, useSubtitleStyle } from "./subtitle-layer.jsx";
 
@@ -357,7 +357,8 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
   const session = usePlaybackSession({ asset: guideAsset, api });
   const info = session.info;
   const chosen = useMemo(() => info ? applyPreference(info, loadPreference(`title:${program?.title_id}`)) : null, [info, program?.title_id]);
-  const plan = useMemo(() => planPlayback(info, { audioPosition: chosen?.audioPosition ?? null, transcode }), [info, chosen, transcode]);
+  const env = useMemo(() => detectEnvironment(), []);
+  const plan = useMemo(() => planPlayback(info, { audioPosition: chosen?.audioPosition ?? null, transcode, env }), [info, chosen, transcode, env]);
   const sessionReady = session.phase === "ready";
   // Where a repackaged stream begins: the live position when it is opened (or reopened after falling behind).
   const streamStart = useMemo(() => program ? Math.floor(Math.max(0, (Date.now() - program.start) / 1000)) : 0, [program?.id, program?.start, sessionReady, restart, transcode]);
