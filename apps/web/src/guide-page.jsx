@@ -62,7 +62,13 @@ export function GuidePage({ api, navigate, Loading }) {
   const end = start + HOURS * 3_600_000;
   const url = (offset, limit) => `/api/v1/guide?start=${start}&hours=${HOURS}&filter=${filter}&q=${encodeURIComponent(q)}&offset=${offset}&limit=${limit}`;
 
-  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    // Timers stop while the page is in the background, so refresh the clock as soon as it is visible again.
+    const tick = () => setNow(Date.now()), onVisible = () => { if (document.visibilityState === "visible") tick(); };
+    const timer = setInterval(tick, 15_000);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, []);
   useEffect(() => { const timer = setTimeout(() => setQ(search.trim()), 250); return () => clearTimeout(timer); }, [search]);
   // The window always starts at the current half hour and rolls forward with the clock; scroll sideways to look ahead.
   useEffect(() => { if (halfHour(now) !== start) setStart(halfHour(now)); }, [now, start]);
@@ -343,13 +349,34 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
     else if (program && lineup.some(item => item.start === program.end)) setAiringStart(program.end);
     else sync();
   };
-  const start = event => {
-    const media = event.currentTarget, offset = (Date.now() - program.start) / 1000;
-    if (Number.isFinite(media.duration) && offset >= media.duration - 1) { advance(); return; }
-    media.currentTime = Math.max(0, offset);
+  const liveSeconds = () => Math.max(0, (Date.now() - program.start) / 1000);
+  const playLive = media => {
+    media.currentTime = liveSeconds();
     // Browsers block sound until the page has been interacted with; fall back to muted playback.
     media.play().catch(() => { media.muted = true; setMuted(true); media.play().catch(() => {}); });
   };
+  const start = event => {
+    const media = event.currentTarget;
+    if (Number.isFinite(media.duration) && liveSeconds() >= media.duration - 1) { advance(); return; }
+    playLive(media);
+  };
+  // Phones pause video while the browser is in the background; on return, rejoin the broadcast where it is now.
+  const catchUp = () => {
+    const live = lineup && airing(lineup, Date.now());
+    if (!live) { if (lineup) sync(); return; }
+    if (live.start !== airingStart) { setAiringStart(live.start); return; }
+    if (video.current?.readyState >= 1) playLive(video.current);
+  };
+  const catchUpRef = useRef(catchUp);
+  catchUpRef.current = catchUp;
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") catchUpRef.current(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onVisible);
+    return () => { document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("pageshow", onVisible); };
+  }, []);
+  // Playback that resumes behind (a stall, or a pause in the system player) jumps back to live.
+  const keepLive = event => { if (Math.abs(liveSeconds() - event.currentTarget.currentTime) > 5) event.currentTarget.currentTime = liveSeconds(); };
   const countView = () => {
     const key = `${program.id}:${program.start}`;
     if (counted.current === key) return;
@@ -363,7 +390,7 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
     <div ref={shell} className={`guide-player ${fullscreen ? "is-fullscreen" : ""}`} onDoubleClick={toggleFullscreen}>
       {program?.thumbnail_url && <img src={program.thumbnail_url} alt="" />}
       {program && !failed && <video ref={video} key={`${program.id}:${program.start}`} src={`/api/v1/assets/${program.id}/file`} muted={muted} playsInline disablePictureInPicture preload="auto"
-        onLoadedMetadata={start} onPlaying={countView} onEnded={advance} onError={() => setFailed(true)} />}
+        onLoadedMetadata={start} onPlaying={event => { countView(); keepLive(event); }} onEnded={advance} onError={() => setFailed(true)} />}
       {lineup && !program && <p className="guide-player-message">Nothing is airing on this channel right now.</p>}
       {failed && <div className="guide-player-message"><p>This video can't play here.</p><button className="outline-button" onClick={() => navigate(`/watch/${program.id}?t=${liveOffset(program, Date.now()) ?? 0}`)}><ArrowSquareOut size={16} /> Open in player</button></div>}
       <div className="guide-player-bar">
