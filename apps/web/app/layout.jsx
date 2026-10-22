@@ -12,6 +12,7 @@ import "../src/liked.css";
 import "../src/guide.css";
 import "../src/catalog.css";
 import "../src/streaming.css";
+import "../src/clips.css";
 
 export const metadata = {
   title: "Kiwi — your media, connected",

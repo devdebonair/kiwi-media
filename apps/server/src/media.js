@@ -120,7 +120,7 @@ export function registerMedia(app, { resolveTopic }) {
       WHERE a.title_id=? AND a.season_number=? ORDER BY a.episode_number`).all(userId, titleId, season);
     const own = new Map();
     for (const row of db.prepare(`SELECT an.asset_id, t.id, t.slug, t.name, t.avatar_url FROM annotations an JOIN annotation_topics at ON at.annotation_id=an.id JOIN topics t ON t.id=at.topic_id
-      JOIN assets a ON a.id=an.asset_id WHERE a.title_id=? AND a.season_number=? ORDER BY t.name`).all(titleId, season)) {
+      JOIN assets a ON a.id=an.asset_id WHERE a.title_id=? AND a.season_number=? AND an.motivation!='clipping' ORDER BY t.name`).all(titleId, season)) {
       if (!own.has(row.asset_id)) own.set(row.asset_id, []);
       own.get(row.asset_id).push({ id: row.id, slug: row.slug, name: row.name, avatar_url: row.avatar_url });
     }

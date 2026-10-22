@@ -296,7 +296,7 @@ export function applyProfiles(db, profiles, { runId, timestamp = new Date().toIS
       for (const asset of profile.assets) {
         const current = db.prepare("SELECT title,kind FROM assets WHERE id=?").get(asset.id);
         if (!current || current.kind !== "video" || current.title !== asset.title) { report.skippedAssociations++; continue; }
-        if (db.prepare("SELECT 1 FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE a.asset_id=? AND at.topic_id=?").get(asset.id, id)) continue;
+        if (db.prepare("SELECT 1 FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE a.asset_id=? AND at.topic_id=? AND a.motivation!='clipping'").get(asset.id, id)) continue;
         const annotationId = randomUUID();
         const note = `Public profile matched to the title mention “${asset.matchedName}”. Title-based association; on-screen appearance has not been verified. Enrichment run: ${runId}.`;
         db.prepare("INSERT INTO annotations(id,asset_id,motivation,note_markdown,confidence,origin,visibility,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)").run(annotationId, asset.id, "tagging", note, 0.85, "profile-enrichment", "private", timestamp, timestamp);
@@ -308,7 +308,7 @@ export function applyProfiles(db, profiles, { runId, timestamp = new Date().toIS
     db.exec("DELETE FROM search_index");
     const insert = db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) VALUES(?,?,?,?,?)");
     for (const asset of db.prepare("SELECT id,title,description FROM assets").all()) {
-      const tags = db.prepare("SELECT DISTINCT t.name FROM topics t JOIN annotation_topics at ON at.topic_id=t.id JOIN annotations a ON a.id=at.annotation_id WHERE a.asset_id=?").all(asset.id).map(t => t.name).join(" ");
+      const tags = db.prepare("SELECT DISTINCT t.name FROM topics t JOIN annotation_topics at ON at.topic_id=t.id JOIN annotations a ON a.id=at.annotation_id WHERE a.asset_id=? AND a.motivation!='clipping'").all(asset.id).map(t => t.name).join(" ");
       insert.run(asset.id, "asset", asset.title, asset.description || "", tags);
     }
     for (const topic of db.prepare("SELECT id,name,summary,body_markdown FROM topics").all()) insert.run(topic.id, "topic", topic.name, `${topic.summary || ""} ${topic.body_markdown || ""}`, "");

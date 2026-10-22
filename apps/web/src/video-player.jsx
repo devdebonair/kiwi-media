@@ -1,20 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Play, Pause, SpeakerHigh, SpeakerSlash, ArrowsOut, ArrowsOutLineHorizontal, ArrowsInLineHorizontal, DownloadSimple, ArrowClockwise, ArrowCounterClockwise, PictureInPicture, SkipBack, SkipForward, ClosedCaptioning, Translate, GearSix } from '@phosphor-icons/react';
+import { Play, Pause, SpeakerHigh, SpeakerSlash, ArrowsOut, ArrowsOutLineHorizontal, ArrowsInLineHorizontal, DownloadSimple, ArrowClockwise, ArrowCounterClockwise, PictureInPicture, SkipBack, SkipForward, ClosedCaptioning, Translate, GearSix, Scissors, Repeat } from '@phosphor-icons/react';
 import { usePlaybackSession } from './playback-session.jsx';
 import { SubtitleLayer, useSubtitleCues, useSubtitleStyle } from './subtitle-layer.jsx';
 import { AudioMenu, SourceMenu, SubtitleMenu } from './player-menus.jsx';
 import { applyPreference, loadPreference, savePreference } from './track-preferences.mjs';
 import { bufferedEndOf, createTimelineMedia, planSeek } from './timeline-media.mjs';
 import { detectEnvironment, planPlayback, remuxUrl } from './playback-plan.mjs';
+import { ClipEditor, ClipTimeline } from './clips.jsx';
 
 const time = seconds => {
   const value = Math.max(0, Math.floor(seconds || 0)), h = Math.floor(value / 3600), m = Math.floor(value % 3600 / 60), s = value % 60;
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
 };
 
-export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded, onMinimize, onPlay, onPrevious, onNext, onToggleTheater, theater = false, autoPlay = true, onMediaChange }) {
+export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded, onMinimize, onPlay, onPrevious, onNext, onToggleTheater, theater = false, autoPlay = true, onMediaChange, clipTools }) {
   const catalog = Boolean(asset.catalog);
   const original = `/api/v1/assets/${asset.id}/file`;
   const prefKey = catalog ? `title:${asset.catalog.titleId}` : `asset:${asset.id}`;
@@ -242,6 +243,29 @@ export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded,
   };
   const toggleSubtitles = () => chooseSubtitle(subtitleId ? null : lastSubtitle.current || subtitleTracks.find(track => track.status !== 'unsupported' && !track.forced)?.id || null);
 
+  // Clips: a range played on its own stops at its end; leaving the range by seeking just returns to normal playback.
+  const [clipEnded, setClipEnded] = useState(null);
+  const clipPlaying = clipTools?.playing;
+  const insideClip = useRef(false);
+  useEffect(() => {
+    if (!clipPlaying) return;
+    setClipEnded(null);
+    insideClip.current = false;
+    if (clipPlaying.seek) { seekTo(clipPlaying.startMs / 1000); video.current?.play().catch(() => {}); }
+  }, [clipPlaying?.token]);
+  useEffect(() => {
+    if (!clipPlaying) return;
+    const ms = position * 1000;
+    if (ms >= clipPlaying.startMs - 1500 && ms < clipPlaying.endMs) { insideClip.current = true; return; }
+    // Only once playback has reached the clip (a fresh page may still be loading at 0) does leaving it count.
+    if (!insideClip.current) return;
+    if (ms >= clipPlaying.endMs && ms <= clipPlaying.endMs + 1500) { video.current?.pause(); setClipEnded(clipPlaying); }
+    clipTools.stopPlaying();
+  }, [position]);
+  // While dragging a clip edge the picture follows it; repackaged streams only jump once the edge is let go.
+  const scrubTo = (ms, final) => { if (final || !remux) seekTo(ms / 1000); };
+  const startClip = endingHere => { setMenu(null); setClipEnded(null); clipTools.open(position * 1000, total * 1000, { endingHere }); };
+
   const stage = session.phase === 'error' ? null : session.stage || 'Finding the best source…';
   const screenReady = ready && !(preparing || failed);
   const menuButton = (name, label, Icon) => <button data-menu-button aria-label={label} title={label} aria-haspopup="menu" aria-expanded={menu === name} className={menu === name ? 'is-open' : ''} onClick={() => setMenu(current => current === name ? null : name)}><Icon /></button>;
@@ -251,7 +275,13 @@ export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded,
     onPointerDown={event => { if (event.pointerType !== 'mouse') revealControls(); }}
     onKeyDown={event => {
     if (event.target !== event.currentTarget) return;
-    if ([' ', 'k', 'ArrowLeft', 'ArrowRight', 'm', 'f', 'c'].includes(event.key)) event.preventDefault();
+    if ([' ', 'k', 'ArrowLeft', 'ArrowRight', 'm', 'f', 'c', ...(clipTools ? ['i', 'o'] : [])].includes(event.key)) event.preventDefault();
+    // I and O mark a clip's in and out points at the playhead, opening a new clip if none is being edited.
+    if (clipTools && (event.key === 'i' || event.key === 'o') && total > 0) {
+      const edge = event.key === 'i' ? 'start' : 'end';
+      if (!clipTools.draft) startClip(edge === 'end');
+      else clipTools.change(edge === 'start' ? { startMs: Math.min(position * 1000, clipTools.draft.endMs - 1000) } : { endMs: Math.max(position * 1000, clipTools.draft.startMs + 1000) });
+    }
     if (event.key === ' ' || event.key === 'k') toggle();
     if (event.key === 'ArrowLeft') seekTo(position - 10);
     if (event.key === 'ArrowRight') seekTo(position + 10);
@@ -262,7 +292,7 @@ export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded,
     <div className="kiwi-screen">
       {ready ? <video key={asset.id} ref={attach} src={src} poster={asset.thumbnail_url} autoPlay={autoPlay} playsInline preload="metadata"
         onClick={toggle} onDoubleClick={fullscreen}
-        onPlay={() => { setPlaying(true); onPlay?.(); }} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); onEnded?.(); }}
+        onPlay={() => { setPlaying(true); setClipEnded(null); onPlay?.(); }} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); onEnded?.(); }}
         onWaiting={() => setWaiting(true)} onPlaying={() => setWaiting(false)} onCanPlay={() => setWaiting(false)}
         onTimeUpdate={event => setPosition((live.current.remux ? live.current.offset : 0) + event.currentTarget.currentTime)}
         onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
@@ -292,6 +322,8 @@ export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded,
               {session.error.code !== 'network' && <button onClick={() => session.retry({ rediscover: true })}>Search again</button>}</>}
           </div></div>
         : (preparing || failed) ? <div className="kiwi-status" role="status"><span className="kiwi-status-mark">{failed ? '!' : '◌'}</span><strong>{failed ? 'Playback unavailable' : 'Getting your video ready'}</strong><p>{message}</p>{failed && <button onClick={() => { setFailed(false); setMessage(''); if (catalog) session.retry(); else video.current?.load(); }}> <ArrowClockwise size={18} /> Try again</button>}{!catalog && <a href={original} download>Download original</a>}</div>
+        : clipEnded && !playing ? <div className="clip-ended" role="status"><strong>{clipEnded.preview ? 'End of preview' : 'End of clip'}</strong>
+          <div><button onClick={() => { setClipEnded(null); clipTools.play(clipEnded, { preview: clipEnded.preview }); }}><Repeat size={16} /> Replay</button><button onClick={() => { setClipEnded(null); video.current?.play().catch(() => {}); }}><Play size={16} weight="fill" /> Keep watching</button></div></div>
         : ready && !playing ? <button className="kiwi-big-play" aria-label="Play video" onClick={toggle}><Play size={30} weight="fill" /></button>
         : waiting && <span className="kiwi-buffering" role="status">Buffering…</span>}
     </div>
@@ -300,7 +332,10 @@ export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded,
         canSearch={Boolean(info?.onlineSubtitles)} onSearch={searchOnline} searching={searching} searchError={searchError} />}
       {menu === 'audio' && <AudioMenu tracks={audioTracks} selected={selectedAudio} onSelect={chooseAudio} repackaged={remux || selectedAudio !== defaultAudio} />}
       {menu === 'source' && catalog && <SourceMenu api={api} assetId={asset.id} current={info?.source} onPick={source => switchSource({ sourceId: source.id })} onSearchAgain={() => switchSource({ rediscover: true })} />}
+      <div className="kiwi-timeline">
       <input className="kiwi-seek" aria-label="Seek video" aria-valuetext={`${time(position)} of ${time(total)}`} type="range" min="0" max={total || 1} step="0.1" value={Math.min(position, total || 1)} disabled={!total || preparing || failed || !ready} onInput={event => seekTo(Number(event.currentTarget.value))} style={{ '--progress': `${total ? position / total * 100 : 0}%` }} />
+      {clipTools && ready && <ClipTimeline tools={clipTools} totalMs={total * 1000} onScrub={scrubTo} onPlayClip={clip => clipTools.play(clip)} />}
+      </div>
       <div className="kiwi-control-row">
         <button aria-label="Previous" title={asset.catalog?.previous ? 'Previous episode' : 'Previous video in playlist'} disabled={!onPrevious} onClick={onPrevious}><SkipBack weight="fill" /></button>
         <button aria-label={playing ? 'Pause' : 'Play'} disabled={preparing || failed || !ready} onClick={toggle}>{playing ? <Pause weight="fill" /> : <Play weight="fill" />}</button>
@@ -311,6 +346,7 @@ export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded,
         <button aria-label={muted ? 'Unmute' : 'Mute'} onClick={() => { if (video.current) video.current.muted = !muted; }}>{muted || volume === 0 ? <SpeakerSlash /> : <SpeakerHigh />}</button>
         <input className="kiwi-volume" type="range" aria-label="Volume" min="0" max="1" step="0.05" value={muted ? 0 : volume} onChange={event => { if (video.current) { video.current.volume = Number(event.target.value); video.current.muted = false; } }} />
         {(subtitleTracks.length > 0 || info?.onlineSubtitles) && <span className={subtitleId ? 'is-on' : ''}>{menuButton('subtitles', 'Subtitles', ClosedCaptioning)}</span>}
+        {clipTools && <button aria-label={clipTools.draft ? 'Close the clip editor' : 'Make a clip (I / O)'} title={clipTools.draft ? 'Close the clip editor' : 'Make a clip — or press I and O'} aria-pressed={Boolean(clipTools.draft)} className={clipTools.draft ? 'is-open' : ''} disabled={!ready || !total} onClick={() => clipTools.draft ? clipTools.cancel() : startClip(false)}><Scissors /></button>}
         {audioTracks.length > 1 && menuButton('audio', 'Audio track', Translate)}
         {catalog && info?.source && menuButton('source', 'Source', GearSix)}
         <select aria-label="Playback speed" value={rate} onChange={event => { const value = Number(event.target.value); setRate(value); if (video.current) video.current.playbackRate = value; }}>{[0.5, 0.75, 1, 1.25, 1.5, 2].map(value => <option key={value} value={value}>{value}×</option>)}</select>
@@ -319,6 +355,8 @@ export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded,
         {onToggleTheater && <button aria-label={theater ? 'Exit theater mode' : 'Theater mode'} title={theater ? 'Exit theater mode' : 'Theater mode'} aria-pressed={theater} onClick={onToggleTheater}>{theater ? <ArrowsInLineHorizontal /> : <ArrowsOutLineHorizontal />}</button>}
         <button aria-label="Fullscreen" onClick={fullscreen}><ArrowsOut /></button>
       </div>
+      {clipTools?.draft && <ClipEditor tools={clipTools} api={api} positionMs={position * 1000} totalMs={total * 1000} onSeek={ms => seekTo(ms / 1000)}
+        onPreview={() => clipTools.play({ ...clipTools.draft }, { preview: true })} />}
       <div className="kiwi-player-footer"><span><i /> {catalog && info?.source ? `${info.source.resolution ? `${info.source.resolution}p ` : ''}${info.source.source || 'stream'}${remux ? (videoNeedsTranscode ? ' · converted for this browser' : ' · audio switched') : ''}` : remux ? (videoNeedsTranscode ? 'Converted for this browser' : 'Audio switched') : compatible ? 'Compatible playback' : 'Original quality'}</span>{!compatible && !transcode && ready && <button disabled={preparing} onClick={convert}>Playback issues? Use compatibility mode</button>}</div>
     </div>
   </div>;

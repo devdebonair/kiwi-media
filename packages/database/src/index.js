@@ -258,9 +258,11 @@ export function migrate() {
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   }
   // Views, not materialized mappings: new imports inherit folder tags and topic rules immediately.
+  // Clips (tags on a time range) are not tags on the whole video; they have their own view below.
   const directView = `CREATE VIEW direct_asset_topics AS
     SELECT a.asset_id, at.topic_id FROM annotations a
     JOIN annotation_topics at ON at.annotation_id=a.id
+    WHERE a.motivation!='clipping'
     UNION
     SELECT f.asset_id, ft.topic_id FROM files f
     JOIN folder_topics ft ON ft.library_root_id=f.library_root_id
@@ -291,6 +293,17 @@ export function migrate() {
       UNION
       SELECT implied.source_topic_id, r.target_topic_id FROM implied JOIN topic_rules r ON r.source_topic_id=implied.topic_id
     ) SELECT source_topic_id, topic_id FROM implied
+  `);
+  // A clip is an annotation with a time-range selector. Its tags (and the tags their rules imply) describe that range only.
+  db.exec("UPDATE annotations SET motivation='clipping' WHERE motivation!='clipping' AND id IN (SELECT annotation_id FROM annotation_selectors WHERE selector_type='time-range')");
+  db.exec("CREATE INDEX IF NOT EXISTS annotation_selectors_annotation_idx ON annotation_selectors(annotation_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS annotation_topics_topic_idx ON annotation_topics(topic_id)");
+  db.exec(`CREATE VIEW IF NOT EXISTS clip_topics AS
+    SELECT at.annotation_id clip_id, at.topic_id FROM annotation_topics at
+    JOIN annotations a ON a.id=at.annotation_id WHERE a.motivation='clipping'
+    UNION
+    SELECT at.annotation_id, i.topic_id FROM annotation_topics at
+    JOIN annotations a ON a.id=at.annotation_id JOIN implied_topics i ON i.source_topic_id=at.topic_id WHERE a.motivation='clipping'
   `);
   // Kept separate from direct_asset_topics (not a shared CTE) so asset_id filters push down.
   const effectiveView = `CREATE VIEW effective_asset_topics AS
@@ -402,7 +415,7 @@ export function seed() {
     annotationTopicStmt.run(id, topic, "subject");
   }
   const momentId = randomUUID();
-  annotationStmt.run(momentId, "asset-city", "Empire State Building appears above the avenue", "seed", "public", now(), now());
+  db.prepare("INSERT INTO annotations (id,asset_id,motivation,note_markdown,origin,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)").run(momentId, "asset-city", "clipping", "Empire State Building appears above the avenue", "seed", "public", now(), now());
   annotationTopicStmt.run(momentId, "topic-nyc", "depicted");
   db.prepare("INSERT INTO annotation_selectors (id,annotation_id,selector_type,start_ms,end_ms) VALUES (?,?,?,?,?)").run(randomUUID(), momentId, "time-range", 45000, 76000);
   const feedStmt = db.prepare("INSERT INTO feeds (id,owner_id,slug,name,description,query_json,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)");
@@ -414,7 +427,7 @@ export function seed() {
 
 // Tags an asset directly. Returns false when it already carries the tag. Call inside a transaction.
 export function tagAssetWithTopic(assetId, topicId, timestamp = now()) {
-  if (db.prepare("SELECT 1 FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE a.asset_id=? AND at.topic_id=?").get(assetId, topicId)) return false;
+  if (db.prepare("SELECT 1 FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE a.asset_id=? AND at.topic_id=? AND a.motivation!='clipping'").get(assetId, topicId)) return false;
   const id = randomUUID();
   db.prepare("INSERT INTO annotations (id,asset_id,motivation,origin,visibility,created_at,updated_at) VALUES (?,?,'tagging','manual','private',?,?)").run(id, assetId, timestamp, timestamp);
   db.prepare("INSERT INTO annotation_topics VALUES (?,?,?)").run(id, topicId, "subject");
@@ -427,7 +440,7 @@ export function reindexAssetSearch(assetId) {
   // Episodes and movies are found through their title, never as separate results.
   const row = db.prepare("SELECT id,title,description FROM assets WHERE id=? AND title_id IS NULL").get(assetId);
   if (!row) return;
-  const tags = db.prepare("SELECT t.name FROM topics t JOIN annotation_topics at ON at.topic_id=t.id JOIN annotations a ON a.id=at.annotation_id WHERE a.asset_id=?").all(assetId).map(x => x.name).join(" ");
+  const tags = db.prepare("SELECT t.name FROM topics t JOIN annotation_topics at ON at.topic_id=t.id JOIN annotations a ON a.id=at.annotation_id WHERE a.asset_id=? AND a.motivation!='clipping'").all(assetId).map(x => x.name).join(" ");
   db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) VALUES (?,?,?,?,?)").run(row.id, "asset", row.title, row.description || "", tags);
 }
 
@@ -455,7 +468,7 @@ export function rebuildSearch() {
   db.exec("DELETE FROM search_index");
   const insert = db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) VALUES (?,?,?,?,?)");
   for (const row of db.prepare("SELECT id,title,description FROM assets WHERE title_id IS NULL").all()) {
-    const tags = db.prepare("SELECT t.name FROM topics t JOIN annotation_topics at ON at.topic_id=t.id JOIN annotations a ON a.id=at.annotation_id WHERE a.asset_id=?").all(row.id).map(x => x.name).join(" ");
+    const tags = db.prepare("SELECT t.name FROM topics t JOIN annotation_topics at ON at.topic_id=t.id JOIN annotations a ON a.id=at.annotation_id WHERE a.asset_id=? AND a.motivation!='clipping'").all(row.id).map(x => x.name).join(" ");
     insert.run(row.id, "asset", row.title, row.description || "", tags);
   }
   for (const row of db.prepare("SELECT id FROM titles").all()) indexTitle(row.id, insert);
@@ -499,7 +512,7 @@ function syncAnimeFixtures() {
     ["asset-anime-theme-song", "topic-anime"], ["asset-anime-theme-song", "topic-anime-music"]
   ];
   for (const [assetId, topicId] of links) {
-    const exists = db.prepare("SELECT 1 FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE a.asset_id=? AND at.topic_id=?").get(assetId, topicId);
+    const exists = db.prepare("SELECT 1 FROM annotations a JOIN annotation_topics at ON at.annotation_id=a.id WHERE a.asset_id=? AND at.topic_id=? AND a.motivation!='clipping'").get(assetId, topicId);
     if (!exists) {
       const annotationId = randomUUID();
       db.prepare("INSERT INTO annotations (id,asset_id,note_markdown,origin,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?)").run(annotationId, assetId, "", "seed", "public", timestamp, timestamp);
@@ -533,7 +546,8 @@ export function ensureTopic({ name, type = "topic", avatarUrl = null, summary = 
 export function assetWithTopics(row) {
   if (!row) return null;
   const topics = db.prepare("SELECT DISTINCT t.id,t.slug,t.name,t.avatar_url FROM topics t JOIN effective_asset_topics et ON et.topic_id=t.id WHERE et.asset_id=?").all(row.id);
-  const moments = db.prepare("SELECT s.start_ms,s.end_ms,a.note_markdown,t.name topic FROM annotation_selectors s JOIN annotations a ON a.id=s.annotation_id LEFT JOIN annotation_topics at ON at.annotation_id=a.id LEFT JOIN topics t ON t.id=at.topic_id WHERE a.asset_id=? ORDER BY s.start_ms").all(row.id);
+  const moments = db.prepare(`SELECT s.start_ms,s.end_ms,a.note_markdown,(SELECT group_concat(t.name, ', ') FROM annotation_topics at JOIN topics t ON t.id=at.topic_id WHERE at.annotation_id=a.id) topic
+    FROM annotation_selectors s JOIN annotations a ON a.id=s.annotation_id WHERE a.asset_id=? AND a.motivation='clipping' AND s.selector_type='time-range' ORDER BY s.start_ms`).all(row.id);
   return { ...row, topics, moments, saved: Boolean(row.saved) };
 }
 

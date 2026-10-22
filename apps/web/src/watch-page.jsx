@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { BookmarkSimple, CheckCircle, DownloadSimple, ArrowsOutSimple, Play, X } from "@phosphor-icons/react";
 import { LikeButton, ViewCount, usePlaybackTracking } from "./engagement.jsx";
 import { resumeSeconds } from "./playback-progress.mjs";
+import { ClipList, useClips } from "./clips.jsx";
 
 // Matches the `max-width: 860px` block in modern.css where the watch layout collapses to one column.
 const STACKED_WATCH_QUERY = "(max-width: 860px)";
@@ -28,6 +29,9 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
   const [saveNote, setSaveNote] = useState("");
   const [stacked, setStacked] = useState(false);
   const mediaRef = useRef(null);
+  // Clips are authored and played in the full player only, never the mini player.
+  const clipTools = useClips({ assetId: id, api, enabled: !mini });
+  const sharedClip = useRef(null);
   const playerRef = useRef(null);
   const [playerHeight, setPlayerHeight] = useState(0);
 
@@ -66,6 +70,17 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
   });
 
   useEffect(() => { if (suspended) mediaRef.current?.pause(); }, [suspended, asset?.id]);
+
+  // A link to a clip (/watch/id?t=start&clip=id) starts at the clip and stops at its end, even when the same
+  // video was already playing in the mini player.
+  useEffect(() => {
+    if (mini) return;
+    const clipId = new URLSearchParams(location.search).get("clip");
+    const clip = clipId && clipTools.clips.find(item => item.id === clipId);
+    if (!clip || sharedClip.current === location.search) return;
+    sharedClip.current = location.search;
+    clipTools.play(clip);
+  }, [clipTools.clips, mini]);
 
   // When an episode ends, the next one starts after a short countdown that can be cancelled.
   useEffect(() => {
@@ -126,7 +141,7 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
     <div className={`watch-layout ${hasAside ? "" : "without-related"}`} style={playerHeight ? { "--player-height": `${playerHeight}px` } : undefined}>
       <div className="watch-primary">
         <div className="player-shell" ref={playerRef}>
-          {hasFile && asset.kind === "video" ? <VideoPlayer key={asset.id} asset={asset} api={api} mediaRef={mediaRef} onMediaChange={setMediaReady} initialSeconds={initialSeconds} autoPlay={!suspended} onEnded={finish} onPlay={() => { if (!catalog) playlist.dispatch({ type: "play", asset }); }}
+          {hasFile && asset.kind === "video" ? <VideoPlayer key={asset.id} asset={asset} api={api} mediaRef={mediaRef} onMediaChange={setMediaReady} clipTools={mini ? undefined : clipTools} initialSeconds={initialSeconds} autoPlay={!suspended} onEnded={finish} onPlay={() => { if (!catalog) playlist.dispatch({ type: "play", asset }); }}
             onPrevious={catalog ? episodeLink(catalog.previous) : previous} onNext={catalog ? episodeLink(catalog.next) : next} theater={theater} onToggleTheater={mini ? undefined : () => setTheater(value => !value)}
             onMinimize={mini || catalog ? undefined : () => { playlist.dispatch({ type: "play", asset }); navigate("/"); }} />
             : hasFile && asset.kind === "audio" ? <div className="audio-player">{asset.thumbnail_url && <img src={asset.thumbnail_url} alt="" />}<audio ref={mediaRef} src={src} controls autoPlay onError={() => setPlaybackError(true)} /></div>
@@ -151,7 +166,7 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
           <div className="watch-topics">{asset.topics?.map(topic => <AppLink key={topic.id} href={`/topic/${topic.slug}`} navigate={navigate}><TopicLabel topic={topic} /></AppLink>)}{!mini && <AddTag key={asset.id} asset={asset} api={api} onChange={topics => setAsset(current => current?.id === asset.id ? { ...current, topics } : current)}/>}</div>
           {asset.description && <p>{asset.description}</p>}
         </section>
-        {asset.moments?.length > 0 && <section className="moments"><h2>Notable moments</h2>{asset.moments.map((moment, index) => <button key={index} onClick={() => { if (mediaRef.current) { mediaRef.current.currentTime = moment.start_ms / 1000; mediaRef.current.play().catch(() => {}); } }}><span>{formatDuration(moment.start_ms)}</span><div><strong>{moment.topic || "Moment"}</strong><p>{moment.note_markdown}</p></div></button>)}</section>}
+        {!mini && <ClipList tools={clipTools} AppLink={AppLink} navigate={navigate} onPlay={clip => clipTools.play(clip)} />}
       </div>
       {hasAside && <aside className="watch-related" aria-label="More to explore">
         {episodesAside && <EpisodeList api={api} catalog={catalog} currentId={asset.id} navigate={navigate} formatDuration={formatDuration} height={playerHeight} />}

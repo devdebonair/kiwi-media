@@ -13,6 +13,7 @@ import { registerTagMetadata, tagMetadata } from "./tag-metadata.js";
 import { registerDownloads } from "./downloads.js";
 import { registerGuide } from "./guide.js";
 import { registerMedia } from "./media.js";
+import { listClips, registerClips } from "./clips.js";
 import { registerPlugin } from "@kiwi/downloads";
 import { mediaDownloadPlugin, nextEpisodeAfter, previousEpisodeBefore, imageUrl } from "@kiwi/media";
 
@@ -37,6 +38,7 @@ registerGuide(app);
 registerPlugin(mediaDownloadPlugin);
 // Lazy: resolveTopic is declared further down.
 const streaming = registerMedia(app, { resolveTopic: (...args) => resolveTopic(...args) });
+registerClips(app, { resolveTopic: (...args) => resolveTopic(...args) });
 
 const engagement = id => ({
   view_count: db.prepare("SELECT count(*) count FROM asset_views WHERE asset_id=?").get(id).count,
@@ -228,7 +230,7 @@ app.post("/api/v1/assets/:id/annotations", async (req, reply) => {
   const selectors = Array.isArray(req.body?.selectors) ? req.body.selectors : [];
   db.exec("BEGIN IMMEDIATE");
   try {
-    db.prepare("INSERT INTO annotations (id,asset_id,motivation,note_markdown,confidence,origin,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)").run(id, req.params.id, req.body?.motivation || "tagging", req.body?.note || "", req.body?.confidence ?? null, "manual", req.body?.visibility || "private", timestamp, timestamp);
+    db.prepare("INSERT INTO annotations (id,asset_id,motivation,note_markdown,confidence,origin,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)").run(id, req.params.id, selectors.some(selector => selector?.type === "time-range") ? "clipping" : req.body?.motivation || "tagging", req.body?.note || "", req.body?.confidence ?? null, "manual", req.body?.visibility || "private", timestamp, timestamp);
     const link = db.prepare("INSERT INTO annotation_topics VALUES (?,?,?)");
     for (const topicId of topicIds) link.run(id, topicId, req.body?.role || "subject");
     const insertSelector = db.prepare(`INSERT INTO annotation_selectors (id,annotation_id,selector_type,start_ms,end_ms,x,y,z,width,height,depth,text_start,text_end,exact_quote,prefix_text,suffix_text,timestamp_value,selector_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
@@ -328,7 +330,7 @@ app.get("/api/v1/topics/:slug", async (req, reply) => {
   const { item_count } = db.prepare("SELECT count(*) item_count FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND a.title_id IS NULL").get(topic.id);
   const titles = db.prepare(`SELECT t.* FROM titles t WHERE t.id IN (SELECT a.title_id FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND a.title_id IS NOT NULL)
     ORDER BY t.in_library DESC, t.rating DESC LIMIT 60`).all(topic.id).map(title => ({ ref: title.id, type: title.type, title: title.title, year: title.year, rating: title.rating, isAnime: Boolean(title.is_anime), inLibrary: Boolean(title.in_library), poster: imageUrl(title.poster_path, "w342") }));
-  return { ...topic, item_count, assets, titles, related, rules: topicRules(topic.id), providerLinks: tagMetadata(topic.id).links };
+  return { ...topic, item_count, assets, titles, clips: listClips({ topic: topic.id, limit: 48 }), related, rules: topicRules(topic.id), providerLinks: tagMetadata(topic.id).links };
 });
 
 app.post("/api/v1/topics/:id/follow", async req => {
