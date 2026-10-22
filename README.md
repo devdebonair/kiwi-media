@@ -44,6 +44,28 @@ from 1 to 3600 seconds. Shorts fills the browser viewport with cover-sized video
 Videos start muted, crop to fill the screen, and pause
 when scrolled out of the active position. More items load as you scroll.
 
+## Movies, TV shows, and anime
+
+Kiwi can also stream movies, series, and anime next to your home videos, kept in their own sections: **Movies**, **TV Shows**, and **Anime** in the sidebar, while **Home Videos**, Shorts, and Topics stay for your own files. Episodes never appear in the home-video grids, search shows a movie or series once (not every episode), and each section has its own *Continue watching* and *My list* rows.
+
+**Set up** in Settings → *Catalogs and sources*: add a [TMDB](https://www.themoviedb.org/settings/api) key (metadata, posters, where a title streams) and a [TorBox](https://torbox.app) API key (instant streams and downloads). Torrentio and Nyaa find releases and need nothing. OpenSubtitles is optional, for subtitles a release lacks. Keys are stored on the server and are never sent back to the browser.
+
+**Playing is one click.** Press play and Kiwi finds releases for the episode or movie, asks TorBox which are already cached, ranks them with your *Source rules*, opens the best one, and reads its audio and subtitle tracks. If that release fails it falls back to the next best. The player's gear menu shows why a source was chosen and lets you switch. Defaults favor 1080p H.264 that plays directly in a browser, releases TorBox already has, and English-friendly audio; every rule (quality range, size per hour, HDR, excluded words, preferred release groups, anime dual-audio) is editable.
+
+**Languages.** Audio and subtitles start in the first language of your list that the file has — English, then Japanese, then Chinese by default. Subtitles turn on automatically when the audio is not your first language (or always / never, your choice). Pick another track once and the rest of the series follows. Subtitles come from the file, from files next to it, or from OpenSubtitles; they are drawn by the player itself with size, background, and timing controls. When the audio you want is not the file's default, or the browser can't decode the video, the server repackages the stream on the fly (video copied when possible).
+
+**Anime stays one series.** Seasons are never split into separate entries; each episode also knows its absolute number and the season split fansubs use, so releases labeled `S2 - 05`, `2nd Season - 05`, or `- 33` all find the right episode.
+
+**Tags.** Genres and the streaming services that carry a title (Netflix, Crunchyroll…) become ordinary tags. Tag a whole series from its page and every episode carries the tag; tag a single episode from its row. Services can be browsed, filtered, and used as guide channels like any tag.
+
+**TV Guide.** Movies and episodes in My list air alongside your home videos: channels for Movies, TV Shows, Anime, and Home Videos, plus a channel per genre and per service (filter chips switch between them). Episodes of a series air back to back in order, and the next program is prepared shortly before it starts.
+
+**Downloads.** Choose a folder in Settings → *Saving movies and episodes*, then download an episode, season, or series from its page. Files are named `TV Shows/Show (2020)/Season 01/Show - S01E02 - Title.mkv` (or `Movies/`, `Anime/`) and a saved copy becomes the item's local file: it plays from disk and keeps its progress, likes, and tags.
+
+**Rate limits and caching.** Every outside service goes through one client with per-service limits, shared in-flight requests, retry with backoff, and a circuit breaker. Answers are cached (in `cache.db`, safe to delete) and served stale while refreshing or when a service is down; artwork is stored on disk, pinned for items in My list, and evicted oldest-first otherwise. Settings shows the cache and request counts. A worker job refreshes My list titles in small batches.
+
+Known limits: seeking in a repackaged stream lands on the nearest keyframe before the point you chose; styled (ASS) subtitles are shown as plain text; releases TorBox does not already have are skipped unless you turn off *Only instant sources*.
+
 ## Run locally
 
 ```bash

@@ -4,8 +4,9 @@ import { TopicLabel } from "./topic-label.jsx";
 import { InfiniteScroll } from "./infinite-scroll.jsx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, ArrowUpRight, Compass, Heart, SquaresFour, Tag } from "@phosphor-icons/react";
+import { ContinueCard, PosterCard, Rail } from "./poster-card.jsx";
 
-export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty }) {
+export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty, formatDuration }) {
   const [assets, setAssets] = useState(null);
   const [topics, setTopics] = useState([]);
   const [selected, setSelected] = useState("all");
@@ -18,7 +19,14 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty }) {
   const pending = useRef(false);
   const pageUrl = (offset = 0) => `/api/v1/assets?kind=video&sort=shuffle&seed=${seed}&limit=60&offset=${offset}${selected !== "all" ? `&topic=${encodeURIComponent(selected)}` : ""}`;
 
-  useEffect(() => { api("/api/v1/topics").then(setTopics).catch(() => {}); }, [api]);
+  const [continuing, setContinuing] = useState([]);
+  const [mine, setMine] = useState([]);
+  // Movies, shows, and anime stay in their own rows above the home videos; they are never mixed into the grid.
+  useEffect(() => {
+    api("/api/v1/continue?limit=12").then(setContinuing).catch(() => {});
+    api("/api/v1/titles?limit=24&sort=added").then(setMine).catch(() => {});
+  }, [api]);
+  useEffect(() => { api("/api/v1/topics").then(rows => setTopics(rows.filter(topic => topic.item_count > 0))).catch(() => {}); }, [api]);
   useEffect(() => {
     const current = ++generation.current;
     setAssets(null); setError(""); setLoadingMore(false); setHasMore(false);
@@ -55,6 +63,8 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty }) {
       {topics.slice(0, 6).map(topic => <button key={topic.id} aria-pressed={selected === topic.slug} className={selected === topic.slug ? "selected" : ""} onClick={() => setSelected(topic.slug)}><TopicLabel topic={topic} /></button>)}
       <AppLink className="chip-browse" href="/topics" navigate={navigate} aria-label="Browse all topics"><ArrowRight size={18} /></AppLink>
     </div>
+    {continuing.length > 0 && <Rail title="Continue watching"><>{continuing.map(entry => <ContinueCard key={entry.title.id} entry={entry} AppLink={AppLink} navigate={navigate} formatDuration={formatDuration} />)}</></Rail>}
+    {mine.length > 0 && <Rail title="Movies & shows in My list" action={<AppLink href="/movies" navigate={navigate} className="text-link">Browse the catalog</AppLink>}><>{mine.map(item => <PosterCard key={item.id} item={{ ...item, ref: item.id, titleId: item.id }} AppLink={AppLink} navigate={navigate} />)}</></Rail>}
     {error && <div className="error-notice" role="alert"><span>{error}</span><button className="outline-button" onClick={() => assets?.length ? loadMore() : setRetry(value => value + 1)}>Try again</button></div>}
     {!assets ? <Loading /> : <>
       {showSpotlight && <div className={`discovery-row ${suggested.length ? "" : "without-topics"}`}>
@@ -70,7 +80,7 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty }) {
         </section>}
       </div>}
       {assets.length ? <section aria-labelledby="library-section-heading">
-        <div className="row-heading library-section-heading"><h2 id="library-section-heading"><SquaresFour size={21} />{selected === "all" ? "Browse your library" : topics.find(topic => topic.slug === selected)?.name || "Your media"}</h2><span>{assets.length.toLocaleString()}{hasMore ? "+" : ""} items</span></div>
+        <div className="row-heading library-section-heading"><h2 id="library-section-heading"><SquaresFour size={21} />{selected === "all" ? "Home videos" : topics.find(topic => topic.slug === selected)?.name || "Your media"}</h2><span>{assets.length.toLocaleString()}{hasMore ? "+" : ""} items</span></div>
         <div className="media-grid">{libraryAssets.map(asset => <MediaCard key={asset.id} asset={asset} navigate={navigate} />)}</div>
       </section> : !error && <Empty />}
       <InfiniteScroll enabled={hasMore && !error} loading={loadingMore} onLoadMore={loadMore} />

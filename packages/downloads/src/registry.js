@@ -10,6 +10,12 @@ import httpApi from "./plugins/http-api.js";
 import ytDlp from "./plugins/yt-dlp.js";
 
 export const builtInPlugins = [ytDlp, direct, realDebrid, torBox, httpApi];
+// Plugins added by other packages at startup (e.g. the catalog downloader). They count as built in.
+const registered = [];
+export function registerPlugin(plugin) {
+  checkPlugin(plugin);
+  if (!registered.some(item => item.id === plugin.id) && !builtInPlugins.some(item => item.id === plugin.id)) { registered.push(plugin); cache.key = null; }
+}
 export const pluginsDir = () => process.env.KIWI_DOWNLOADER_PLUGINS_DIR || join(dataDir, "plugins", "downloaders");
 
 const fieldTypes = new Set(["text", "url", "secret", "textarea", "secret-textarea", "select", "boolean", "number"]);
@@ -28,6 +34,7 @@ export function checkPlugin(plugin) {
 }
 
 let cache = { key: null, plugins: builtInPlugins, errors: [] };
+const everyBuiltIn = () => [...builtInPlugins, ...registered];
 // Rescans the plugin folder when files change, so new plugins appear without restarting.
 // User plugins are trusted code: they run inside Kiwi with the same access as the server.
 export async function loadPlugins() {
@@ -35,9 +42,9 @@ export async function loadPlugins() {
   let entries = [];
   try { entries = (await readdir(dir)).filter(name => /\.(m?js)$/.test(name)).sort(); } catch {}
   const files = await Promise.all(entries.map(async name => ({ name, mtime: (await stat(join(dir, name))).mtimeMs })));
-  const key = JSON.stringify(files);
+  const key = JSON.stringify([files, registered.map(plugin => plugin.id)]);
   if (key === cache.key) return cache;
-  const plugins = [...builtInPlugins], errors = [];
+  const plugins = [...everyBuiltIn()], errors = [];
   for (const { name, mtime } of files) {
     try {
       const module = await import(`${pathToFileURL(join(dir, name)).href}?v=${mtime}`);
@@ -58,7 +65,7 @@ export async function getPlugin(id) {
 
 export async function describePlugins() {
   const { plugins, errors } = await loadPlugins();
-  const described = await Promise.all(plugins.map(async plugin => {
+  const described = await Promise.all(plugins.filter(plugin => !plugin.hidden).map(async plugin => {
     const requirement = plugin.requires ? await binaryVersion(plugin.requires) : { available: true };
     return { id: plugin.id, name: plugin.name, description: plugin.description || "", fields: describeFields(plugin.fields), cookies: Boolean(plugin.cookies),
       search: typeof plugin.search === "function", builtIn: !plugin.file, file: plugin.file, available: requirement.available, unavailableReason: requirement.reason, version: requirement.version };

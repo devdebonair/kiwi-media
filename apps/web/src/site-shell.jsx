@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SearchBar } from "./search-bar.jsx";
 import { UploadButton } from "./download-dialog.jsx";
-import { ClockCounterClockwise, Compass, DownloadSimple, FolderOpen, Gear, Heart, Leaf, List, Play, Rows, Tag, Television } from "@phosphor-icons/react";
+import { ClockCounterClockwise, Compass, DownloadSimple, FilmSlate, FolderOpen, Gear, Heart, Leaf, List, MonitorPlay, Play, Rows, Sparkle, Tag, Television, Camera } from "@phosphor-icons/react";
 
 // Below this width (phones, tablets, laptops) the sidebar is an overlay drawer; wider desktops keep it docked.
 export const DRAWER_NAV_QUERY = "(max-width: 1799px)";
@@ -46,9 +46,13 @@ export function Header({ query, setQuery, onSubmit, openMenu, navigate, mobileOp
 }
 
 const groups = [
-  { label: "DISCOVER", items: [["/", "Home", "home", Compass], ["/library", "Library", "library", FolderOpen], ["/shorts", "Shorts", "shorts", Play], ["/guide", "TV Guide", "guide", Television], ["/topics", "Topics", "topics", Tag]] },
+  { label: "DISCOVER", items: [["/", "Home", "home", Compass], ["/movies", "Movies", "movies", FilmSlate], ["/shows", "TV Shows", "shows", MonitorPlay], ["/anime", "Anime", "anime", Sparkle], ["/guide", "TV Guide", "guide", Television]] },
+  { label: "HOME MEDIA", items: [["/library", "Home Videos", "library", Camera], ["/shorts", "Shorts", "shorts", Play], ["/topics", "Topics", "topics", Tag]] },
   { label: "COLLECTION", items: [["/feeds", "Your feeds", "feeds", Rows], ["/liked", "Liked videos", "liked", Heart], ["/history", "Watch history", "history", ClockCounterClockwise], ["/downloads", "Downloads", "downloads", DownloadSimple], ["/search", "Explore", "search", FolderOpen]] },
 ];
+
+// A title page lights up the section it belongs to: Movies, TV Shows, or Anime.
+const active = (route, page) => route.page === page || (page === "feeds" && route.page === "feed");
 
 export function Sidebar({ route, navigate, open, close, AppLink }) {
   const sidebarRef = useRef(null);
@@ -82,7 +86,7 @@ export function Sidebar({ route, navigate, open, close, AppLink }) {
       <div className="drawer-heading brand-group"><button className="menu-toggle icon-button" onClick={close} aria-label="Close navigation"><List size={23} /></button><Brand navigate={href => { close(); navigate(href); }} /></div>
       {groups.map(group => <nav className="nav-group" aria-label={group.label.toLowerCase()} key={group.label}>
         {group.label !== "DISCOVER" && <span className="nav-label">{group.label}</span>}
-        {group.items.map(([href, label, page, Icon]) => <AppLink key={page} href={href} navigate={navigate} onClick={close} title={label} aria-current={route.page === page || (page === "feeds" && route.page === "feed") ? "page" : undefined} className={route.page === page || (page === "feeds" && route.page === "feed") ? "active" : ""}><Icon size={22} /><span>{label}</span></AppLink>)}
+        {group.items.map(([href, label, page, Icon]) => <AppLink key={page} href={href} navigate={navigate} onClick={close} title={label} aria-current={active(route, page) ? "page" : undefined} className={active(route, page) ? "active" : ""}><Icon size={22} /><span>{label}</span></AppLink>)}
       </nav>)}
       <div className="sidebar-bottom">
         <AppLink href="/settings" navigate={navigate} onClick={close} title="Settings" aria-current={route.page === "settings" ? "page" : undefined} className={route.page === "settings" ? "active" : ""}><Gear size={22} /><span>Settings</span></AppLink>

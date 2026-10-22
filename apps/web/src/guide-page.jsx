@@ -1,8 +1,8 @@
 "use client";
 
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { ArrowCounterClockwise, ArrowSquareOut, Broadcast, CaretDown, CaretLeft, CornersIn, CornersOut, MagnifyingGlass, PencilSimple, Play, Plus, SpeakerHigh, SpeakerSlash, Stack, Television, X } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, ArrowSquareOut, Broadcast, CaretDown, CaretLeft, ClosedCaptioning, CornersIn, CornersOut, FilmSlate, MagnifyingGlass, PencilSimple, Play, Plus, SpeakerHigh, SpeakerSlash, Stack, Television, X } from "@phosphor-icons/react";
 import { InfiniteScroll } from "./infinite-scroll.jsx";
 import { ChannelEditor } from "./guide-channel-editor.jsx";
 import { Modal } from "./modal.jsx";
@@ -10,9 +10,13 @@ import { LikeButton } from "./animated-like-button.jsx";
 import { AddTag } from "./add-tag.jsx";
 import { TopicLabel } from "./topic-label.jsx";
 import { airing, clock, dayLabel, halfHour, liveOffset, placement, programAt, slots, span } from "./guide-time.mjs";
+import { detectCaps, usePlaybackSession } from "./playback-session.jsx";
+import { planPlayback, remuxUrl } from "./playback-plan.mjs";
+import { applyPreference, loadPreference } from "./track-preferences.mjs";
+import { SubtitleLayer, useSubtitleCues, useSubtitleStyle } from "./subtitle-layer.jsx";
 
 const HOURS = 4, PAGE = 40;
-const filters = [["all", "All channels"], ["custom", "My channels"], ["people", "People"], ["tags", "Tags"]];
+const filters = [["all", "All channels"], ["media", "Movies & shows"], ["genres", "Genres"], ["services", "Services"], ["custom", "My channels"], ["people", "People"], ["tags", "Tags"]];
 // The last channel watched on this device, so the guide turns back on where you left it.
 const LAST_CHANNEL_KEY = "kiwi.guide.channel.v1";
 const lastChannel = () => {
@@ -253,7 +257,7 @@ const GuideRow = memo(function GuideRow({ channel, row, start, end, now, isTuned
             aria-label={`${show.title}, ${clock(show.start)} to ${clock(show.end)}${live ? ", on now" : ""}${isSelected ? ". Press again to watch" : ""}`}
             onClick={() => onActivate(channel, show, isSelected)}>
             {continued && <CaretLeft className="guide-continued" size={12} weight="bold" aria-hidden="true" />}
-            <strong>{show.title}</strong><small>{clock(show.start)} · {span(show.duration_ms)}</small>
+            <strong>{show.title}</strong><small>{show.season != null && show.episode != null ? `S${show.season}E${show.episode} · ` : ""}{clock(show.start)} · {span(show.duration_ms)}</small>
           </button>
         </div>;
       })}
@@ -289,6 +293,7 @@ function ProgramInfo({ api, channel, program, now, tuned, onTune, onEdit, naviga
   return <div className={`guide-info ${inSheet ? "in-sheet" : ""}`}>
     {channelLine}
     <h2>{program.title}</h2>
+    {program.subtitle && <p className="guide-episode">{program.subtitle}</p>}
     <p className="guide-meta">{live && <span className="guide-live-pill"><Broadcast size={13} weight="fill" /> Live</span>}{clock(program.start)} – {clock(program.end)} · {span(program.duration_ms)} · {status}</p>
     {live && <div className="guide-progress" role="progressbar" aria-label="Elapsed" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}><span style={{ transform: `scaleX(${progress})` }} /></div>}
     {details?.description && <p className="guide-description">{details.description}</p>}
@@ -315,12 +320,18 @@ function ChannelLine({ channel, navigate, onEdit }) {
 
 // Live TV for the tuned channel: joins each program at the elapsed time and rolls into the next one,
 // like the picture-in-picture window on a satellite guide. It never touches the playlist.
+// Movies and episodes open their source first (and the next program is prepared a little before it starts);
+// when the audio you want is not the file's default, the stream is repackaged from the live position.
 function GuidePlayer({ api, channel, navigate, onLost }) {
   const [lineup, setLineup] = useState(null);
   const [airingStart, setAiringStart] = useState(null);
   const [muted, setMuted] = useState(false);
   const [failed, setFailed] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [captions, setCaptions] = useState(true);
+  const [transcode, setTranscode] = useState(false);
+  const [restart, setRestart] = useState(0);
+  const [time, setTime] = useState(0);
   const shell = useRef(null), video = useRef(null), counted = useRef(null);
   // Fetches the channel from now on and starts whatever is airing.
   const sync = useCallback(() => {
@@ -340,7 +351,27 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
     return () => document.removeEventListener("fullscreenchange", update);
   }, []);
   const program = lineup?.find(item => item.start === airingStart) || null;
-  useEffect(() => { setFailed(false); }, [program?.id, program?.start]);
+  useEffect(() => { setFailed(false); setTranscode(false); setRestart(0); setTime(0); }, [program?.id, program?.start]);
+
+  const guideAsset = useMemo(() => ({ id: program?.id || "none", kind: "video", catalog: program?.catalog ? { titleId: program.title_id } : undefined }), [program?.id, program?.catalog, program?.title_id]);
+  const session = usePlaybackSession({ asset: guideAsset, api });
+  const info = session.info;
+  const chosen = useMemo(() => info ? applyPreference(info, loadPreference(`title:${program?.title_id}`)) : null, [info, program?.title_id]);
+  const plan = useMemo(() => planPlayback(info, { audioPosition: chosen?.audioPosition ?? null, transcode }), [info, chosen, transcode]);
+  const sessionReady = session.phase === "ready";
+  // Where a repackaged stream begins: the live position when it is opened (or reopened after falling behind).
+  const streamStart = useMemo(() => program ? Math.floor(Math.max(0, (Date.now() - program.start) / 1000)) : 0, [program?.id, program?.start, sessionReady, restart, transcode]);
+  const subtitles = useSubtitleCues(captions && chosen?.subtitleId);
+  const [subtitleStyle] = useSubtitleStyle();
+
+  // Prepare the next program shortly before it starts so the change of program is seamless.
+  useEffect(() => {
+    if (!lineup || !program) return;
+    const next = lineup.find(item => item.start === program.end);
+    if (!next?.catalog) return;
+    const timer = setTimeout(() => { fetch(`/api/v1/assets/${next.id}/stream`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ caps: detectCaps() }) }).catch(() => {}); }, Math.max(0, program.end - 45_000 - Date.now()));
+    return () => clearTimeout(timer);
+  }, [lineup, program?.id, program?.start]);
 
   // Stay on the broadcast clock: after a program ends (or playback fell behind), play what is airing now.
   const advance = () => {
@@ -350,14 +381,17 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
     else sync();
   };
   const liveSeconds = () => Math.max(0, (Date.now() - program.start) / 1000);
+  const playMuted = media => media.play().catch(() => { media.muted = true; setMuted(true); media.play().catch(() => {}); });
   const playLive = media => {
-    media.currentTime = liveSeconds();
+    // A repackaged stream already begins at the live position.
+    if (!plan.remux) media.currentTime = liveSeconds();
     // Browsers block sound until the page has been interacted with; fall back to muted playback.
-    media.play().catch(() => { media.muted = true; setMuted(true); media.play().catch(() => {}); });
+    playMuted(media);
   };
   const start = event => {
     const media = event.currentTarget;
-    if (Number.isFinite(media.duration) && liveSeconds() >= media.duration - 1) { advance(); return; }
+    const total = plan.remux && info?.durationMs ? info.durationMs / 1000 : media.duration;
+    if (Number.isFinite(total) && liveSeconds() >= total - 1) { advance(); return; }
     playLive(media);
   };
   // Phones pause video while the browser is in the background; on return, rejoin the broadcast where it is now.
@@ -365,6 +399,7 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
     const live = lineup && airing(lineup, Date.now());
     if (!live) { if (lineup) sync(); return; }
     if (live.start !== airingStart) { setAiringStart(live.start); return; }
+    if (plan.remux) { setRestart(value => value + 1); return; }
     if (video.current?.readyState >= 1) playLive(video.current);
   };
   const catchUpRef = useRef(catchUp);
@@ -376,26 +411,44 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
     return () => { document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("pageshow", onVisible); };
   }, []);
   // Playback that resumes behind (a stall, or a pause in the system player) jumps back to live.
-  const keepLive = event => { if (Math.abs(liveSeconds() - event.currentTarget.currentTime) > 5) event.currentTarget.currentTime = liveSeconds(); };
+  const keepLive = event => {
+    const here = (plan.remux ? streamStart : 0) + event.currentTarget.currentTime;
+    if (Math.abs(liveSeconds() - here) <= 5) return;
+    if (plan.remux) setRestart(value => value + 1); else event.currentTarget.currentTime = liveSeconds();
+  };
   const countView = () => {
     const key = `${program.id}:${program.start}`;
     if (counted.current === key) return;
     counted.current = key;
     api(`/api/v1/assets/${program.id}/views`, { method: "POST", body: JSON.stringify({ sessionId: crypto.randomUUID() }) }).catch(() => {});
   };
+  const onVideoError = event => {
+    // Video the browser cannot decode is re-encoded by the server, once.
+    if (program?.catalog && !transcode && [3, 4].includes(event.currentTarget.error?.code)) { setTranscode(true); setRestart(value => value + 1); return; }
+    setFailed(true);
+  };
   const toggleMute = () => { const next = !muted; setMuted(next); if (video.current) video.current.muted = next; };
   const toggleFullscreen = () => document.fullscreenElement ? document.exitFullscreen() : shell.current?.requestFullscreen?.();
+  const base = program ? `/api/v1/assets/${program.id}/file` : "";
+  const src = program && (plan.remux ? remuxUrl(base, plan, streamStart) : base);
+  const tuning = program && session.phase === "loading";
+  const unavailable = program && session.phase === "error";
 
   return <div className="guide-screen">
     <div ref={shell} className={`guide-player ${fullscreen ? "is-fullscreen" : ""}`} onDoubleClick={toggleFullscreen}>
       {program?.thumbnail_url && <img src={program.thumbnail_url} alt="" />}
-      {program && !failed && <video ref={video} key={`${program.id}:${program.start}`} src={`/api/v1/assets/${program.id}/file`} muted={muted} playsInline disablePictureInPicture preload="auto"
-        onLoadedMetadata={start} onPlaying={event => { countView(); keepLive(event); }} onEnded={advance} onError={() => setFailed(true)} />}
+      {program && sessionReady && !failed && <video ref={video} key={`${program.id}:${program.start}:${restart}`} src={src} muted={muted} playsInline disablePictureInPicture preload="auto"
+        onLoadedMetadata={start} onPlaying={event => { countView(); keepLive(event); }} onEnded={advance} onError={onVideoError}
+        onTimeUpdate={event => setTime((plan.remux ? streamStart : 0) + event.currentTarget.currentTime)} />}
+      {sessionReady && !failed && captions && chosen?.subtitleId && <SubtitleLayer cues={subtitles.cues} time={time} size={subtitleStyle.size} background={subtitleStyle.background} />}
+      {tuning && <div className="guide-player-message" role="status"><p>Tuning in… {session.stage}</p></div>}
+      {unavailable && <div className="guide-player-message" role="alert"><p>{session.error.message}</p>{session.error.code === "not-configured" ? <a className="outline-button" href="/settings#streaming">Open streaming settings</a> : <button className="outline-button" onClick={() => session.retry()}>Try again</button>}</div>}
       {lineup && !program && <p className="guide-player-message">Nothing is airing on this channel right now.</p>}
       {failed && <div className="guide-player-message"><p>This video can't play here.</p><button className="outline-button" onClick={() => navigate(`/watch/${program.id}?t=${liveOffset(program, Date.now()) ?? 0}`)}><ArrowSquareOut size={16} /> Open in player</button></div>}
       <div className="guide-player-bar">
         <span className="guide-live-pill"><Broadcast size={13} weight="fill" /> Live</span>
-        <span className="guide-player-title"><strong>{channel.number} · {channel.name}</strong>{program && <small>{program.title}</small>}</span>
+        <span className="guide-player-title"><strong>{channel.number} · {channel.name}</strong>{program && <small>{program.subtitle ? `${program.title} · ${program.subtitle}` : program.title}</small>}</span>
+        {chosen?.subtitleId && <button className="guide-player-button" onClick={() => setCaptions(value => !value)} aria-pressed={captions} aria-label={captions ? "Turn subtitles off" : "Turn subtitles on"} title={captions ? "Subtitles on" : "Subtitles off"}><ClosedCaptioning size={17} weight={captions ? "fill" : "regular"} /></button>}
         <button className="guide-player-button" onClick={toggleMute} aria-label={muted ? "Unmute" : "Mute"} title={muted ? "Unmute" : "Mute"}>{muted ? <SpeakerSlash size={17} weight="fill" /> : <SpeakerHigh size={17} weight="fill" />}</button>
         <button className="guide-player-button" onClick={toggleFullscreen} aria-label={fullscreen ? "Exit full screen" : "Full screen"} title={fullscreen ? "Exit full screen" : "Full screen"}>{fullscreen ? <CornersIn size={17} /> : <CornersOut size={17} />}</button>
       </div>
@@ -425,6 +478,7 @@ function LiveActions({ api, id, navigate }) {
 
 function GuideEmpty({ filter, q, create }) {
   const [title, message] = q ? ["No channels match", "Try another channel number or name."]
+    : ["media", "genres", "services"].includes(filter) ? ["Nothing on these channels yet", "Add movies, shows, or anime to My list and they join the guide, grouped by genre and service."]
     : filter === "custom" ? ["You haven't made a channel yet", "Combine tags into a channel that plays everything they share."]
     : ["No channels yet", "Any tag on three or more videos becomes a channel automatically."];
   return <div className="empty guide-empty"><Television size={38} /><h2>{title}</h2><p>{message}</p>{!q && <button className="primary-button" onClick={create}><Plus size={17} /> New channel</button>}</div>;

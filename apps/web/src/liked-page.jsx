@@ -14,9 +14,10 @@ export function LikedPage({ api, navigate, MediaCard, Loading, Empty }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
+  const [scope, setScope] = useState("all");
   const generation = useRef(0);
   const pending = useRef(false);
-  const pageUrl = (offset = 0) => `/api/v1/liked?limit=60&offset=${offset}${likes ? `&likes=${likes}` : ""}${topic ? `&topic=${encodeURIComponent(topic)}` : ""}`;
+  const pageUrl = (offset = 0) => `/api/v1/liked?limit=60&offset=${offset}&scope=${scope}${likes ? `&likes=${likes}` : ""}${topic ? `&topic=${encodeURIComponent(topic)}` : ""}`;
 
   useEffect(() => { api("/api/v1/liked/filters").then(setFilters).catch(() => {}); }, [api]);
   useEffect(() => {
@@ -26,7 +27,7 @@ export function LikedPage({ api, navigate, MediaCard, Loading, Empty }) {
       if (generation.current === current) { setAssets(rows); setHasMore(rows.length === 60); }
     }).catch(e => { if (generation.current === current) { setError(e.message); setAssets([]); } });
     return () => { generation.current++; };
-  }, [likes, topic, retry]);
+  }, [likes, topic, retry, scope]);
 
   const loadMore = useCallback(async () => {
     if (pending.current || !assets || !hasMore) return;
@@ -38,13 +39,14 @@ export function LikedPage({ api, navigate, MediaCard, Loading, Empty }) {
       if (generation.current === current) { setAssets(previous => [...previous, ...rows]); setHasMore(rows.length === 60); }
     } catch (e) { if (generation.current === current) setError(e.message); }
     finally { pending.current = false; if (generation.current === current) setLoadingMore(false); }
-  }, [assets, hasMore, likes, topic]);
+  }, [assets, hasMore, likes, topic, scope]);
 
   const unfiltered = !likes && !topic;
   const hasFilters = filters.levels.length > 1 || filters.topics.length > 0;
 
   return <div className="content library-page liked-page">
     <div className="section-heading"><div><h1>Liked videos</h1><p>Ranked by your likes, most loved first.</p></div></div>
+    <div className="scope-tabs" role="group" aria-label="Show liked items from">{[["all", "Everything"], ["home", "Home videos"], ["catalog", "Movies & shows"]].map(([value, label]) => <button key={value} aria-pressed={scope === value} onClick={() => setScope(value)}>{label}</button>)}</div>
     {hasFilters && <div className="chips" role="group" aria-label="Filter liked videos">
       <button aria-pressed={unfiltered} className={unfiltered ? "selected" : ""} onClick={() => { setLikes(null); setTopic(null); }}><SquaresFour size={17} weight={unfiltered ? "fill" : "regular"} /> All</button>
       {filters.levels.length > 1 && filters.levels.map(level => <button key={level.likes} aria-pressed={likes === level.likes} aria-label={`${level.likes} ${level.likes === 1 ? "like" : "likes"}, ${level.item_count} ${level.item_count === 1 ? "video" : "videos"}`} data-level={level.likes} className={`like-level-chip ${likes === level.likes ? "selected" : ""}`} onClick={() => setLikes(value => value === level.likes ? null : level.likes)}>

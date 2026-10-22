@@ -81,8 +81,9 @@ const siteName = source => { try { return new URL(source).hostname.replace(/^www
 
 // Adds finished downloads to the library right away and prepares thumbnails, without rescanning the folder.
 // A single media file takes the downloader's title (e.g. the video title rather than its file name).
-export async function importDownloadedFiles({ root, files, source, title, topicIds = [] }) {
+export async function importDownloadedFiles({ root, files, source, title, topicIds = [], targetAssetId = null }) {
   const media = files.filter(path => mediaKinds[extname(path).toLowerCase()]);
+  if (targetAssetId) return attachToAsset(root, media, targetAssetId, topicIds);
   const sourceUrl = /^https?:\/\//i.test(source) ? source : null;
   const site = siteName(source);
   const ids = [];
@@ -103,6 +104,34 @@ export async function importDownloadedFiles({ root, files, source, title, topicI
   return ids;
 }
 
+// A saved movie or episode becomes the local copy of the catalog item it was downloaded for: the item keeps
+// its title, artwork, progress, likes, and tags, and plays from disk from now on.
+async function attachToAsset(root, media, assetId, topicIds) {
+  const asset = db.prepare("SELECT * FROM assets WHERE id=?").get(assetId);
+  const path = media.find(file => mediaKinds[extname(file).toLowerCase()] === "video");
+  if (!asset || !path) return [];
+  const info = await stat(path), timestamp = now();
+  const existing = db.prepare("SELECT id FROM assets WHERE file_path=? AND id!=?").get(path, assetId);
+  if (existing) return [assetId];
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare("UPDATE assets SET file_path=?,availability='ready',updated_at=? WHERE id=?").run(path, timestamp, assetId);
+    db.prepare("DELETE FROM files WHERE asset_id=? AND role='original'").run(assetId);
+    db.prepare("INSERT INTO files VALUES (?,?,?,?,?,?,?,?,?)").run(randomUUID(), assetId, "original", root.id, relative(root.absolute_path, path), mime.lookup(path) || null, info.size, null, timestamp);
+    db.exec("COMMIT");
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
+  tagTopics(assetId, topicIds);
+  try {
+    const { stdout } = await exec("ffprobe", ["-v", "error", "-of", "json", "-show_format", "-show_streams", path], { timeout: 20_000, killSignal: "SIGKILL", maxBuffer: 2 * 1024 * 1024 });
+    const probe = JSON.parse(stdout), video = probe.streams?.find(stream => stream.codec_type === "video");
+    const metadata = JSON.parse(asset.metadata_json || "{}");
+    const duration = Math.round(Number(probe.format?.duration || 0) * 1000) || null;
+    if (duration) metadata.probedDuration = duration;
+    db.prepare("UPDATE assets SET duration_ms=coalesce(?,duration_ms),width=?,height=?,metadata_json=? WHERE id=?").run(duration, video?.width || null, video?.height || null, JSON.stringify(metadata), assetId);
+  } catch { /* The catalog runtime stays until the file is probed again. */ }
+  return [assetId];
+}
+
 export async function enrichFile(asset) {
   const metadata = JSON.parse(asset.metadata_json);
   let durationMs = null, width = null, height = null;
@@ -118,14 +147,15 @@ export async function enrichFile(asset) {
   }
   const thumbPath = resolve(generatedDir, `${asset.id}.jpg`);
   let thumbnailError = false;
-  if (["video", "image"].includes(asset.kind)) {
+  // Catalog items keep their artwork instead of a frame grab.
+  if (["video", "image"].includes(asset.kind) && !asset.title_id) {
     try {
       await exec("ffmpeg", ["-v", "error", "-nostdin", "-y", "-threads", "1", ...(asset.kind === "video" ? ["-ss", "0"] : []), "-i", asset.file_path, "-frames:v", "1", "-vf", "scale=640:-2", "-threads", "1", thumbPath], { timeout: 20_000, killSignal: "SIGKILL", maxBuffer: 1024 * 1024 });
     } catch { thumbnailError = true; }
   }
   metadata.libraryEnriched = !thumbnailError;
   db.prepare("UPDATE assets SET duration_ms=?,width=?,height=?,thumbnail_url=?,metadata_json=?,updated_at=? WHERE id=?")
-    .run(durationMs, width, height, existsSync(thumbPath) ? `/generated/${asset.id}.jpg` : null, JSON.stringify(metadata), now(), asset.id);
+    .run(durationMs, width, height, asset.title_id ? asset.thumbnail_url : existsSync(thumbPath) ? `/generated/${asset.id}.jpg` : null, JSON.stringify(metadata), now(), asset.id);
   return !thumbnailError;
 }
 

@@ -196,6 +196,50 @@ export function migrate() {
       attempts INTEGER NOT NULL DEFAULT 0, locked_by TEXT, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS downloads_status_idx ON downloads(status, created_at);
+    -- Catalog entries (movies and shows) from metadata providers. Episodes and movies are also rows in
+    -- assets (title_id set), so progress, likes, tags, and history work the same as for home videos.
+    CREATE TABLE IF NOT EXISTS titles (
+      id TEXT PRIMARY KEY, type TEXT NOT NULL CHECK(type IN ('movie','show')), is_anime INTEGER NOT NULL DEFAULT 0,
+      title TEXT NOT NULL, original_title TEXT, year INTEGER, overview TEXT, tagline TEXT, status TEXT,
+      runtime_min INTEGER, rating REAL, vote_count INTEGER, certification TEXT,
+      poster_path TEXT, backdrop_path TEXT, logo_path TEXT, first_air_date TEXT, last_air_date TEXT,
+      original_language TEXT, origin_countries_json TEXT NOT NULL DEFAULT '[]',
+      genres_json TEXT NOT NULL DEFAULT '[]', services_json TEXT NOT NULL DEFAULT '[]', aliases_json TEXT NOT NULL DEFAULT '[]',
+      tmdb_id INTEGER, imdb_id TEXT, tvdb_id INTEGER,
+      in_library INTEGER NOT NULL DEFAULT 0 CHECK(in_library IN (0,1)), library_added_at TEXT,
+      synced_at TEXT, episodes_synced_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}', UNIQUE(type, tmdb_id)
+    );
+    CREATE INDEX IF NOT EXISTS titles_library_idx ON titles(in_library, library_added_at DESC);
+    CREATE TABLE IF NOT EXISTS title_seasons (
+      title_id TEXT NOT NULL REFERENCES titles(id) ON DELETE CASCADE, number INTEGER NOT NULL,
+      name TEXT, overview TEXT, poster_path TEXT, air_date TEXT, episode_count INTEGER, PRIMARY KEY(title_id, number)
+    );
+    -- Tags on a whole title also apply to every one of its episodes (see direct_asset_topics).
+    CREATE TABLE IF NOT EXISTS title_topics (
+      title_id TEXT NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+      topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL, PRIMARY KEY(title_id, topic_id)
+    );
+    CREATE INDEX IF NOT EXISTS title_topics_topic_idx ON title_topics(topic_id);
+    -- Where an episode or movie can be streamed from. At most one row per asset is 'selected'.
+    CREATE TABLE IF NOT EXISTS playback_sources (
+      id TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL DEFAULT 'torbox', info_hash TEXT NOT NULL, release_name TEXT, file_name TEXT, file_size INTEGER,
+      parsed_json TEXT NOT NULL DEFAULT '{}', score REAL, cached INTEGER, seeders INTEGER, indexer TEXT,
+      torbox_id INTEGER, torbox_file_id INTEGER, status TEXT NOT NULL DEFAULT 'candidate',
+      fail_reason TEXT, probe_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, verified_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS playback_sources_asset_idx ON playback_sources(asset_id, status);
+    CREATE TABLE IF NOT EXISTS subtitle_tracks (
+      id TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE, source_key TEXT,
+      origin TEXT NOT NULL, language TEXT, label TEXT, codec TEXT, stream_index INTEGER,
+      forced INTEGER NOT NULL DEFAULT 0, sdh INTEGER NOT NULL DEFAULT 0, external_id TEXT, file_path TEXT,
+      status TEXT NOT NULL DEFAULT 'pending', error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS subtitle_tracks_asset_idx ON subtitle_tracks(asset_id, source_key);
+    -- Settings for catalogs, source ranking, playback, and downloads. Provider entries hold secrets.
+    CREATE TABLE IF NOT EXISTS media_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
       entity_id UNINDEXED, entity_type UNINDEXED, title, body, tags,
       tokenize='unicode61 remove_diacritics 2'
@@ -214,7 +258,7 @@ export function migrate() {
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   }
   // Views, not materialized mappings: new imports inherit folder tags and topic rules immediately.
-  db.exec(`CREATE VIEW IF NOT EXISTS direct_asset_topics AS
+  const directView = `CREATE VIEW direct_asset_topics AS
     SELECT a.asset_id, at.topic_id FROM annotations a
     JOIN annotation_topics at ON at.annotation_id=a.id
     UNION
@@ -227,7 +271,19 @@ export function migrate() {
     SELECT a.id, ft.topic_id FROM folder_topics ft
     JOIN library_roots r ON r.id=ft.library_root_id
     JOIN assets a ON substr(a.file_path,1,length(rtrim(r.absolute_path,'/'))+1)=rtrim(r.absolute_path,'/') || '/'
-  `);
+    UNION
+    -- A tag on a movie or series covers all of its episodes.
+    SELECT a.id, tt.topic_id FROM title_topics tt
+    JOIN assets a ON a.title_id=tt.title_id`;
+  if (db.prepare("SELECT sql FROM sqlite_master WHERE type='view' AND name='direct_asset_topics'").get()?.sql !== directView) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec("DROP VIEW IF EXISTS effective_asset_topics");
+      db.exec("DROP VIEW IF EXISTS direct_asset_topics");
+      db.exec(directView);
+      db.exec("COMMIT");
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
+  }
   // Rules chain (A→B→C gives A items C); UNION stops cycles from recursing forever.
   db.exec(`CREATE VIEW IF NOT EXISTS implied_topics AS
     WITH RECURSIVE implied(source_topic_id, topic_id) AS (
@@ -258,6 +314,17 @@ export function migrate() {
     // Tags chosen for a download, applied to its media when it is imported.
     if (!db.prepare("PRAGMA table_info(downloads)").all().some(column => column.name === "topic_ids_json")) {
       db.exec("ALTER TABLE downloads ADD COLUMN topic_ids_json TEXT NOT NULL DEFAULT '[]'");
+    }
+    // Episodes and movies from the catalog are assets that belong to a title; home videos have no title.
+    const assetColumns = db.prepare("PRAGMA table_info(assets)").all().map(column => column.name);
+    for (const [name, definition] of [
+      ["title_id", "TEXT REFERENCES titles(id) ON DELETE CASCADE"], ["season_number", "INTEGER"], ["episode_number", "INTEGER"],
+      ["absolute_number", "INTEGER"], ["air_date", "TEXT"], ["still_path", "TEXT"], ["availability", "TEXT NOT NULL DEFAULT 'unknown'"],
+    ]) if (!assetColumns.includes(name)) db.exec(`ALTER TABLE assets ADD COLUMN ${name} ${definition}`);
+    db.exec("CREATE INDEX IF NOT EXISTS assets_title_idx ON assets(title_id, season_number, episode_number)");
+    // Downloads of streamed episodes attach the saved file to this asset instead of importing a new one.
+    if (!db.prepare("PRAGMA table_info(downloads)").all().some(column => column.name === "target_asset_id")) {
+      db.exec("ALTER TABLE downloads ADD COLUMN target_asset_id TEXT");
     }
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
@@ -357,7 +424,8 @@ export function tagAssetWithTopic(assetId, topicId, timestamp = now()) {
 
 export function reindexAssetSearch(assetId) {
   db.prepare("DELETE FROM search_index WHERE entity_type='asset' AND entity_id=?").run(assetId);
-  const row = db.prepare("SELECT id,title,description FROM assets WHERE id=?").get(assetId);
+  // Episodes and movies are found through their title, never as separate results.
+  const row = db.prepare("SELECT id,title,description FROM assets WHERE id=? AND title_id IS NULL").get(assetId);
   if (!row) return;
   const tags = db.prepare("SELECT t.name FROM topics t JOIN annotation_topics at ON at.topic_id=t.id JOIN annotations a ON a.id=at.annotation_id WHERE a.asset_id=?").all(assetId).map(x => x.name).join(" ");
   db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) VALUES (?,?,?,?,?)").run(row.id, "asset", row.title, row.description || "", tags);
@@ -368,13 +436,29 @@ export function reindexTopicSearch(topicId) {
   db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) SELECT id,'topic',name,coalesce(summary,'') || ' ' || coalesce(body_markdown,''),coalesce((SELECT group_concat(alias,' ') FROM topic_aliases WHERE topic_id=topics.id),'') FROM topics WHERE id=?").run(topicId);
 }
 
+// Titles are searchable by name, original name, aliases, overview, genres, and the tags on the whole title.
+function indexTitle(titleId, insert = db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) VALUES (?,?,?,?,?)")) {
+  const row = db.prepare("SELECT * FROM titles WHERE id=?").get(titleId);
+  if (!row) return;
+  const aliases = JSON.parse(row.aliases_json || "[]");
+  const tags = db.prepare("SELECT t.name FROM topics t JOIN title_topics tt ON tt.topic_id=t.id WHERE tt.title_id=?").all(titleId).map(x => x.name);
+  const names = [row.title, row.original_title, ...aliases].filter((value, index, all) => value && all.indexOf(value) === index);
+  insert.run(row.id, "title", names.join(" "), row.overview || "", [...JSON.parse(row.genres_json || "[]"), ...tags].join(" "));
+}
+
+export function reindexTitleSearch(titleId) {
+  db.prepare("DELETE FROM search_index WHERE entity_type='title' AND entity_id=?").run(titleId);
+  indexTitle(titleId);
+}
+
 export function rebuildSearch() {
   db.exec("DELETE FROM search_index");
   const insert = db.prepare("INSERT INTO search_index(entity_id,entity_type,title,body,tags) VALUES (?,?,?,?,?)");
-  for (const row of db.prepare("SELECT id,title,description FROM assets").all()) {
+  for (const row of db.prepare("SELECT id,title,description FROM assets WHERE title_id IS NULL").all()) {
     const tags = db.prepare("SELECT t.name FROM topics t JOIN annotation_topics at ON at.topic_id=t.id JOIN annotations a ON a.id=at.annotation_id WHERE a.asset_id=?").all(row.id).map(x => x.name).join(" ");
     insert.run(row.id, "asset", row.title, row.description || "", tags);
   }
+  for (const row of db.prepare("SELECT id FROM titles").all()) indexTitle(row.id, insert);
   for (const row of db.prepare("SELECT id,name,summary,body_markdown FROM topics").all()) {
     const aliases = db.prepare("SELECT alias FROM topic_aliases WHERE topic_id=?").all(row.id).map(x => x.alias).join(" ");
     insert.run(row.id, "topic", row.name, `${row.summary || ""} ${row.body_markdown || ""}`, aliases);
@@ -424,6 +508,26 @@ function syncAnimeFixtures() {
   }
   db.prepare("INSERT OR IGNORE INTO feeds (id,owner_id,slug,name,description,query_json,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)").run("feed-anime", "user-local", "anime", "Anime", "Japanese animation and theme music from across the library.", JSON.stringify({ topicIds: ["topic-anime"] }), "public", timestamp, timestamp);
   rebuildSearch();
+}
+
+const slugify = name => name.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "tag";
+
+// Finds a tag by name (any type), or creates it. Used for genres, services, and other catalog-derived tags.
+// A tag the user already made keeps its own image and type; missing details are only filled in.
+export function ensureTopic({ name, type = "topic", avatarUrl = null, summary = null }) {
+  const clean = String(name || "").trim().slice(0, 100);
+  if (!clean) return null;
+  const existing = db.prepare("SELECT * FROM topics WHERE lower(name)=lower(?) ORDER BY created_at LIMIT 1").get(clean);
+  if (existing) {
+    if (avatarUrl && !existing.avatar_url) db.prepare("UPDATE topics SET avatar_url=?,updated_at=? WHERE id=?").run(avatarUrl, now(), existing.id);
+    return existing;
+  }
+  const id = randomUUID(), timestamp = now();
+  let slug = slugify(clean);
+  if (db.prepare("SELECT 1 FROM topics WHERE slug=?").get(slug)) slug = `${slug}-${id.slice(0, 8)}`;
+  db.prepare("INSERT INTO topics (id,slug,name,summary,avatar_url,topic_type,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)").run(id, slug, clean, summary, avatarUrl, type, timestamp, timestamp);
+  reindexTopicSearch(id);
+  return db.prepare("SELECT * FROM topics WHERE id=?").get(id);
 }
 
 export function assetWithTopics(row) {

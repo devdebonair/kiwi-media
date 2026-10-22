@@ -67,7 +67,7 @@ export function registerDownloads(app, { resolveTopic } = {}) {
 
   app.get("/api/v1/downloads/plugins", handle(async () => describePlugins()));
 
-  app.get("/api/v1/downloaders", handle(async () => Promise.all(db.prepare("SELECT * FROM downloaders ORDER BY is_default DESC, name, id").all().map(row => publicDownloader(getDownloader(row.id))))));
+  app.get("/api/v1/downloaders", handle(async () => Promise.all(db.prepare("SELECT * FROM downloaders WHERE plugin!='kiwi-media' ORDER BY is_default DESC, name, id").all().map(row => publicDownloader(getDownloader(row.id))))));
 
   const setDefault = id => { db.prepare("UPDATE downloaders SET is_default=0 WHERE id!=?").run(id); db.prepare("UPDATE downloaders SET is_default=1 WHERE id=?").run(id); };
   app.post("/api/v1/downloaders", handle(async (req, reply) => {

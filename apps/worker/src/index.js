@@ -1,6 +1,9 @@
 import { db, rebuildSearch } from "@kiwi/database";
 import { createDownloadRunner } from "@kiwi/downloads/runner";
+import { registerPlugin } from "@kiwi/downloads";
+import { mediaDownloadPlugin } from "@kiwi/media";
 import { scanRoot, enrichRoot, enqueue, importDownloadedFiles } from "./library.js";
+import { refreshLibrary } from "./catalog.js";
 
 const workerId = `worker-${process.pid}`;
 const now = () => new Date().toISOString();
@@ -35,9 +38,15 @@ async function poll() {
 }
 
 // Downloads run on their own queue so a long download never blocks library scans.
+registerPlugin(mediaDownloadPlugin);
 const downloads = createDownloadRunner({ workerId, importFiles: importDownloadedFiles });
 downloads.start();
 for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => downloads.stop().finally(() => process.exit(0)));
+
+// Library titles refresh in the background; the first pass waits a minute so startup stays quick.
+const maintain = () => refreshLibrary().then(result => { if (result.refreshed || result.pruned) console.log(JSON.stringify({ catalog: result })); }).catch(console.error);
+setTimeout(maintain, 60_000).unref();
+setInterval(maintain, 3_600_000).unref();
 
 console.log(`Kiwi worker ${workerId} ready`);
 setInterval(() => poll().catch(console.error), 1500);

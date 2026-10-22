@@ -6,11 +6,18 @@ import { db } from "@kiwi/database";
 export const GUIDE_EPOCH = Date.UTC(2026, 0, 1);
 // Tags with fewer playable videos than this would repeat every few minutes, so they get no channel.
 export const MIN_CHANNEL_VIDEOS = 3;
-// Custom channels take the low numbers; tag channels start here, numbered by tag age.
+// Custom channels take the low numbers; media-class channels (Movies, TV Shows, Anime, Home Videos) sit just below
+// the tag channels, which start here and are numbered by tag age.
 const TAG_CHANNEL_BASE = 100;
+const CLASS_CHANNEL_BASE = 90;
 const MAX_TOPICS = 20;
 const MAX_PROGRAMS_PER_ROW = 400;
-const playable = "a.kind='video' AND a.file_path IS NOT NULL AND a.file_path!='' AND a.duration_ms>0";
+// Episodes of a series air back to back in order, this many at a time, so a show feels like TV and not a shuffle.
+const EPISODE_BLOCK = 2;
+// Home videos need a file. Movies and episodes from the catalog can air when they are in your library and
+// not unaired (specials are left out), or known to be unavailable; the TV guide plays them straight from the source.
+const playable = `a.kind='video' AND a.duration_ms>0 AND ((a.file_path IS NOT NULL AND a.file_path!='')
+  OR (a.title_id IS NOT NULL AND t.in_library=1 AND (a.season_number IS NULL OR a.season_number>=1) AND a.availability NOT IN ('unaired','unavailable')))`;
 
 // FNV-1a: a stable pseudo-random lineup order that does not reshuffle when videos are added.
 const hash = text => {
@@ -19,15 +26,24 @@ const hash = text => {
   return value >>> 0;
 };
 
-// Playable videos per tag, plus their durations.
+// Playable videos per tag, what each video is (for ordering episodes), and the media classes.
 const memberships = () => {
-  const byTopic = new Map(), durations = new Map();
-  for (const row of db.prepare(`SELECT et.topic_id, a.id, a.duration_ms FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE ${playable}`).all()) {
+  const byTopic = new Map(), info = new Map(), classes = { movies: new Set(), shows: new Set(), anime: new Set(), home: new Set() };
+  const note = row => {
+    if (info.has(row.id)) return;
+    info.set(row.id, { duration: row.duration_ms, titleId: row.title_id, season: row.season_number, episode: row.episode_number });
+    if (!row.title_id) classes.home.add(row.id);
+    else if (row.is_anime) classes.anime.add(row.id);
+    else (row.title_type === "movie" ? classes.movies : classes.shows).add(row.id);
+  };
+  const columns = "a.id, a.duration_ms, a.title_id, a.season_number, a.episode_number, t.type title_type, t.is_anime";
+  for (const row of db.prepare(`SELECT et.topic_id, ${columns} FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id LEFT JOIN titles t ON t.id=a.title_id WHERE ${playable}`).all()) {
     if (!byTopic.has(row.topic_id)) byTopic.set(row.topic_id, new Set());
     byTopic.get(row.topic_id).add(row.id);
-    durations.set(row.id, row.duration_ms);
+    note(row);
   }
-  return { byTopic, durations };
+  for (const row of db.prepare(`SELECT ${columns} FROM assets a LEFT JOIN titles t ON t.id=a.title_id WHERE ${playable}`).all()) note(row);
+  return { byTopic, info, classes };
 };
 
 const combine = (byTopic, topicIds, match) => {
@@ -47,23 +63,46 @@ const customChannels = () => {
   }));
 };
 
+const CLASS_CHANNELS = [["movies", "Movies", 0], ["shows", "TV Shows", 1], ["anime", "Anime", 2], ["home", "Home Videos", 3]];
+const topicKind = type => type === "person" ? "person" : type === "genre" ? "genre" : type === "service" ? "service" : "topic";
+
 // All channels in number order, each with the set of video ids it airs.
 export function guideChannels() {
-  const { byTopic, durations } = memberships();
+  const { byTopic, info, classes } = memberships();
   const custom = customChannels().map(channel => ({ ...channel, assets: combine(byTopic, channel.topics.map(topic => topic.id), channel.match) }));
+  const media = CLASS_CHANNELS.map(([key, name, offset]) => ({ key: `class:${key}`, id: key, number: CLASS_CHANNEL_BASE + offset, name, type: "media", avatar_url: null, assets: classes[key] }))
+    .filter(channel => channel.assets.size >= MIN_CHANNEL_VIDEOS);
   const tags = db.prepare("SELECT id, slug, name, avatar_url, topic_type FROM topics ORDER BY created_at, id").all()
     .map((topic, index) => ({
       key: `topic:${topic.id}`, id: topic.id, slug: topic.slug, number: TAG_CHANNEL_BASE + index, name: topic.name,
-      type: topic.topic_type === "person" ? "person" : "topic", avatar_url: topic.avatar_url, assets: byTopic.get(topic.id) || new Set(),
+      type: topicKind(topic.topic_type), avatar_url: topic.avatar_url, assets: byTopic.get(topic.id) || new Set(),
     }))
     .filter(channel => channel.assets.size >= MIN_CHANNEL_VIDEOS);
-  return { channels: [...custom, ...tags], durations };
+  return { channels: [...custom, ...media, ...tags], info };
+}
+
+// A channel's repeating order: singles (home videos, movies) and blocks of consecutive episodes, shuffled by a stable hash.
+function lineupFor(channel, info) {
+  const units = [], episodes = new Map();
+  for (const id of channel.assets) {
+    const item = info.get(id);
+    if (item.titleId && item.season >= 1) {
+      if (!episodes.has(item.titleId)) episodes.set(item.titleId, []);
+      episodes.get(item.titleId).push({ id, ...item });
+    } else units.push({ key: id, ids: [id] });
+  }
+  for (const list of episodes.values()) {
+    list.sort((a, b) => a.season - b.season || a.episode - b.episode);
+    for (let i = 0; i < list.length; i += EPISODE_BLOCK) units.push({ key: list[i].id, ids: list.slice(i, i + EPISODE_BLOCK).map(item => item.id) });
+  }
+  return units.map(unit => ({ ...unit, order: hash(`${channel.key}:${unit.key}`) }))
+    .sort((a, b) => a.order - b.order || (a.key < b.key ? -1 : 1))
+    .flatMap(unit => unit.ids.map(id => ({ id, duration: info.get(id).duration })));
 }
 
 // The programs airing on a channel between start and end (epoch ms), including any already under way at start.
-export function schedule(channel, durations, start, end) {
-  const lineup = [...channel.assets].map(id => ({ id, order: hash(`${channel.key}:${id}`), duration: durations.get(id) }))
-    .sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : 1));
+export function schedule(channel, info, start, end) {
+  const lineup = lineupFor(channel, info);
   if (!lineup.length) return [];
   const offsets = [];
   let cycle = 0;
@@ -91,13 +130,16 @@ const filters = {
   custom: channel => channel.type === "custom",
   people: channel => channel.type === "person",
   tags: channel => channel.type === "topic",
+  genres: channel => channel.type === "genre",
+  services: channel => channel.type === "service",
+  media: channel => channel.type === "media",
 };
 
 const integer = (value, fallback) => value === undefined ? fallback : /^-?\d+$/.test(String(value)) ? Number(value) : NaN;
 
 const lowestFreeNumber = () => {
   const taken = new Set(db.prepare("SELECT number FROM guide_channels").all().map(row => row.number));
-  for (let number = 1; number < TAG_CHANNEL_BASE; number++) if (!taken.has(number)) return number;
+  for (let number = 1; number < CLASS_CHANNEL_BASE; number++) if (!taken.has(number)) return number;
   return null;
 };
 
@@ -136,18 +178,24 @@ export function registerGuide(app) {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(offset) || offset < 0) return reply.code(400).send({ error: "limit must be 1–100 and offset a nonnegative integer" });
     if (!filters[filter]) return reply.code(400).send({ error: "Invalid filter" });
     const end = start + hours * 3_600_000;
-    const { channels, durations } = guideChannels();
+    const { channels, info } = guideChannels();
     // `channel` picks one channel by key, e.g. for the guide's live player.
     const only = req.query.channel;
     const matching = only ? channels.filter(channel => channel.key === only)
       : channels.filter(filters[filter]).filter(channel => !q || String(channel.number) === q || channel.name.toLowerCase().includes(q));
-    const page = matching.slice(offset, offset + limit).map(channel => ({ ...publicChannel(channel), programs: schedule(channel, durations, start, end) }));
+    const page = matching.slice(offset, offset + limit).map(channel => ({ ...publicChannel(channel), programs: schedule(channel, info, start, end) }));
     const ids = [...new Set(page.flatMap(channel => channel.programs.map(program => program.id)))];
     const details = new Map();
     // Chunked to stay under SQLite's bound-parameter limit.
     for (let i = 0; i < ids.length; i += 500) {
       const chunk = ids.slice(i, i + 500);
-      for (const row of db.prepare(`SELECT id, title, thumbnail_url, duration_ms FROM assets WHERE id IN (${chunk.map(() => "?").join(",")})`).all(...chunk)) details.set(row.id, row);
+      for (const row of db.prepare(`SELECT a.id, a.title, a.thumbnail_url, a.duration_ms, a.title_id, a.season_number, a.episode_number, t.title show_title, t.type show_type, t.is_anime
+        FROM assets a LEFT JOIN titles t ON t.id=a.title_id WHERE a.id IN (${chunk.map(() => "?").join(",")})`).all(...chunk)) {
+        // Episodes air under their show's name with the episode as a subtitle.
+        const episode = row.title_id && row.show_type === "show" && row.season_number != null;
+        details.set(row.id, { id: row.id, title: episode ? row.show_title : row.title, subtitle: episode ? `S${row.season_number}E${row.episode_number} · ${row.title}` : null, thumbnail_url: row.thumbnail_url, duration_ms: row.duration_ms,
+          title_id: row.title_id, season: row.season_number, episode: row.episode_number, is_anime: Boolean(row.is_anime), catalog: Boolean(row.title_id) });
+      }
     }
     return {
       start, end, now, total: matching.length,
@@ -179,7 +227,7 @@ export function registerGuide(app) {
       saveTopics(id, input.topicIds);
       return number;
     });
-    if (number === null) return reply.code(409).send({ error: `You can create up to ${TAG_CHANNEL_BASE - 1} channels` });
+    if (number === null) return reply.code(409).send({ error: `You can create up to ${CLASS_CHANNEL_BASE - 1} channels` });
     return reply.code(201).send(customChannels().find(channel => channel.id === id));
   });
 

@@ -5,6 +5,7 @@ import { FolderOpen, Plus, X } from "@phosphor-icons/react";
 import { AddTag } from "./add-tag";
 import { TopicLabel } from "./topic-label";
 import { DownloadSettings } from "./download-settings";
+import { StreamingSettings } from "./streaming-settings";
 
 export function SettingsPage({ api }) {
   const [roots, setRoots] = useState(null), [jobs, setJobs] = useState([]);
@@ -54,6 +55,7 @@ export function SettingsPage({ api }) {
       <p>Pausing excludes a folder from future scans. Jobs already queued continue, and imported media stays in your library.</p>
       {message && <div className="notice" role="status">{message}</div>}
     </section>
+    <StreamingSettings api={api} />
     <DownloadSettings api={api} />
     <section><h2>Recent jobs</h2><div className="job-list">{jobs.length ? jobs.map(job => <div key={job.id}><span className={`status ${job.status}`} /><div><strong>{job.type}</strong><small>{job.status} · {Math.round(job.progress * 100)}%</small></div></div>) : <p className="muted">No background jobs yet.</p>}</div></section>
   </div>;

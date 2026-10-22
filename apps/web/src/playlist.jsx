@@ -29,7 +29,8 @@ export function PlaylistProvider({ children }) {
 
 export function AddToPlaylist({ asset }) {
   const playlist = usePlaylist();
-  if (asset.kind !== 'video') return null;
+  // Movies and episodes have their own queue (the season's episodes), so they never join the home-video playlist.
+  if (asset.kind !== 'video' || asset.catalog) return null;
   const added = playlist.items.some(item => item.id === asset.id);
   return <button type="button" className="add-to-playlist" aria-label={added ? `${asset.title} is in playlist` : `Add ${asset.title} to playlist`} title={added ? 'In playlist' : 'Add to Playlist'} aria-disabled={added} onClick={event => {
     event.preventDefault(); event.stopPropagation(); if (!added) playlist.add(asset);

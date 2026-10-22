@@ -1,0 +1,14 @@
+{
+  "name": "@kiwi/media",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./download-plugin": "./src/download-plugin.js"
+  },
+  "scripts": { "test": "node --test test/*.test.js" },
+  "dependencies": {
+    "@kiwi/database": "*",
+    "@kiwi/downloads": "*"
+  }
+}

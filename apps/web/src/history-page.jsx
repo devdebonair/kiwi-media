@@ -9,13 +9,15 @@ export function HistoryPage({ api, navigate, ResultCard, Loading, Empty }) {
   const active = useRef(false);
   const pending = useRef(false);
 
-  async function load(offset = 0) {
+  const [scope, setScope] = useState("all");
+
+  async function load(offset = 0, which = scope) {
     if (pending.current) return;
     pending.current = true;
     setLoading(true);
     setError("");
     try {
-      const rows = await api(`/api/v1/history?limit=60&offset=${offset}`);
+      const rows = await api(`/api/v1/history?limit=60&offset=${offset}&scope=${which}`);
       if (!active.current) return;
       setAssets(previous => offset ? [...previous, ...rows] : rows);
       setHasMore(rows.length === 60);
@@ -29,12 +31,13 @@ export function HistoryPage({ api, navigate, ResultCard, Loading, Empty }) {
 
   useEffect(() => {
     active.current = true;
-    load();
     return () => { active.current = false; };
   }, []);
+  useEffect(() => { setAssets(null); setError(""); load(0, scope); }, [scope]);
 
   return <div className="content narrow">
     <div className="section-heading"><div><h1>Watch history</h1><p>Most recently watched first.</p></div></div>
+    <div className="scope-tabs" role="group" aria-label="Show history for">{[["all", "Everything"], ["home", "Home videos"], ["catalog", "Movies & shows"]].map(([value, label]) => <button key={value} aria-pressed={scope === value} onClick={() => setScope(value)}>{label}</button>)}</div>
     {error && <div role="alert"><p>{error}</p><button className="outline-button" onClick={() => load(assets?.length || 0)}>Try again</button></div>}
     {!assets && !error ? <Loading /> : assets?.length ? <div className="result-list">
       {assets.map(asset => <ResultCard key={asset.id} asset={asset} navigate={navigate} />)}

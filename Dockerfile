@@ -7,6 +7,7 @@ COPY apps/worker/package.json apps/worker/package.json
 COPY apps/scanner/package.json apps/scanner/package.json
 COPY packages/database/package.json packages/database/package.json
 COPY packages/downloads/package.json packages/downloads/package.json
+COPY packages/media/package.json packages/media/package.json
 COPY packages/stash-box/package.json packages/stash-box/package.json
 RUN npm ci --no-audit --no-fund
 COPY . .

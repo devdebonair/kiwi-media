@@ -170,7 +170,7 @@ export function createDownloadRunner({ workerId, concurrency = Number(process.en
       await rm(workDir, { recursive: true, force: true });
       flush();
       let assetIds = [];
-      try { assetIds = await importFiles({ root, files, source: row.source, title: state.title, topicIds: currentTopicIds(row.id) }); }
+      try { assetIds = await importFiles({ root, files, source: row.source, title: state.title, topicIds: currentTopicIds(row.id), targetAssetId: row.target_asset_id || null }); }
       catch (error) { writeLog(`Import failed: ${error.message}. Scan the library to add these files.`); }
       Object.assign(state, { message: `Saved ${files.length} file${files.length === 1 ? "" : "s"}`, progress: 1, eta_seconds: 0 });
       dirty = true; flush();
