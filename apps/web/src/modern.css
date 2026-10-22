@@ -284,3 +284,8 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
 @media(max-width:580px){.library-folder{align-items:flex-start;flex-direction:column}.library-folder-form>div{flex-direction:column}}
 
 .folder-tags.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; padding: 0; }
+
+/* iOS Safari zooms into any focused field under 16px and leaves the page zoomed in; keep fields at 16px there. */
+@supports (-webkit-touch-callout: none) {
+  input, select, textarea { font-size: 16px !important; }
+}

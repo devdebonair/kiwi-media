@@ -1,15 +1,17 @@
 "use client";
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { ArrowCounterClockwise, ArrowSquareOut, Broadcast, CaretLeft, CaretRight, CornersIn, CornersOut, MagnifyingGlass, PencilSimple, Play, Plus, SpeakerHigh, SpeakerSlash, Stack, Television } from "@phosphor-icons/react";
+import { flushSync } from "react-dom";
+import { ArrowCounterClockwise, ArrowSquareOut, Broadcast, CaretDown, CaretLeft, CornersIn, CornersOut, MagnifyingGlass, PencilSimple, Play, Plus, SpeakerHigh, SpeakerSlash, Stack, Television, X } from "@phosphor-icons/react";
 import { InfiniteScroll } from "./infinite-scroll.jsx";
 import { ChannelEditor } from "./guide-channel-editor.jsx";
+import { Modal } from "./modal.jsx";
 import { LikeButton } from "./animated-like-button.jsx";
 import { AddTag } from "./add-tag.jsx";
 import { TopicLabel } from "./topic-label.jsx";
 import { airing, clock, dayLabel, halfHour, liveOffset, placement, programAt, slots, span } from "./guide-time.mjs";
 
-const HOURS = 4, PAGE = 40, STEP_MS = 2 * 3_600_000;
+const HOURS = 4, PAGE = 40;
 const filters = [["all", "All channels"], ["custom", "My channels"], ["people", "People"], ["tags", "Tags"]];
 // The last channel watched on this device, so the guide turns back on where you left it.
 const LAST_CHANNEL_KEY = "kiwi.guide.channel.v1";
@@ -23,10 +25,22 @@ const rememberChannel = channel => {
   } catch { /* The guide falls back to the top channel. */ }
 };
 
+// Phones get a page-scrolling layout: pinned player, compact toolbar, and program details in a bottom sheet.
+const PHONE_QUERY = "(max-width: 680px)";
+function usePhone() {
+  const [phone, setPhone] = useState(() => typeof matchMedia === "function" && matchMedia(PHONE_QUERY).matches);
+  useEffect(() => {
+    const query = matchMedia(PHONE_QUERY), update = () => setPhone(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return phone;
+}
+
 // A DirecTV-style grid: every tag with enough videos is a channel looping its lineup on a shared clock.
 export function GuidePage({ api, navigate, Loading }) {
   const [start, setStart] = useState(() => halfHour(Date.now()));
-  const [following, setFollowing] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -38,17 +52,20 @@ export function GuidePage({ api, navigate, Loading }) {
   const [tuned, setTuned] = useState(lastChannel);
   const [selected, setSelected] = useState(() => tuned && { key: tuned.key, start: null });
   const [editing, setEditing] = useState(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [sheet, setSheet] = useState(false);
+  const phone = usePhone();
   // Until the last channel's row is on screen, keep loading pages so it can be shown and selected.
   const revealing = useRef(Boolean(tuned));
-  const gridRef = useRef(null), generation = useRef(0), queryKey = useRef(null), pending = useRef(false), dataRef = useRef(null);
+  const gridRef = useRef(null), timebarRef = useRef(null), searchRef = useRef(null), generation = useRef(0), queryKey = useRef(null), pending = useRef(false), dataRef = useRef(null);
   dataRef.current = data;
   const end = start + HOURS * 3_600_000;
   const url = (offset, limit) => `/api/v1/guide?start=${start}&hours=${HOURS}&filter=${filter}&q=${encodeURIComponent(q)}&offset=${offset}&limit=${limit}`;
 
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(timer); }, []);
   useEffect(() => { const timer = setTimeout(() => setQ(search.trim()), 250); return () => clearTimeout(timer); }, [search]);
-  // While showing "now", the window rolls forward each half hour.
-  useEffect(() => { if (following && halfHour(now) !== start) setStart(halfHour(now)); }, [now, following, start]);
+  // The window always starts at the current half hour and rolls forward with the clock; scroll sideways to look ahead.
+  useEffect(() => { if (halfHour(now) !== start) setStart(halfHour(now)); }, [now, start]);
 
   // New filters start over at the top; moving through time refreshes the rows already loaded in place.
   useEffect(() => {
@@ -94,7 +111,9 @@ export function GuidePage({ api, navigate, Loading }) {
     if (row >= 0) {
       revealing.current = false;
       const grid = gridRef.current, element = grid?.querySelector(`[aria-rowindex="${row + 2}"]`);
-      if (element) grid.scrollTo({ top: Math.max(0, element.offsetTop - grid.clientHeight / 2 + element.offsetHeight / 2) });
+      // Phones scroll the page; larger screens scroll the grid itself.
+      if (element && phone) element.scrollIntoView({ block: "center" });
+      else if (element) grid.scrollTo({ top: Math.max(0, element.offsetTop - grid.clientHeight / 2 + element.offsetHeight / 2) });
     } else if (channels.length < data.total && filter === "all" && !q) loadMore();
     else revealing.current = false;
   }, [data]);
@@ -102,7 +121,7 @@ export function GuidePage({ api, navigate, Loading }) {
   const lostChannel = useCallback(() => { revealing.current = false; setTuned(dataRef.current?.channels[0] || null); setSelected(null); }, []);
   // Keep the info panel on whatever is airing as programs end.
   useEffect(() => {
-    if (following && channel && program && program.end <= now && program.end < end) setSelected({ key: channel.key, start: program.end });
+    if (channel && program && program.end <= now && program.end < end) setSelected({ key: channel.key, start: program.end });
   }, [now]);
 
   const select = useCallback((item, show) => setSelected({ key: item.key, start: show.start }), []);
@@ -111,13 +130,24 @@ export function GuidePage({ api, navigate, Loading }) {
     if (liveOffset(show, Date.now()) !== null) { setTuned(item); setSelected({ key: item.key, start: show.start }); }
     else navigate(`/watch/${show.id}`);
   }, [navigate]);
+  // A tap on a program: phones open its details in a sheet; elsewhere the first click selects and the second watches.
+  const activate = useCallback((item, show, isSelected) => {
+    if (phone) { select(item, show); setSheet(true); }
+    else if (isSelected) tune(item, show);
+    else select(item, show);
+  }, [phone, select, tune]);
   const tuneChannel = useCallback(item => {
     setTuned(item);
     const show = airing(item.programs, Date.now());
     setSelected({ key: item.key, start: show?.start ?? null });
   }, []);
-  const shift = by => { setFollowing(false); setStart(value => value + by); gridRef.current?.scrollTo({ left: 0 }); };
-  const goToNow = () => { setFollowing(true); setNow(Date.now()); setStart(halfHour(Date.now())); gridRef.current?.scrollTo({ left: 0 }); };
+  const syncTimebar = event => { if (timebarRef.current) timebarRef.current.scrollLeft = event.currentTarget.scrollLeft; };
+  // Focus inside the tap so iOS opens the keyboard.
+  const toggleSearch = () => {
+    if (searchOpen) { setSearchOpen(false); setSearch(""); return; }
+    flushSync(() => setSearchOpen(true));
+    searchRef.current?.focus();
+  };
 
   // Arrow keys move like a remote: left/right through a channel's lineup, up/down at the same time on the next channel.
   const onKeyDown = event => {
@@ -144,25 +174,26 @@ export function GuidePage({ api, navigate, Loading }) {
 
   return <div className="content guide-page">
     <h1 className="sr-only">TV guide</h1>
-    <GuideHero api={api} channel={channel} program={program} now={now} tuned={tuned} onTune={tune} onEdit={setEditing} onLost={lostChannel} navigate={navigate} />
+    <GuideHero api={api} phone={phone} channel={channel} program={program} now={now} tuned={tuned} onTune={tune} onEdit={setEditing} onLost={lostChannel} navigate={navigate} />
 
-    <div className="guide-toolbar">
+    <div className={`guide-toolbar ${searchOpen ? "is-searching" : ""}`}>
       <div className="chips" role="group" aria-label="Filter channels">
         {filters.map(([value, label]) => <button key={value} aria-pressed={filter === value} className={filter === value ? "selected" : ""} onClick={() => setFilter(value)}>{label}</button>)}
       </div>
-      <label className="guide-search search"><MagnifyingGlass size={17} aria-hidden="true" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Channel number or name" aria-label="Find a channel" /></label>
-      <div className="guide-time-nav" role="group" aria-label="Guide time">
-        <button className="icon-button" onClick={() => shift(-STEP_MS)} aria-label="Earlier" title="Earlier"><CaretLeft size={18} /></button>
-        <button className={`outline-button ${following ? "is-now" : ""}`} onClick={goToNow} aria-pressed={following}>Now</button>
-        <button className="icon-button" onClick={() => shift(STEP_MS)} aria-label="Later" title="Later"><CaretRight size={18} /></button>
-      </div>
-      <button className="primary-button" onClick={() => setEditing({})}><Plus size={17} /> New channel</button>
+      <label className="guide-filter-select"><span className="sr-only">Show</span>
+        <select value={filter} onChange={event => setFilter(event.target.value)}>{filters.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+        <CaretDown size={14} aria-hidden="true" />
+      </label>
+      <label className="guide-search search"><MagnifyingGlass size={17} aria-hidden="true" /><input ref={searchRef} type="search" enterKeyHint="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Channel number or name" aria-label="Find a channel" /></label>
+      <button className="guide-search-toggle icon-button" onClick={toggleSearch} aria-expanded={searchOpen} aria-label={searchOpen ? "Close channel search" : "Find a channel"}>{searchOpen ? <X size={19} /> : <MagnifyingGlass size={19} />}</button>
+      <button className="primary-button guide-new-channel" onClick={() => setEditing({})} aria-label="New channel"><Plus size={17} /><span>New channel</span></button>
     </div>
 
     {error && <div className="error-notice" role="alert"><span>{error}</span><button className="outline-button" onClick={() => channels.length && channels.length < data.total ? loadMore() : setVersion(v => v + 1)}>Try again</button></div>}
 
-    <div className="guide-grid" ref={gridRef} role="grid" aria-label={`Guide, ${dayLabel(start, now)} ${clock(start)} to ${clock(end)}`} aria-rowcount={(data?.total ?? 0) + 1} onKeyDown={onKeyDown} style={{ "--span": HOURS * 60 }}>
-      <div className="guide-canvas">
+    <div className="guide-board" role="grid" aria-label={`Guide, ${dayLabel(start, now)} ${clock(start)} to ${clock(end)}`} aria-rowcount={(data?.total ?? 0) + 1} onKeyDown={onKeyDown} style={{ "--span": HOURS * 60 }}>
+      {/* The time header lives outside the scroller so it can pin to the page on phones; it follows the grid sideways. */}
+      <div className="guide-timebar" ref={timebarRef}>
         <div className="guide-row guide-head" role="row" aria-rowindex={1}>
           <div className="guide-corner" role="columnheader">{dayLabel(start, now)}</div>
           <div className="guide-times">
@@ -170,16 +201,24 @@ export function GuidePage({ api, navigate, Loading }) {
             {nowX >= 0 && nowX <= HOURS * 60 && <i className="guide-now-marker" style={{ "--x": nowX }} aria-hidden="true" />}
           </div>
         </div>
-        {nowX >= 0 && nowX <= HOURS * 60 && <div className="guide-now" style={{ "--x": nowX }} aria-hidden="true" />}
-        {!data ? <Loading /> : channels.map((item, row) => <GuideRow key={item.key} channel={item} row={row} start={start} end={end} now={now} isTuned={item.key === tuned?.key}
-          selectedStart={item.key === channel?.key ? program?.start ?? null : undefined}
-          onSelect={select} onTune={tune} onTuneChannel={tuneChannel} onEdit={setEditing} />)}
-        {data && !channels.length && !error && <GuideEmpty filter={filter} q={q} create={() => setEditing({})} />}
-        <InfiniteScroll rootRef={gridRef} enabled={Boolean(data) && channels.length < data.total && !error} loading={loadingMore} onLoadMore={loadMore} />
+      </div>
+      <div className="guide-grid" ref={gridRef} onScroll={syncTimebar}>
+        <div className="guide-canvas">
+          {nowX >= 0 && nowX <= HOURS * 60 && <div className="guide-now" style={{ "--x": nowX }} aria-hidden="true" />}
+          {!data ? <Loading /> : channels.map((item, row) => <GuideRow key={item.key} channel={item} row={row} start={start} end={end} now={now} isTuned={item.key === tuned?.key}
+            selectedStart={item.key === channel?.key ? program?.start ?? null : undefined}
+            onActivate={activate} onTuneChannel={tuneChannel} onEdit={setEditing} />)}
+          {data && !channels.length && !error && <GuideEmpty filter={filter} q={q} create={() => setEditing({})} />}
+          <InfiniteScroll rootRef={phone ? undefined : gridRef} enabled={Boolean(data) && channels.length < data.total && !error} loading={loadingMore} onLoadMore={loadMore} />
+        </div>
       </div>
     </div>
 
     {editing && <ChannelEditor api={api} channel={editing.id ? editing : null} close={() => setEditing(null)} onSaved={saved} onDeleted={deleted} />}
+    {phone && sheet && channel && program && <Modal title={`${channel.number} · ${channel.name}`} className="guide-sheet" close={() => setSheet(false)}>
+      <ProgramInfo api={api} channel={channel} program={program} now={now} tuned={tuned} navigate={navigate} inSheet
+        onTune={(item, show) => { setSheet(false); tune(item, show); }} onEdit={item => { setSheet(false); setEditing(item); }} />
+    </Modal>}
   </div>;
 }
 
@@ -188,7 +227,7 @@ const ChannelLogo = ({ channel }) => channel.type === "custom"
   : <span className="guide-logo">{channel.avatar_url ? <img src={channel.avatar_url} alt="" loading="lazy" onError={event => { event.currentTarget.hidden = true; }} /> : <Television size={18} />}</span>;
 
 // Rows only re-render when their own selection, the clock tick, or the window changes.
-const GuideRow = memo(function GuideRow({ channel, row, start, end, now, isTuned, selectedStart, onSelect, onTune, onTuneChannel, onEdit }) {
+const GuideRow = memo(function GuideRow({ channel, row, start, end, now, isTuned, selectedStart, onActivate, onTuneChannel, onEdit }) {
   return <div className={`guide-row ${isTuned ? "is-tuned" : ""}`} role="row" aria-rowindex={row + 2} aria-current={isTuned || undefined}>
     <div className="guide-channel" role="rowheader">
       <button className="guide-channel-tune" onClick={() => onTuneChannel(channel)} title={`${channel.name} · ${channel.item_count.toLocaleString()} ${channel.item_count === 1 ? "video" : "videos"}`} aria-label={`Channel ${channel.number}, ${channel.name}. ${isTuned ? "Now playing" : "Watch live"}`}>
@@ -206,7 +245,7 @@ const GuideRow = memo(function GuideRow({ channel, row, start, end, now, isTuned
           style={{ "--x": x, "--w": width }}>
           <button tabIndex={isSelected ? 0 : -1} title={`${show.title} · ${clock(show.start)}–${clock(show.end)}`}
             aria-label={`${show.title}, ${clock(show.start)} to ${clock(show.end)}${live ? ", on now" : ""}${isSelected ? ". Press again to watch" : ""}`}
-            onClick={() => isSelected ? onTune(channel, show) : onSelect(channel, show)}>
+            onClick={() => onActivate(channel, show, isSelected)}>
             {continued && <CaretLeft className="guide-continued" size={12} weight="bold" aria-hidden="true" />}
             <strong>{show.title}</strong><small>{clock(show.start)} · {span(show.duration_ms)}</small>
           </button>
@@ -217,7 +256,15 @@ const GuideRow = memo(function GuideRow({ channel, row, start, end, now, isTuned
   </div>;
 });
 
-function GuideHero({ api, channel, program, now, tuned, onTune, onEdit, onLost, navigate }) {
+function GuideHero({ api, phone, tuned, onLost, navigate, ...info }) {
+  return <section className="guide-hero" aria-label="Live TV">
+    {!phone && <ProgramInfo api={api} tuned={tuned} navigate={navigate} {...info} />}
+    {tuned ? <GuidePlayer key="player" api={api} channel={tuned} navigate={navigate} onLost={onLost} /> : <div className="guide-player is-idle" />}
+  </section>;
+}
+
+// Details for the selected program: beside the player on larger screens, in a bottom sheet on phones.
+function ProgramInfo({ api, channel, program, now, tuned, onTune, onEdit, navigate, inSheet = false }) {
   const [details, setDetails] = useState(null);
   useEffect(() => {
     setDetails(null);
@@ -226,29 +273,27 @@ function GuideHero({ api, channel, program, now, tuned, onTune, onEdit, onLost, 
     const timer = setTimeout(() => api(`/api/v1/assets/${program.id}`).then(value => { if (active) setDetails(value); }).catch(() => {}), 250);
     return () => { active = false; clearTimeout(timer); };
   }, [program?.id, api]);
-  const player = tuned ? <GuidePlayer key="player" api={api} channel={tuned} navigate={navigate} onLost={onLost} /> : <div className="guide-player is-idle" />;
-  if (!channel) return <section className="guide-hero" aria-label="Selected program"><div className="guide-info" />{player}</section>;
-  if (!program) return <section className="guide-hero" aria-label="Selected program"><div className="guide-info"><ChannelLine channel={channel} navigate={navigate} onEdit={onEdit} /><h2>No programming</h2><p className="guide-meta">Tag more videos to fill this channel.</p></div>{player}</section>;
+  if (!channel) return <div className="guide-info" />;
+  const channelLine = !inSheet && <ChannelLine channel={channel} navigate={navigate} onEdit={onEdit} />;
+  if (!program) return <div className="guide-info">{channelLine}<h2>No programming</h2><p className="guide-meta">Tag more videos to fill this channel.</p></div>;
   const live = program.start <= now && now < program.end;
   const progress = live ? (now - program.start) / (program.end - program.start) : 0;
   const status = live ? `${span(program.end - now)} left` : program.end <= now ? "Already aired" : `Starts in ${span(program.start - now)}`;
   const playing = live && tuned?.key === channel.key;
-  return <section className="guide-hero" aria-label="Selected program">
-    <div className="guide-info">
-      <ChannelLine channel={channel} navigate={navigate} onEdit={onEdit} />
-      <h2>{program.title}</h2>
-      <p className="guide-meta">{live && <span className="guide-live-pill"><Broadcast size={13} weight="fill" /> Live</span>}{clock(program.start)} – {clock(program.end)} · {span(program.duration_ms)} · {status}</p>
-      {live && <div className="guide-progress" role="progressbar" aria-label="Elapsed" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}><span style={{ transform: `scaleX(${progress})` }} /></div>}
-      {details?.description && <p className="guide-description">{details.description}</p>}
-      {!playing && details?.topics?.length > 0 && <p className="guide-tags">{details.topics.slice(0, 6).map(topic => topic.name).join(" · ")}</p>}
-      <div className="guide-actions">
-        {playing ? <span className="guide-now-playing"><SpeakerHigh size={16} weight="fill" /> Now playing</span>
-          : <button className="primary-button" onClick={() => onTune(channel, program)}><Play size={16} weight="fill" />{live ? "Watch live" : "Watch"}</button>}
-        {live && <button className="outline-button" onClick={() => navigate(`/watch/${program.id}?t=0`)}><ArrowCounterClockwise size={16} /> Start over</button>}
-      </div>
+  return <div className={`guide-info ${inSheet ? "in-sheet" : ""}`}>
+    {channelLine}
+    <h2>{program.title}</h2>
+    <p className="guide-meta">{live && <span className="guide-live-pill"><Broadcast size={13} weight="fill" /> Live</span>}{clock(program.start)} – {clock(program.end)} · {span(program.duration_ms)} · {status}</p>
+    {live && <div className="guide-progress" role="progressbar" aria-label="Elapsed" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}><span style={{ transform: `scaleX(${progress})` }} /></div>}
+    {details?.description && <p className="guide-description">{details.description}</p>}
+    {!playing && details?.topics?.length > 0 && <p className="guide-tags">{details.topics.slice(0, 6).map(topic => topic.name).join(" · ")}</p>}
+    <div className="guide-actions">
+      {playing ? <span className="guide-now-playing"><SpeakerHigh size={16} weight="fill" /> Now playing</span>
+        : <button className="primary-button" onClick={() => onTune(channel, program)}><Play size={16} weight="fill" />{live ? "Watch live" : "Watch"}</button>}
+      {live && <button className="outline-button" onClick={() => navigate(`/watch/${program.id}?t=0`)}><ArrowCounterClockwise size={16} /> Start over</button>}
+      {inSheet && channel.type === "custom" && <button className="outline-button" onClick={() => onEdit(channel)}><PencilSimple size={16} /> Edit channel</button>}
     </div>
-    {player}
-  </section>;
+  </div>;
 }
 
 function ChannelLine({ channel, navigate, onEdit }) {
