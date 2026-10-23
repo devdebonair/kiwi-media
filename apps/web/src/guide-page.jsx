@@ -67,7 +67,7 @@ export function GuidePage({ api, navigate, Loading }) {
   const phone = usePhone();
   const [theaterChoice, setTheaterChoice] = useState(theaterPreferred);
   const theater = theaterChoice && !phone;
-  const [controls, setControls] = useState(null);
+  const [controls, setControls] = useState(null), [actions, setActions] = useState(null);
   const pageRef = useRef(null);
   const chooseTheater = value => {
     setTheaterChoice(value);
@@ -202,52 +202,55 @@ export function GuidePage({ api, navigate, Loading }) {
   const deleted = () => { setEditing(null); setSelected(null); setVersion(v => v + 1); };
   const nowX = (now - start) / 60_000;
 
+  // In theater only the player and the on-screen guide are rendered; the full grid comes back with "Full guide".
   return <div ref={pageRef} className={`content guide-page ${theater ? "is-theater" : ""}`}>
     <h1 className="sr-only">TV guide</h1>
     <GuideHero api={api} phone={phone} channel={channel} program={program} now={now} tuned={tuned} onTune={tune} onEdit={setEditing} onLost={lostChannel} navigate={navigate}
-      controls={theater ? controls : null} fullscreenRoot={theater ? pageRef : null} />
-    {theater && <TheaterGuide channels={channels} total={data?.total ?? 0} channel={channel} program={program} tuned={tuned} now={now} start={start} end={end}
-      select={select} tune={tune} tuneChannel={tuneChannel} loadMore={loadMore} exit={() => chooseTheater(false)} setControls={setControls}
-      toggleFullscreen={toggleTheaterFullscreen} navigate={navigate} Logo={ChannelLogo} />}
+      controls={theater ? controls : null} actions={theater ? actions : null} fullscreenRoot={theater ? pageRef : null} />
+    {theater && <TheaterGuide channels={channels} total={data?.total ?? 0} loadingMore={loadingMore} channel={channel} program={program} tuned={tuned} now={now} start={start} end={end}
+      select={select} tune={tune} tuneChannel={tuneChannel} loadMore={loadMore} exit={() => chooseTheater(false)} setControls={setControls} setActions={setActions}
+      toggleFullscreen={toggleTheaterFullscreen} Logo={ChannelLogo} />}
 
-    <div className={`guide-toolbar ${searchOpen ? "is-searching" : ""}`}>
-      <div className="chips" role="group" aria-label="Filter channels">
-        {filters.map(([value, label]) => <button key={value} aria-pressed={filter === value} className={filter === value ? "selected" : ""} onClick={() => setFilter(value)}>{label}</button>)}
+    {!theater && <>
+      <div className={`guide-toolbar ${searchOpen ? "is-searching" : ""}`}>
+        <div className="chips" role="group" aria-label="Filter channels">
+          {filters.map(([value, label]) => <button key={value} aria-pressed={filter === value} className={filter === value ? "selected" : ""} onClick={() => setFilter(value)}>{label}</button>)}
+        </div>
+        <label className="guide-filter-select"><span className="sr-only">Show</span>
+          <select value={filter} onChange={event => setFilter(event.target.value)}>{filters.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+          <CaretDown size={14} aria-hidden="true" />
+        </label>
+        <label className="guide-search search"><MagnifyingGlass size={17} aria-hidden="true" /><input ref={searchRef} type="search" enterKeyHint="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Channel number or name" aria-label="Find a channel" /></label>
+        <button className="guide-search-toggle icon-button" onClick={toggleSearch} aria-expanded={searchOpen} aria-label={searchOpen ? "Close channel search" : "Find a channel"}>{searchOpen ? <X size={19} /> : <MagnifyingGlass size={19} />}</button>
+        {!phone && <button className="outline-button guide-theater-button" onClick={() => chooseTheater(true)} title="Watch with the guide over the picture"><MonitorPlay size={17} /><span>Theater</span></button>}
+        <button className="primary-button guide-new-channel" onClick={() => setEditing({})} aria-label="New channel"><Plus size={17} /><span>New channel</span></button>
       </div>
-      <label className="guide-filter-select"><span className="sr-only">Show</span>
-        <select value={filter} onChange={event => setFilter(event.target.value)}>{filters.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-        <CaretDown size={14} aria-hidden="true" />
-      </label>
-      <label className="guide-search search"><MagnifyingGlass size={17} aria-hidden="true" /><input ref={searchRef} type="search" enterKeyHint="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Channel number or name" aria-label="Find a channel" /></label>
-      <button className="guide-search-toggle icon-button" onClick={toggleSearch} aria-expanded={searchOpen} aria-label={searchOpen ? "Close channel search" : "Find a channel"}>{searchOpen ? <X size={19} /> : <MagnifyingGlass size={19} />}</button>
-      {!phone && <button className="outline-button guide-theater-button" onClick={() => chooseTheater(true)} title="Watch with the guide over the picture"><MonitorPlay size={17} /><span>Theater</span></button>}
-      <button className="primary-button guide-new-channel" onClick={() => setEditing({})} aria-label="New channel"><Plus size={17} /><span>New channel</span></button>
-    </div>
 
-    {error && <div className="error-notice" role="alert"><span>{error}</span><button className="outline-button" onClick={() => channels.length && channels.length < data.total ? loadMore() : setVersion(v => v + 1)}>Try again</button></div>}
+      {error && <div className="error-notice" role="alert"><span>{error}</span><button className="outline-button" onClick={() => channels.length && channels.length < data.total ? loadMore() : setVersion(v => v + 1)}>Try again</button></div>}
 
-    <div className="guide-board" role="grid" aria-label={`Guide, ${dayLabel(start, now)} ${clock(start)} to ${clock(end)}`} aria-rowcount={(data?.total ?? 0) + 1} onKeyDown={onKeyDown} style={{ "--span": HOURS * 60 }}>
-      {/* The time header lives outside the scroller so it can pin to the page on phones; it follows the grid sideways. */}
-      <div className="guide-timebar" ref={timebarRef}>
-        <div className="guide-row guide-head" role="row" aria-rowindex={1}>
-          <div className="guide-corner" role="columnheader">{dayLabel(start, now)}</div>
-          <div className="guide-times">
-            {slots(start, end).map(time => <span key={time} role="columnheader" style={{ "--x": (time - start) / 60_000 }}>{clock(time)}</span>)}
-            {nowX >= 0 && nowX <= HOURS * 60 && <i className="guide-now-marker" style={{ "--x": nowX }} aria-hidden="true" />}
+      <div className="guide-board" role="grid" aria-label={`Guide, ${dayLabel(start, now)} ${clock(start)} to ${clock(end)}`} aria-rowcount={(data?.total ?? 0) + 1} onKeyDown={onKeyDown} style={{ "--span": HOURS * 60 }}>
+        {/* The time header lives outside the scroller so it can pin to the page on phones; it follows the grid sideways. */}
+        <div className="guide-timebar" ref={timebarRef}>
+          <div className="guide-row guide-head" role="row" aria-rowindex={1}>
+            <div className="guide-corner" role="columnheader">{dayLabel(start, now)}</div>
+            <div className="guide-times">
+              {slots(start, end).map(time => <span key={time} role="columnheader" style={{ "--x": (time - start) / 60_000 }}>{clock(time)}</span>)}
+              {nowX >= 0 && nowX <= HOURS * 60 && <i className="guide-now-marker" style={{ "--x": nowX }} aria-hidden="true" />}
+            </div>
+          </div>
+        </div>
+        <div className="guide-grid" ref={gridRef} onScroll={syncTimebar}>
+          <div className="guide-canvas">
+            {nowX >= 0 && nowX <= HOURS * 60 && <div className="guide-now" style={{ "--x": nowX }} aria-hidden="true" />}
+            {!data ? <Loading /> : channels.map((item, row) => <GuideRow key={item.key} channel={item} row={row} start={start} end={end} now={now} isTuned={item.key === tuned?.key}
+              selectedStart={item.key === channel?.key ? program?.start ?? null : undefined}
+              onActivate={activate} onTuneChannel={tuneChannel} onEdit={setEditing} />)}
+            {data && !channels.length && !error && <GuideEmpty filter={filter} q={q} create={() => setEditing({})} />}
+            <InfiniteScroll rootRef={phone ? undefined : gridRef} enabled={Boolean(data) && channels.length < data.total && !error} loading={loadingMore} onLoadMore={loadMore} />
           </div>
         </div>
       </div>
-      <div className="guide-grid" ref={gridRef} onScroll={syncTimebar}>
-        <div className="guide-canvas">
-          {nowX >= 0 && nowX <= HOURS * 60 && <div className="guide-now" style={{ "--x": nowX }} aria-hidden="true" />}
-          {!data ? <Loading /> : channels.map((item, row) => <GuideRow key={item.key} channel={item} row={row} start={start} end={end} now={now} isTuned={item.key === tuned?.key}
-            selectedStart={item.key === channel?.key ? program?.start ?? null : undefined}
-            onActivate={activate} onTuneChannel={tuneChannel} onEdit={setEditing} />)}
-          {data && !channels.length && !error && <GuideEmpty filter={filter} q={q} create={() => setEditing({})} />}
-          <InfiniteScroll rootRef={phone ? undefined : gridRef} enabled={Boolean(data) && channels.length < data.total && !error} loading={loadingMore} onLoadMore={loadMore} />
-        </div>
-      </div>
-    </div>
+    </>}
 
     {editing && <ChannelEditor api={api} channel={editing.id ? editing : null} close={() => setEditing(null)} onSaved={saved} onDeleted={deleted} />}
     {phone && sheet && channel && program && <Modal title={`${channel.number} · ${channel.name}`} className="guide-sheet" close={() => setSheet(false)}>
@@ -291,10 +294,10 @@ const GuideRow = memo(function GuideRow({ channel, row, start, end, now, isTuned
   </div>;
 });
 
-function GuideHero({ api, phone, tuned, onLost, navigate, controls, fullscreenRoot, ...info }) {
+function GuideHero({ api, phone, tuned, onLost, navigate, controls, actions, fullscreenRoot, ...info }) {
   return <section className="guide-hero" aria-label="Live TV">
     {!phone && <ProgramInfo api={api} tuned={tuned} navigate={navigate} {...info} />}
-    {tuned ? <GuidePlayer key="player" api={api} channel={tuned} navigate={navigate} onLost={onLost} controls={controls} fullscreenRoot={fullscreenRoot} /> : <div className="guide-player is-idle" />}
+    {tuned ? <GuidePlayer key="player" api={api} channel={tuned} navigate={navigate} onLost={onLost} controls={controls} actions={actions} fullscreenRoot={fullscreenRoot} /> : <div className="guide-player is-idle" />}
   </section>;
 }
 
@@ -370,8 +373,9 @@ const START_TIMEOUT = 30_000;
 // like the picture-in-picture window on a satellite guide. It never touches the playlist.
 // The server readies the programs of the channel being watched ahead of time; the artwork and progress stay up
 // until the picture actually plays, and a program that cannot play gives way to what is on next.
-// In theater its buttons move into the on-screen guide's top bar (`controls`), and full screen covers the whole page.
-function GuidePlayer({ api, channel, navigate, onLost, controls = null, fullscreenRoot = null }) {
+// In theater its buttons and the Like/tags strip move into the on-screen guide's top row (`controls`, `actions`),
+// and full screen covers the whole page.
+function GuidePlayer({ api, channel, navigate, onLost, controls = null, actions = null, fullscreenRoot = null }) {
   const [lineup, setLineup] = useState(null);
   const [airingStart, setAiringStart] = useState(null);
   const [muted, setMuted] = useState(false);
@@ -572,7 +576,7 @@ function GuidePlayer({ api, channel, navigate, onLost, controls = null, fullscre
       </div>}
       {controls && createPortal(buttons, controls)}
     </div>
-    {program && <LiveActions key={program.id} api={api} id={program.id} navigate={navigate} />}
+    {program && (actions ? createPortal(<LiveActions key={program.id} api={api} id={program.id} navigate={navigate} />, actions) : <LiveActions key={program.id} api={api} id={program.id} navigate={navigate} />)}
   </div>;
 }
 

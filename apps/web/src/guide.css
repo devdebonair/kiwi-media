@@ -190,36 +190,41 @@
 @keyframes guide-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .guide-spinner { animation-duration: 2.4s; } }
 
-/* Theater: the live picture fills the window under an on-screen guide (src/guide-theater.jsx). */
+/* Theater: the live picture fills the page beside the rail and under the search bar, with an on-screen guide over
+   it (src/guide-theater.jsx). Rail, search bar, and guide fade together when the guide is hidden. */
 html:has(.guide-page.is-theater) { overflow: hidden; }
-.app:has(.guide-page.is-theater) .site-rail, .app:has(.guide-page.is-theater) .site-header { display: none; }
-.content.guide-page.is-theater { position: fixed; inset: 0; z-index: 40; height: auto; max-width: none; padding: 0; background: #000; }
+.app:has(.guide-page.is-theater) :is(.site-rail, .site-header) { transition: opacity .35s ease; }
+.app:has(.theater.is-hidden) :is(.site-rail, .site-header) { opacity: 0; pointer-events: none; }
+.app:has(.theater.is-hidden) { cursor: none; }
+.content.guide-page.is-theater { position: fixed; inset: 0 0 0 var(--sidebar); z-index: 20; height: auto; max-width: none; padding: 0; background: #000; }
 .guide-page.is-theater > :not(.guide-hero):not(.theater) { display: none; }
 .guide-page.is-theater .guide-hero { display: block; }
-.guide-page.is-theater .guide-info, .guide-page.is-theater .guide-live-actions { display: none; }
+.guide-page.is-theater .guide-info { display: none; }
 .guide-page.is-theater .guide-player { position: absolute; inset: 0; aspect-ratio: auto; border: 0; border-radius: 0; background: #000; }
-/* With the guide up, player messages sit under the top bar, clear of the program line and grid. */
-.guide-page.is-theater:has(.theater.is-full) .guide-player-message { justify-content: flex-start; padding-top: max(96px, 14vh); }
-@media (max-height: 560px) { .guide-page.is-theater:has(.theater.is-full) :is(.guide-tuning-title, .guide-tuning-stage) { display: none; } .guide-page.is-theater:has(.theater.is-full) .guide-player-message { padding-top: 64px; } }
+/* With the guide up, player messages sit under the top row, clear of the program line and grid. */
+.guide-page.is-theater:has(.theater.is-full) .guide-player-message { justify-content: flex-start; padding-top: max(150px, 18vh); }
+@media (max-height: 640px) { .guide-page.is-theater:has(.theater.is-full) :is(.guide-tuning-title, .guide-tuning-stage) { display: none; } .guide-page.is-theater:has(.theater.is-full) .guide-player-message { padding-top: 110px; } }
 .guide-toolbar > .guide-theater-button { height: 34px; padding: 0 14px; border-radius: 999px; font-size: 13px; }
 
 .theater { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; justify-content: space-between; color: #fff; }
-.theater.is-hidden { cursor: none; }
-.theater-top, .theater-panel, .theater-grid, .theater-keys { transition: opacity .35s ease; }
-.theater.is-hidden .theater-top, .theater.is-hidden .theater-panel, .theater.is-peek .theater-top, .theater.is-peek .theater-grid, .theater.is-peek .theater-keys { opacity: 0; pointer-events: none; }
+.theater-top, .theater-panel, .theater-scroller, .theater-keys { transition: opacity .35s ease; }
+.theater.is-hidden .theater-top, .theater.is-hidden .theater-panel, .theater.is-peek .theater-top, .theater.is-peek .theater-scroller, .theater.is-peek .theater-keys { opacity: 0; pointer-events: none; }
 .theater kbd { display: inline-grid; place-items: center; min-width: 30px; height: 28px; padding: 0 8px; border: 1px solid #ffffff3d; border-radius: 7px; background: #ffffff14; font-family: inherit; font-size: 12px; font-weight: 600; color: #fff; }
 
-.theater-top { display: flex; align-items: center; gap: 16px; padding: 22px clamp(20px, 3vw, 44px) 70px; background: linear-gradient(#000000b3, transparent); }
-.theater-brand { display: inline-flex; align-items: center; gap: 10px; padding: 0; border: 0; background: none; color: #fff; font-size: 20px; font-weight: 800; letter-spacing: -.03em; }
-.theater-section { padding-left: 16px; border-left: 1px solid #ffffff4d; font-size: 16px; color: #ffffffd9; }
-.theater-tools { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+/* Top row, under the search bar: Like and tags for what's playing on the left, player and guide buttons on the right. */
+.theater-top { display: flex; align-items: center; gap: 16px; padding: calc(var(--topbar) + 14px) clamp(18px, 2.5vw, 36px) 60px; background: linear-gradient(#000000c7, #00000059 60%, transparent); }
+.theater-actions { flex: 1; min-width: 0; }
+.theater-actions .guide-live-actions { min-width: 0; }
+.theater-actions .watch-topics.guide-live-tags { max-width: 560px; }
+.theater-actions :is(.animated-like-control button, .add-tag > button, .guide-live-tags a) { backdrop-filter: blur(10px); }
+.theater-tools { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .theater-controls { display: flex; gap: 8px; }
 .theater-controls .guide-player-button { width: 38px; height: 38px; background: #0000004d; backdrop-filter: blur(10px); }
-.theater-key-button { display: inline-flex; align-items: center; gap: 9px; height: 40px; padding: 0 14px 0 6px; border: 1px solid #ffffff1f; border-radius: 10px; background: #0000004d; color: #fff; font-size: 14px; font-weight: 600; backdrop-filter: blur(10px); }
+.theater-key-button { display: inline-flex; align-items: center; gap: 9px; height: 38px; padding: 0 14px 0 6px; border: 1px solid #ffffff1f; border-radius: 10px; background: #0000004d; color: #fff; font-size: 14px; font-weight: 600; backdrop-filter: blur(10px); white-space: nowrap; }
 .theater-key-button:has(> svg) { padding-left: 12px; }
 .theater-key-button:hover { background: #ffffff26; }
 
-.theater-panel { display: flex; flex-direction: column; gap: 18px; padding: 110px clamp(20px, 3vw, 44px) 26px; background: linear-gradient(to top, #000000f2 0%, #000000d9 52%, #00000080 80%, transparent); }
+.theater-panel { display: flex; flex-direction: column; gap: 14px; padding: 90px clamp(18px, 2.5vw, 36px) 20px; background: linear-gradient(to top, #000000f2 0%, #000000d9 55%, #00000080 82%, transparent); }
 .theater.is-peek .theater-panel { background: linear-gradient(to top, #000000b3, transparent); }
 .theater-now { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
 .theater-now > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -232,24 +237,25 @@ html:has(.guide-page.is-theater) { overflow: hidden; }
 .theater-progress { display: block; width: min(320px, 60vw); height: 3px; margin-top: 4px; border-radius: 3px; overflow: hidden; background: #ffffff26; }
 .theater-progress i { display: block; height: 100%; background: var(--green); transform-origin: left; }
 
-.theater-grid { display: flex; flex-direction: column; gap: 8px; }
-.theater-row { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 8px; height: 76px; }
-.theater-row.theater-head { height: 28px; }
-.theater-corner { display: flex; align-items: center; padding-left: 16px; font-size: 14px; color: #ffffffcc; }
-.theater-times { position: relative; }
+/* The grid scrolls both ways: channels down, time sideways; the time row and channel column stay put. */
+.theater-scroller { --col: 260px; --gap: 8px; --row: 72px; --head: 30px; position: relative; max-height: calc(var(--head) + 3.5 * (var(--row) + var(--gap))); overflow: auto; overscroll-behavior: contain; scroll-padding: calc(var(--head) + var(--gap)) 0 0 calc(var(--col) + var(--gap)); scrollbar-width: thin; scrollbar-color: #ffffff40 transparent; }
+.theater-row { display: flex; gap: var(--gap); width: calc(var(--col) + var(--gap) + var(--track)); height: var(--row); margin-bottom: var(--gap); }
+.theater-row.theater-head { position: sticky; top: 0; z-index: 4; height: var(--head); margin-bottom: var(--gap); background: #0c0b0d; box-shadow: 0 var(--gap) 0 #0c0b0d; }
+.theater-corner { position: sticky; left: 0; z-index: 2; flex: 0 0 var(--col); display: flex; align-items: center; padding-left: 16px; font-size: 14px; color: #ffffffcc; background: #0c0b0d; }
+.theater-times { position: relative; flex: 0 0 var(--track); }
 .theater-times span { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; padding-left: 12px; border-left: 1px solid #ffffff40; font-size: 14px; color: #ffffffd9; white-space: nowrap; }
-.theater-channel { display: flex; align-items: center; gap: 14px; min-width: 0; padding: 0 16px; border: 1px solid #ffffff17; border-radius: 10px; background: #1a191b99; color: #fff; text-align: left; backdrop-filter: blur(12px); }
-.theater-channel:hover { background: #2a292c99; }
-.theater-row.is-current .theater-channel { border-color: #ffffff40; }
+.theater-channel { position: sticky; left: 0; z-index: 3; flex: 0 0 var(--col); display: flex; align-items: center; gap: 14px; min-width: 0; padding: 0 16px; border: 1px solid #ffffff1f; border-radius: 10px; background: #19181a; color: #fff; text-align: left; box-shadow: 8px 0 12px -6px #000c; }
+.theater-channel:hover { background: #2a292c; }
+.theater-row.is-current .theater-channel { border-color: #ffffff4d; }
 .theater-number { min-width: 36px; font-size: 18px; font-weight: 500; color: #ffffffd9; font-variant-numeric: tabular-nums; }
-.theater-channel .guide-logo { width: 40px; height: 40px; }
+.theater-channel .guide-logo { width: 38px; height: 38px; }
 .theater-channel-name { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .theater-tuned { flex-shrink: 0; color: var(--green); }
-.theater-programs { position: relative; min-width: 0; }
+.theater-programs { position: relative; flex: 0 0 var(--track); }
 .theater-now-line { position: absolute; z-index: 2; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 2px; background: var(--green); pointer-events: none; }
-.theater-cell { position: absolute; top: 0; bottom: 0; padding-right: 8px; }
-.theater-cell button { width: 100%; height: 100%; display: flex; align-items: center; gap: 14px; padding: 6px; overflow: hidden; border: 1px solid #ffffff17; border-radius: 10px; background: #1a191b99; color: #fff; text-align: left; backdrop-filter: blur(12px); }
-.theater-cell button:hover { background: #2a292cb3; }
+.theater-cell { position: absolute; top: 0; bottom: 0; padding-right: var(--gap); }
+.theater-cell button { width: 100%; height: 100%; display: flex; align-items: center; gap: 14px; padding: 6px; overflow: hidden; border: 1px solid #ffffff17; border-radius: 10px; background: #1a191bd1; color: #fff; text-align: left; }
+.theater-cell button:hover { background: #2a292ce6; }
 .theater-cell img { flex-shrink: 0; height: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; background: #ffffff0d; }
 .theater-cell img[hidden] { display: none; }
 .theater-cell-copy { min-width: 0; display: flex; flex-direction: column; gap: 4px; padding-right: 6px; }
@@ -258,38 +264,39 @@ html:has(.guide-page.is-theater) { overflow: hidden; }
 .theater-cell-copy small { font-size: 13px; color: #ffffffb3; }
 .theater-cell.is-narrow button { padding: 6px 10px; }
 .theater-cell.is-past button { opacity: .55; }
-.theater-cell.is-playing button { border-color: #b6df8366; background: #b6df8324; }
+.theater-cell.is-playing button { border-color: #b6df8366; background: #24301ce6; }
 .theater-cell.is-playing strong, .theater-cell.is-playing small { color: var(--green); }
-.theater-cell.is-selected button { border: 2px solid #fff; padding: 5px; opacity: 1; box-shadow: 0 0 0 1px #0006, 0 8px 30px #0008; }
+.theater-cell.is-selected button { border: 2px solid #fff; padding: 5px; opacity: 1; }
 .theater-cell.is-narrow.is-selected button { padding: 5px 9px; }
-.theater-empty { margin: 0; padding: 0 16px; line-height: 76px; font-size: 14px; color: #ffffff99; }
-.theater-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 30px; font-size: 15px; color: #ffffffd9; }
+.theater-empty { margin: 0; padding: 0 16px; line-height: var(--row); font-size: 14px; color: #ffffff99; }
+.theater-scroller .scroll-sentinel { position: sticky; left: 0; width: calc(var(--col) + 200px); padding: 4px 16px 10px; text-align: left; color: #ffffffa6; }
+.theater-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 28px; font-size: 14px; color: #ffffffd9; }
 .theater-keys span { display: inline-flex; align-items: center; gap: 8px; }
-.theater-keys kbd { min-width: 34px; height: 34px; }
+.theater-keys kbd { min-width: 32px; height: 32px; }
 
 @media (max-width: 1100px) {
-  .theater-row { grid-template-columns: 200px minmax(0, 1fr); height: 68px; }
+  .theater-scroller { --col: 200px; --row: 64px; }
   .theater-channel { gap: 10px; padding: 0 12px; }
-  .theater-channel .guide-logo { width: 32px; height: 32px; }
+  .theater-channel .guide-logo { width: 30px; height: 30px; }
   .theater-number { min-width: 28px; font-size: 15px; }
   .theater-key-button { font-size: 13px; }
+  .theater-actions .guide-live-tags { display: none; }
 }
-@media (max-height: 760px) {
-  .theater-top { padding-bottom: 40px; }
-  .theater-panel { padding-top: 70px; gap: 12px; }
-  .theater-row { height: 60px; }
+@media (max-height: 800px) {
+  .theater-top { padding-bottom: 36px; }
+  .theater-panel { padding-top: 60px; gap: 10px; }
+  .theater-scroller { --row: 60px; max-height: calc(var(--head) + 2.5 * (var(--row) + var(--gap))); }
   .theater-keys { display: none; }
 }
-@media (max-height: 500px), (max-width: 860px) {
-  .theater-top { padding: 12px 16px 30px; }
-  .theater-section, .theater-key-button kbd { display: none; }
+@media (max-height: 500px), (max-width: 899px) {
+  .theater-top { padding: calc(var(--topbar) + 8px) 12px 24px; gap: 8px; }
+  .theater-key-button kbd, .theater-actions .guide-live-tags, .theater-actions .add-tag { display: none; }
   .theater-key-button { padding: 0 12px; }
-  .theater-panel { padding: 40px 16px 14px; }
+  .theater-panel { padding: 36px 12px 10px; }
   .theater-now-title { font-size: 17px; }
   .theater-now-meta { font-size: 13px; }
-  .theater-row { grid-template-columns: 150px minmax(0, 1fr); height: 52px; gap: 6px; }
-  .theater-channel .guide-logo { display: none; }
-  .theater-cell img { display: none; }
-  .theater-keys { display: none; }
+  .theater-scroller { --col: 140px; --row: 50px; --gap: 6px; }
+  .theater-channel .guide-logo, .theater-cell img, .theater-keys { display: none; }
+  .theater-channel { padding: 0 10px; gap: 8px; }
 }
-@media (prefers-reduced-motion: reduce) { .theater-top, .theater-panel, .theater-grid, .theater-keys { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .theater-top, .theater-panel, .theater-scroller, .theater-keys, .app:has(.guide-page.is-theater) :is(.site-rail, .site-header) { transition: none; } }
