@@ -22,7 +22,7 @@ const LAST_CHANNEL_KEY = "kiwi.guide.channel.v1";
 const lastChannel = () => {
   try { const value = JSON.parse(localStorage.getItem(LAST_CHANNEL_KEY)); return typeof value?.key === "string" ? value : null; } catch { return null; }
 };
-const rememberChannel = channel => {
+export const rememberChannel = channel => {
   try {
     if (channel) localStorage.setItem(LAST_CHANNEL_KEY, JSON.stringify({ key: channel.key, number: channel.number, name: channel.name, type: channel.type, avatar_url: channel.avatar_url, slug: channel.slug }));
     else localStorage.removeItem(LAST_CHANNEL_KEY);

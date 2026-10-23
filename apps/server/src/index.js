@@ -161,6 +161,14 @@ app.get("/api/v1/assets/:id", async (req, reply) => {
   if (!row) return reply.code(404).send({ error: "Asset not found" });
   const progress = db.prepare("SELECT progress_ms, completed FROM consumption_state WHERE user_id=? AND asset_id=?").get(userId, row.id);
   const detail = { ...enrichAsset(row), progress_ms: progress?.progress_ms ?? 0, completed: progress?.completed ?? 0 };
+  // The watch page shows the series behind the player and a card for it under the video.
+  if (detail.catalog) {
+    const title = db.prepare("SELECT backdrop_path, in_library, rating, genres_json, overview FROM titles WHERE id=?").get(detail.catalog.titleId);
+    const seasons = db.prepare("SELECT count(*) count FROM title_seasons WHERE title_id=? AND number>=1").get(detail.catalog.titleId).count;
+    let genres = [];
+    try { genres = JSON.parse(title.genres_json || "[]"); } catch { /* No genres. */ }
+    Object.assign(detail.catalog, { backdrop: imageUrl(title.backdrop_path, "w1280"), inLibrary: Boolean(title.in_library), rating: title.rating, genres, overview: title.overview, seasonCount: seasons });
+  }
   if (detail.catalog && detail.catalog.type === "show") {
     const next = nextEpisodeAfter(row.id);
     detail.catalog.next = next ? { id: next.id, title: next.title, season: next.season_number, episode: next.episode_number, thumbnail: next.thumbnail_url } : null;

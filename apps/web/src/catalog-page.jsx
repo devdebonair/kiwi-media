@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
 import { InfiniteScroll } from "./infinite-scroll.jsx";
-import { ContinueCard, PosterCard, Rail } from "./poster-card.jsx";
+import { ContinueCard, PosterCard, Rail, Segmented } from "./poster-card.jsx";
+import { Hero } from "./hero.jsx";
 
 export const KINDS = {
-  movies: { title: "Movies", blurb: "Films from your list and the catalog. Press play and it starts.", search: "Search movies", libraryQuery: "type=movie&anime=0" },
-  shows: { title: "TV Shows", blurb: "Series, season by season, picking up where you left off.", search: "Search TV shows", libraryQuery: "type=show&anime=0" },
-  anime: { title: "Anime", blurb: "Series and films, kept together as one series even when seasons are split elsewhere.", search: "Search anime", libraryQuery: "anime=1" },
+  movies: { title: "Movies", search: "Search movies", libraryQuery: "type=movie&anime=0" },
+  shows: { title: "TV Shows", search: "Search TV shows", libraryQuery: "type=show&anime=0" },
+  anime: { title: "Anime", search: "Search anime", libraryQuery: "anime=1" },
 };
 const SORTS = [["popular", "Popular"], ["rated", "Top rated"], ["new", "Newest"]];
 
@@ -100,31 +101,30 @@ export function CatalogPage({ kind, api, navigate, AppLink, Loading, Empty, form
   const setup = error && /key|Settings/.test(error) && !home;
   const card = item => <PosterCard key={item.ref} item={item} AppLink={AppLink} navigate={navigate} onToggle={toggle} busy={busy === item.ref} />;
 
-  return <div className="content catalog-page">
-    <div className="section-heading">
-      <div><h1>{config.title}</h1><p>{config.blurb}</p></div>
-      <label className="catalog-search"><MagnifyingGlass size={18} aria-hidden="true" /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={config.search} aria-label={config.search} />{query && <button type="button" aria-label="Clear search" onClick={() => setQuery("")}><X size={16} /></button>}</label>
-    </div>
-    {kind === "anime" && <div className="tabs" role="tablist">
-      {[["show", "Series"], ["movie", "Films"]].map(([value, label]) => <button key={value} role="tab" aria-selected={type === value} className={type === value ? "active" : ""} onClick={() => { setType(value); setGenre(null); }}>{label}</button>)}
-    </div>}
-    {!setup && <div className="catalog-filters">
-      <div className="chips" role="group" aria-label="Genres">
+  return <>
+    <Hero kind={kind} api={api} navigate={navigate} AppLink={AppLink} />
+    <div className="content catalog-page">
+      <div className="catalog-toolbar">
+        <h1>{config.title}</h1>
+        {kind === "anime" && <Segmented label="Series or films" options={[["show", "Series"], ["movie", "Films"]]} value={type} onChange={value => { setType(value); setGenre(null); }} />}
+        <label className="catalog-search"><MagnifyingGlass size={18} aria-hidden="true" /><input value={query} onChange={event => setQuery(event.target.value)} placeholder={config.search} aria-label={config.search} />{query && <button type="button" aria-label="Clear search" onClick={() => setQuery("")}><X size={16} /></button>}</label>
+        {!setup && <select value={sort} onChange={event => setSort(event.target.value)} aria-label="Sort" disabled={Boolean(search)}>{SORTS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>}
+      </div>
+      {!setup && <div className="chips" role="group" aria-label="Genres">
         <button className={!genre ? "selected" : ""} aria-pressed={!genre} onClick={() => { setGenre(null); setQuery(""); }}>All</button>
         {genres.map(item => <button key={item.id} className={String(genre) === String(item.id) ? "selected" : ""} aria-pressed={String(genre) === String(item.id)} onClick={() => { setGenre(item.id); setQuery(""); }}>{item.name}</button>)}
-      </div>
-      <select value={sort} onChange={event => setSort(event.target.value)} aria-label="Sort" disabled={Boolean(search)}>{SORTS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-    </div>}
-    {setup ? <SetupNotice message={error} AppLink={AppLink} navigate={navigate} />
-      : browsing ? (!browse ? <Loading /> : browse.error ? <div className="error-notice" role="alert"><span>{browse.error}</span></div> : browse.items.length ? <>
-        <div className="poster-grid">{browse.items.map(card)}</div>
-        <InfiniteScroll enabled={browse.page < browse.totalPages} loading={browse.loading} onLoadMore={loadMore} />
-      </> : <Empty title="No matches" message="Try another genre or a different search." />)
-      : <>
-        {continuing.length > 0 && <Rail title="Continue watching"><>{continuing.map(entry => <ContinueCard key={entry.title.id} entry={entry} AppLink={AppLink} navigate={navigate} formatDuration={formatDuration} />)}</></Rail>}
-        {mine.length > 0 && <Rail title="My list" subtitle={`${mine.length} ${mine.length === 1 ? "title" : "titles"}`}><>{mine.map(item => <PosterCard key={item.id} item={{ ...item, ref: item.id, titleId: item.id }} AppLink={AppLink} navigate={navigate} onToggle={toggle} busy={busy === item.id} />)}</></Rail>}
-        {home === null && !error ? <Loading /> : error ? <div className="error-notice" role="alert"><span>{error}</span></div> : home.map(rail => <Rail key={rail.id} title={rail.title}><>{rail.items.map(card)}</></Rail>)}
-        {home && !home.length && !mine.length && <Empty title="Nothing to show yet" message="The catalog returned no titles. Try again in a moment." />}
-      </>}
-  </div>;
+      </div>}
+      {setup ? <SetupNotice message={error} AppLink={AppLink} navigate={navigate} />
+        : browsing ? (!browse ? <Loading /> : browse.error ? <div className="error-notice" role="alert"><span>{browse.error}</span></div> : browse.items.length ? <>
+          <div className="poster-grid">{browse.items.map(card)}</div>
+          <InfiniteScroll enabled={browse.page < browse.totalPages} loading={browse.loading} onLoadMore={loadMore} />
+        </> : <Empty title="No matches" message="Try another genre or a different search." />)
+        : <>
+          {continuing.length > 0 && <Rail title="Continue watching"><>{continuing.map(entry => <ContinueCard key={entry.title.id} entry={entry} AppLink={AppLink} navigate={navigate} />)}</></Rail>}
+          {mine.length > 0 && <Rail title="My list" subtitle={`${mine.length} ${mine.length === 1 ? "title" : "titles"}`}><>{mine.map(item => <PosterCard key={item.id} item={{ ...item, ref: item.id, titleId: item.id }} AppLink={AppLink} navigate={navigate} onToggle={toggle} busy={busy === item.id} />)}</></Rail>}
+          {home === null && !error ? <Loading /> : error ? <div className="error-notice" role="alert"><span>{error}</span></div> : home.map(rail => <Rail key={rail.id} title={rail.title}><>{rail.items.map(card)}</></Rail>)}
+          {home && !home.length && !mine.length && <Empty title="Nothing to show yet" message="The catalog returned no titles. Try again in a moment." />}
+        </>}
+    </div>
+  </>;
 }

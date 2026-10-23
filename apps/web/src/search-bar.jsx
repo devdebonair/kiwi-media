@@ -70,7 +70,7 @@ export function SearchBar({ query, setQuery, onSubmit, navigate, inputRef }) {
     <MagnifyingGlass size={20} aria-hidden="true" />
     <input ref={inputRef} role="combobox" aria-autocomplete="list" aria-expanded={expanded} aria-controls={expanded ? listId : undefined} aria-activedescendant={expanded && active >= 0 ? `${listId}-${active}` : undefined}
       autoComplete="off" spellCheck={false} value={query} onChange={event => { setQuery(event.target.value); setOpen(true); setActive(-1); }} onFocus={() => setOpen(true)} onKeyDown={handleKey}
-      placeholder="Search your library…" aria-label="Search your library" />
+      placeholder="Search movies, shows, anime, and videos…" aria-label="Search" />
     {query ? <button type="button" onClick={() => { setQuery(""); setActive(-1); inputRef.current?.focus(); }} aria-label="Clear search"><X size={18} /></button> : <kbd>⌘ / Ctrl K</kbd>}
     {expanded && <div className="search-suggestions">
       <div className="search-suggestions-heading" role="status">{status === "loading" ? "Searching your library…" : status === "error" ? "Suggestions unavailable. Press Enter to search." : items.length ? "From your library" : "No matches yet. Try another search."}</div>

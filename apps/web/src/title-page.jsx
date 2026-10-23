@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowsClockwise, CaretDown, Check, CheckCircle, DownloadSimple, Minus, Play, Plus, Star, X } from "@phosphor-icons/react";
+import { ArrowsClockwise, CalendarBlank, CaretDown, Check, CheckCircle, Clock, DownloadSimple, FilmSlate, MonitorPlay, Play, Plus, Star, X } from "@phosphor-icons/react";
 import { AddTag } from "./add-tag.jsx";
 import { TopicLabel } from "./topic-label.jsx";
 import { SetupNotice } from "./catalog-page.jsx";
@@ -9,9 +9,11 @@ import { SetupNotice } from "./catalog-page.jsx";
 const runtime = minutes => minutes ? (minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60 ? `${minutes % 60}m` : ""}`.trim() : `${minutes}m`) : null;
 const clock = ms => { const total = Math.round(ms / 1000), h = Math.floor(total / 3600), m = Math.floor(total % 3600 / 60), s = total % 60; return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`; };
 const seasonName = season => season.number === 0 ? "Specials" : `Season ${season.number}`;
+const languageName = code => { try { return code ? new Intl.DisplayNames(["en"], { type: "language" }).of(code) : null; } catch { return code; } };
+const longDate = date => date ? new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : null;
 
 // A movie or series: artwork, what to play next, your tags, and (for series) every season and episode.
-export function TitlePage({ reference, api, navigate, AppLink, Loading, Empty, formatDuration }) {
+export function TitlePage({ reference, api, navigate, AppLink, Loading, Empty }) {
   const [title, setTitle] = useState(null);
   const [error, setError] = useState(null);
   const [season, setSeason] = useState(null);
@@ -77,93 +79,110 @@ export function TitlePage({ reference, api, navigate, AppLink, Loading, Empty, f
   const toggleAnime = async () => { try { setTitle(await api(`/api/v1/titles/${title.id}/anime`, { method: "PUT", body: JSON.stringify({ isAnime: !title.isAnime }) })); } catch (e) { setNote(e.message); } };
   const removeTopic = async topic => { const value = await api(`/api/v1/titles/${title.id}/topics/${topic.id}`, { method: "DELETE" }); setTitle(current => ({ ...current, topics: value.topics })); };
   const topicFor = name => title.topics?.find(topic => topic.name === name && topic.topic_type === "service");
-  const meta = [title.year, title.certification, title.type === "movie" ? runtime(title.runtimeMin) : `${title.seasons.filter(item => item.number >= 1).length} ${title.seasons.filter(item => item.number >= 1).length === 1 ? "season" : "seasons"}`, title.status && title.type === "show" ? title.status : null].filter(Boolean);
+  const seasonCount = title.seasons.filter(item => item.number >= 1).length;
   const currentSeason = title.seasons.find(item => item.number === season);
+  const facts = [
+    title.year && [CalendarBlank, title.year],
+    title.rating > 0 && [Star, title.rating.toFixed(1)],
+    [title.type === "movie" ? FilmSlate : MonitorPlay, title.type === "movie" ? "Movie" : title.isAnime ? "Anime series" : "Series"],
+    title.certification && [null, title.certification],
+    title.type === "movie" ? title.runtimeMin && [Clock, runtime(title.runtimeMin)] : [null, `${seasonCount} ${seasonCount === 1 ? "season" : "seasons"}`],
+  ].filter(Boolean);
+  const about = [
+    title.type === "show" && title.status && ["Status", <span className={/returning|production/i.test(title.status) ? "is-airing" : ""}>{title.status}</span>],
+    title.type === "show" && ["Episodes", `${title.episodeCount}${title.downloadedCount ? ` · ${title.downloadedCount} downloaded` : ""}`],
+    [title.type === "movie" ? "Released" : "First aired", longDate(title.firstAirDate) || title.year],
+    title.type === "show" && title.lastAirDate && ["Last aired", longDate(title.lastAirDate)],
+    title.rating > 0 && ["TMDB score", title.rating.toFixed(1)],
+    title.originalLanguage && ["Language", languageName(title.originalLanguage)],
+    title.originalTitle && title.originalTitle !== title.title && ["Original title", title.originalTitle],
+  ].filter(item => item && item[1]);
 
   return <div className="title-page">
-    <section className="title-hero">
-      {title.backdrop && <img className="title-backdrop" src={title.backdrop} alt="" />}
-      <div className="title-hero-inner">
-        {title.posterLarge && <img className="title-poster" src={title.posterLarge} alt={`${title.title} poster`} />}
-        <div className="title-info">
-          <span className="eyebrow">{title.type === "movie" ? "Movie" : title.isAnime ? "Anime series" : "Series"}{title.isAnime && title.type === "movie" ? " · Anime" : ""}</span>
-          {title.logo ? <h1 className="title-logo"><img src={title.logo} alt={title.title} /></h1> : <h1>{title.title}</h1>}
-          {title.originalTitle && title.originalTitle !== title.title && <p className="title-original">{title.originalTitle}</p>}
-          <div className="title-meta">{meta.map((item, index) => <span key={index}>{item}</span>)}{title.rating > 0 && <span className="title-rating"><Star size={13} weight="fill" />{title.rating.toFixed(1)}</span>}</div>
-          {title.tagline && <p className="title-tagline">{title.tagline}</p>}
-          {title.overview && <p className="title-overview">{title.overview}</p>}
-          <div className="title-actions">
-            {next ? <AppLink href={`/watch/${next.id}`} navigate={navigate} className="primary-button"><Play weight="fill" size={18} />{playLabel}</AppLink> : <button className="primary-button" disabled><Play weight="fill" size={18} />{title.type === "show" ? "Loading episodes…" : "Play"}</button>}
-            <button className={title.inLibrary ? "outline-button is-active" : "outline-button"} onClick={toggleLibrary} disabled={busy === "library"} aria-pressed={title.inLibrary}>{busy === "library" ? <ArrowsClockwise size={18} className="spin" /> : title.inLibrary ? <Check size={18} weight="bold" /> : <Plus size={18} weight="bold" />}{title.inLibrary ? "In My list" : "My list"}</button>
-            <div className="menu-anchor" ref={menuRef}>
-              <button className="outline-button" onClick={() => setMenu(value => !value)} aria-haspopup="menu" aria-expanded={menu} disabled={busy === "download"}><DownloadSimple size={18} />Download<CaretDown size={13} /></button>
-              {menu && <div className="action-menu" role="menu">
-                {title.type === "movie" ? <button role="menuitem" onClick={() => download({}, title.title)}>Download movie</button> : <>
-                  {season !== null && season >= 0 && <button role="menuitem" onClick={() => download({ season }, currentSeason ? seasonName(currentSeason) : `season ${season}`)}>{currentSeason ? seasonName(currentSeason) : `Season ${season}`}</button>}
-                  <button role="menuitem" onClick={() => download({}, "the whole series")}>Entire series</button></>}
-                <small>Saves into your download folder in Settings → Streaming.</small>
-              </div>}
-            </div>
-            <button className="icon-button" onClick={refresh} disabled={busy === "refresh"} aria-label="Refresh details" title="Refresh details from the catalog"><ArrowsClockwise size={18} className={busy === "refresh" ? "spin" : ""} /></button>
+    {title.backdrop && <div className="page-backdrop" aria-hidden="true"><img src={title.backdrop} alt="" /></div>}
+    <section className={`title-hero ${title.logo ? "has-logo" : ""}`} aria-label={title.title}>
+      {title.posterLarge && <img className="title-poster" src={title.posterLarge} alt={`${title.title} poster`} />}
+      <div className="title-info">
+        {title.logo ? <h1 className="title-logo"><img src={title.logo} alt={title.title} /></h1> : <h1>{title.title}</h1>}
+        <div className="title-facts">{facts.map(([Icon, text]) => <span key={text}>{Icon && <Icon size={14} />}{text}</span>)}</div>
+        <div className="title-actions">
+          {next ? <AppLink href={`/watch/${next.id}`} navigate={navigate} className="primary-button"><Play weight="fill" size={16} />{playLabel}</AppLink> : <button className="primary-button" disabled><Play weight="fill" size={16} />{title.type === "show" ? "Loading episodes…" : "Play"}</button>}
+          <button className={title.inLibrary ? "outline-button is-active" : "outline-button"} onClick={toggleLibrary} disabled={busy === "library"} aria-pressed={title.inLibrary}>{busy === "library" ? <ArrowsClockwise size={16} className="spin" /> : title.inLibrary ? <Check size={16} weight="bold" /> : <Plus size={16} weight="bold" />}{title.inLibrary ? "In My list" : "Add to My list"}</button>
+          <div className="menu-anchor" ref={menuRef}>
+            <button className="outline-button" onClick={() => setMenu(value => !value)} aria-haspopup="menu" aria-expanded={menu} disabled={busy === "download"}><DownloadSimple size={16} />Download<CaretDown size={13} /></button>
+            {menu && <div className="action-menu" role="menu">
+              {title.type === "movie" ? <button role="menuitem" onClick={() => download({}, title.title)}>Download movie</button> : <>
+                {season !== null && season >= 0 && <button role="menuitem" onClick={() => download({ season }, currentSeason ? seasonName(currentSeason) : `season ${season}`)}>{currentSeason ? seasonName(currentSeason) : `Season ${season}`}</button>}
+                <button role="menuitem" onClick={() => download({}, "the whole series")}>Entire series</button></>}
+              <small>Saves into your download folder in Settings → Streaming.</small>
+            </div>}
           </div>
-          {note && <p className="title-note" role="status">{note} {/download/i.test(note) && <AppLink href="/downloads" navigate={navigate}>Open downloads</AppLink>}</p>}
-          {title.services.length > 0 && <div className="title-services" aria-label="Available on">
-            <span>Available on</span>
-            {title.services.map(service => { const topic = topicFor(service.name); const inner = <>{service.logo && <img src={service.logo} alt="" />}{service.name}</>; return topic ? <AppLink key={service.name} href={`/topic/${topic.slug}`} navigate={navigate} className="service-badge">{inner}</AppLink> : <span key={service.name} className="service-badge">{inner}</span>; })}
-          </div>}
+          <button className="outline-button icon-only" onClick={refresh} disabled={busy === "refresh"} aria-label="Refresh details" title="Refresh details from the catalog"><ArrowsClockwise size={16} className={busy === "refresh" ? "spin" : ""} /></button>
         </div>
+        {note && <p className="title-note" role="status">{note} {/download/i.test(note) && <AppLink href="/downloads" navigate={navigate}>Open downloads</AppLink>}</p>}
+        {title.tagline && <p className="title-tagline">{title.tagline}</p>}
+        {title.overview && <p className="title-overview">{title.overview}</p>}
       </div>
     </section>
-    <div className="content title-body">
-      <section className="title-tags" aria-label="Tags">
-        <div className="watch-topics">
-          {title.topics.filter(topic => topic.topic_type !== "service").map(topic => <span className="tag-pill" key={topic.id}><AppLink href={`/topic/${topic.slug}`} navigate={navigate}><TopicLabel topic={topic} /></AppLink><button aria-label={`Remove ${topic.name}`} title={`Remove ${topic.name} from the whole ${title.type === "movie" ? "movie" : "series"}`} onClick={() => removeTopic(topic)}><X size={12} /></button></span>)}
-          <AddTag asset={{ id: title.id, title: title.title, topics: title.topics }} api={api} endpoint={`/api/v1/titles/${title.id}/topics`} label={title.type === "movie" ? "Add tag" : "Tag series"} onChange={topics => setTitle(current => ({ ...current, topics }))} />
-        </div>
-        {title.type === "show" && <p className="muted">Tags added here apply to every episode. Tag a single episode with its tag button below.</p>}
-        <button className="text-link" onClick={toggleAnime}>{title.isAnime ? "Not anime? Move to TV Shows" : "Mark as anime"}</button>
-      </section>
 
-      {title.type === "show" && <section className="episodes-section">
-        <div className="episodes-head">
-          <div className="season-select" role="tablist" aria-label="Seasons">{title.seasons.map(item => <button key={item.number} role="tab" aria-selected={item.number === season} className={item.number === season ? "active" : ""} onClick={() => setSeason(item.number)}>{seasonName(item)}</button>)}</div>
-        </div>
-        {currentSeason?.overview && <p className="season-overview">{currentSeason.overview}</p>}
-        {episodes === null ? <Loading /> : !episodes.length ? <Empty title="No episodes yet" message="Episodes will appear here once the catalog lists them." /> : <ol className="episode-list">
-          {episodes.map(episode => <EpisodeRow key={episode.id} episode={episode} api={api} navigate={navigate} AppLink={AppLink} formatDuration={formatDuration} onTagged={loadEpisodes} onDownload={() => download({ assetIds: [episode.id] }, `episode ${episode.episode}`)} current={next?.id === episode.id} />)}
+    <div className="content title-body">
+      <div className="title-columns">
+        <section className="title-about" aria-labelledby="about-heading">
+          <h2 id="about-heading">About this {title.type === "movie" ? "movie" : title.isAnime ? "anime" : "series"}</h2>
+          <dl>{about.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+            {title.genres.length > 0 && <div className="is-wide"><dt>Genres</dt><dd className="about-chips">{title.genres.map(genre => <span key={genre}>{genre}</span>)}</dd></div>}
+            {title.services.length > 0 && <div className="is-wide"><dt>Available on</dt><dd className="about-chips">{title.services.map(service => { const topic = topicFor(service.name); const inner = <>{service.logo && <img src={service.logo} alt="" />}{service.name}</>; return topic ? <AppLink key={service.name} href={`/topic/${topic.slug}`} navigate={navigate} className="service-badge">{inner}</AppLink> : <span key={service.name} className="service-badge">{inner}</span>; })}</dd></div>}
+          </dl>
+        </section>
+        <section className="title-tags" aria-labelledby="tags-heading">
+          <h2 id="tags-heading">Tags</h2>
+          <div className="watch-topics">
+            {title.topics.filter(topic => topic.topic_type !== "service").map(topic => <span className="tag-pill" key={topic.id}><AppLink href={`/topic/${topic.slug}`} navigate={navigate}><TopicLabel topic={topic} /></AppLink><button aria-label={`Remove ${topic.name}`} title={`Remove ${topic.name} from the whole ${title.type === "movie" ? "movie" : "series"}`} onClick={() => removeTopic(topic)}><X size={12} /></button></span>)}
+            <AddTag asset={{ id: title.id, title: title.title, topics: title.topics }} api={api} endpoint={`/api/v1/titles/${title.id}/topics`} label={title.type === "movie" ? "Add tag" : "Tag series"} onChange={topics => setTitle(current => ({ ...current, topics }))} />
+          </div>
+          {title.type === "show" && <p className="muted">Tags added here apply to every episode. Tag a single episode with its tag button below.</p>}
+          <button className="text-link" onClick={toggleAnime}>{title.isAnime ? "Not anime? Move to TV Shows" : "Mark as anime"}</button>
+        </section>
+      </div>
+
+      {title.type === "show" && <section className="episodes-section" aria-labelledby="episodes-heading">
+        <div className="shelf-head"><h2 id="episodes-heading">Episodes</h2>{episodes?.length > 0 && <span className="shelf-sub">{episodes.length} in {currentSeason ? seasonName(currentSeason).toLowerCase() : "this season"}</span>}</div>
+        <div className="season-select" role="tablist" aria-label="Seasons">{title.seasons.map(item => <button key={item.number} role="tab" aria-selected={item.number === season} className={item.number === season ? "active" : ""} onClick={() => setSeason(item.number)}>{seasonName(item)}</button>)}</div>
+        {currentSeason?.overview && currentSeason.overview !== title.overview && <p className="season-overview">{currentSeason.overview}</p>}
+        {episodes === null ? <Loading /> : !episodes.length ? <Empty title="No episodes yet" message="Episodes will appear here once the catalog lists them." /> : <ol className="episode-grid">
+          {episodes.map(episode => <EpisodeCard key={episode.id} episode={episode} api={api} navigate={navigate} AppLink={AppLink} onTagged={loadEpisodes} onDownload={() => download({ assetIds: [episode.id] }, `episode ${episode.episode}`)} current={next?.id === episode.id} />)}
         </ol>}
       </section>}
 
-      {title.cast.length > 0 && <Rail2 title="Cast">{title.cast.map(person => <div key={person.name + person.character} className="cast-card">
-        <div className="cast-photo">{person.profile ? <img src={person.profile} alt="" loading="lazy" /> : <span>{person.name[0]}</span>}</div><strong>{person.name}</strong><small>{person.character}</small></div>)}</Rail2>}
-      {title.genres.length > 0 && <p className="muted title-genres">{title.genres.join(" · ")}</p>}
+      {title.cast.length > 0 && <section className="cast-section" aria-labelledby="cast-heading"><div className="shelf-head"><h2 id="cast-heading">Cast</h2></div><div className="cast-row">{title.cast.map(person => <div key={person.name + person.character} className="cast-card">
+        <div className="cast-photo">{person.profile ? <img src={person.profile} alt="" loading="lazy" /> : <span>{person.name[0]}</span>}</div><strong>{person.name}</strong><small>{person.character}</small></div>)}</div></section>}
     </div>
   </div>;
 }
 
-function Rail2({ title, children }) {
-  return <section className="cast-section"><h2>{title}</h2><div className="cast-row">{children}</div></section>;
-}
-
-function EpisodeRow({ episode, api, navigate, AppLink, formatDuration, onTagged, onDownload, current }) {
+// An episode as a 16:9 card: still with its number and length, title, air date, and synopsis. Tagging and
+// downloading sit in the card's corner.
+function EpisodeCard({ episode, api, navigate, AppLink, onTagged, onDownload, current }) {
   const unaired = episode.availability === "unaired";
   const open = () => { if (!unaired) navigate(`/watch/${episode.id}`); };
-  return <li className={`episode-row ${current ? "is-next" : ""} ${unaired ? "is-unaired" : ""}`}>
+  return <li className={`episode-card ${current ? "is-next" : ""} ${unaired ? "is-unaired" : ""}`}>
     <button className="episode-thumb-button" onClick={open} disabled={unaired} aria-label={`Play episode ${episode.episode}: ${episode.title}`}>
       <span className="episode-still">{episode.thumbnail && <img src={episode.thumbnail} alt="" loading="lazy" />}
-        {!unaired && <span className="episode-play"><Play weight="fill" size={22} /></span>}
-        {episode.durationMs > 0 && <em>{formatDuration(episode.durationMs)}</em>}
+        <b className="episode-badge">EP {episode.episode}</b>
+        {unaired ? <b className="episode-badge is-right">Upcoming</b> : current && !episode.watched ? <b className="episode-badge is-right is-next">{episode.progressMs > 0 ? "Resume" : "Up next"}</b> : episode.watched ? <b className="episode-badge is-right"><CheckCircle size={12} weight="fill" />Watched</b> : null}
+        {!unaired && <span className="episode-play"><Play weight="fill" size={26} /></span>}
+        {episode.durationMs > 0 && <em>{Math.round(episode.durationMs / 60000)}m</em>}
         {episode.progressMs > 0 && !episode.watched && <i style={{ width: `${Math.min(100, episode.progressMs / episode.durationMs * 100)}%` }} />}</span>
     </button>
-    <div className="episode-body">
-      <div className="episode-title"><span className="episode-index">{episode.episode}</span><h3>{episode.title}</h3>{episode.watched && <CheckCircle size={16} weight="fill" className="watched" aria-label="Watched" />}{current && !episode.watched && <span className="next-chip">{episode.progressMs > 0 ? "Resume" : "Up next"}</span>}</div>
-      <small>{unaired ? `Airs ${episode.airDate}` : [episode.airDate, episode.durationMs ? `${Math.round(episode.durationMs / 60000)}m` : null].filter(Boolean).join(" · ")}{episode.absolute ? ` · #${episode.absolute} overall` : ""}</small>
+    <div className="episode-info"><div className="episode-body">
+      <h3>{episode.title}</h3>
+      <small>{unaired ? `Airs ${longDate(episode.airDate)}` : longDate(episode.airDate)}{episode.absolute ? ` · #${episode.absolute} overall` : ""}</small>
       {episode.description && <p>{episode.description}</p>}
       {episode.topics.length > 0 && <div className="episode-tags">{episode.topics.map(topic => <AppLink key={topic.id} href={`/topic/${topic.slug}`} navigate={navigate}><TopicLabel topic={topic} /></AppLink>)}</div>}
     </div>
     <div className="episode-actions">
       <AddTag compact asset={{ id: episode.id, title: episode.title, topics: episode.topics }} api={api} onChange={onTagged} />
       {episode.downloaded ? <span className="download-state" title="Saved in your library folder"><CheckCircle size={18} weight="fill" /></span> : <button className="icon-button" onClick={onDownload} disabled={unaired} aria-label={`Download episode ${episode.episode}`} title="Download this episode"><DownloadSimple size={18} /></button>}
-    </div>
+    </div></div>
   </li>;
 }

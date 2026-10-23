@@ -6,7 +6,7 @@ import { VideoPlayer } from "./video-player.jsx";
 import { AddTag } from "./add-tag.jsx";
 import { TopicLabel } from "./topic-label.jsx";
 import { useEffect, useRef, useState } from "react";
-import { BookmarkSimple, CheckCircle, DownloadSimple, ArrowsOutSimple, Play, X } from "@phosphor-icons/react";
+import { BookmarkSimple, Check, CheckCircle, DownloadSimple, ArrowsOutSimple, Play, Plus, Star, X } from "@phosphor-icons/react";
 import { LikeButton, ViewCount, usePlaybackTracking } from "./engagement.jsx";
 import { resumeSeconds } from "./playback-progress.mjs";
 import { ClipList, useClips } from "./clips.jsx";
@@ -136,7 +136,16 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
     finally { setSaving(false); }
   };
 
+  const toggleList = async () => {
+    try {
+      const title = await api(`/api/v1/titles/${catalog.titleId}/library`, { method: "PUT", body: JSON.stringify({ inLibrary: !catalog.inLibrary }) });
+      setAsset(current => current?.id === asset.id ? { ...current, catalog: { ...current.catalog, inLibrary: title.inLibrary } } : current);
+    } catch (e) { setError(e.message); }
+  };
+  const airDate = asset.air_date ? new Date(`${asset.air_date}T12:00:00`).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : null;
+
   return <div className={`content watch-page ${mini ? "mini-player" : theater ? "theater-mode" : ""}`} hidden={suspended}>
+    {catalog?.backdrop && !mini && !suspended && <div className="watch-backdrop" aria-hidden="true"><img src={catalog.backdrop} alt="" /></div>}
     {asset.kind === "video" && mini && <div className="player-mode-bar"><span>{asset.title}</span><button className="icon-button" title="Expand player" aria-label="Expand player" onClick={() => navigate(`/watch/${id}`)}><ArrowsOutSimple size={20}/></button><button className="icon-button" aria-label="Close player and clear playlist" onClick={() => playlist.dispatch({ type: "clear" })}><X size={20}/></button></div>}
     <div className={`watch-layout ${hasAside ? "" : "without-related"}`} style={playerHeight ? { "--player-height": `${playerHeight}px` } : undefined}>
       <div className="watch-primary">
@@ -155,13 +164,21 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
         {!catalog && !playlistBeside && <PlaylistQueue navigate={navigate} mini={mini} formatDuration={formatDuration}/>}
         {playbackError && <p className="error-notice" role="alert">This media could not play in this browser. <a href={src} download>Download the original</a> to play it in another player.</p>}
         <section className="watch-info">
-          {catalog && <div className="watch-series"><AppLink href={`/title/${catalog.titleId}`} navigate={navigate}>{catalog.title}</AppLink>{catalog.type === "show" && catalog.season != null && <span>Season {catalog.season} · Episode {catalog.episode}</span>}{catalog.type === "movie" && catalog.year && <span>{catalog.year}</span>}</div>}
+          {catalog && <p className="watch-kicker">{[catalog.type === "show" && catalog.season != null ? `Season ${catalog.season} · Episode ${catalog.episode}` : catalog.type === "movie" ? "Movie" : null, airDate].filter(Boolean).join(" · ")}</p>}
           <h1>{asset.title}</h1>
           <div className="watch-toolbar"><ViewCount count={asset.view_count} /><div className="watch-actions"><LikeButton asset={asset} api={api} onChange={values => setAsset(current => ({ ...current, ...values }))} /><button className={asset.saved ? "primary-button" : "outline-button"} disabled={saving} onClick={save}><BookmarkSimple weight={asset.saved ? "fill" : "regular"} />{asset.saved ? "Saved" : "Save"}</button>
             {catalog && !mini && (asset.file_path ? <span className="download-state" title="Saved in your library folder"><CheckCircle weight="fill" size={18} /> Downloaded</span> : <button className="outline-button" onClick={async () => { try { const result = await api(`/api/v1/assets/${asset.id}/download`, { method: "POST" }); setSaveNote(result.queued.length ? "Download started" : result.skipped[0]?.reason === "already queued" ? "Already downloading" : "Already saved"); } catch (e) { setSaveNote(e.message); } }}><DownloadSimple />Download</button>)}</div></div>
           {saveNote && <p className="download-note" role="status">{saveNote} · <AppLink href="/downloads" navigate={navigate}>Open downloads</AppLink></p>}
           {error && <p role="alert">{error}</p>}
         </section>
+        {catalog && !mini && <section className="series-card" aria-label={`About ${catalog.title}`}>
+          <AppLink href={`/title/${catalog.titleId}`} navigate={navigate} className="series-poster" aria-label={`Open ${catalog.title}`}>{catalog.poster && <img src={catalog.poster} alt="" />}</AppLink>
+          <div className="series-copy">
+            <AppLink href={`/title/${catalog.titleId}`} navigate={navigate}><strong>{catalog.title}</strong></AppLink>
+            <span>{[catalog.year, catalog.type === "show" && catalog.seasonCount ? `${catalog.seasonCount} ${catalog.seasonCount === 1 ? "season" : "seasons"}` : null, catalog.isAnime ? "Anime" : catalog.type === "movie" ? "Movie" : "Series", ...(catalog.genres || []).filter(genre => !(catalog.isAnime && genre === "Animation")).slice(0, 2)].filter(Boolean).join(" · ")}{catalog.rating > 0 && <em><Star size={12} weight="fill" />{catalog.rating.toFixed(1)}</em>}</span>
+          </div>
+          <button className={`outline-button ${catalog.inLibrary ? "is-active" : ""}`} onClick={toggleList} aria-pressed={catalog.inLibrary}>{catalog.inLibrary ? <Check size={16} weight="bold" /> : <Plus size={16} weight="bold" />}{catalog.inLibrary ? "In My list" : "Add to My list"}</button>
+        </section>}
         <section className="watch-description">
           <div className="watch-topics">{asset.topics?.map(topic => <AppLink key={topic.id} href={`/topic/${topic.slug}`} navigate={navigate}><TopicLabel topic={topic} /></AppLink>)}{!mini && <AddTag key={asset.id} asset={asset} api={api} onChange={topics => setAsset(current => current?.id === asset.id ? { ...current, topics } : current)}/>}</div>
           {asset.description && <p>{asset.description}</p>}
@@ -169,7 +186,7 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
         {!mini && <ClipList tools={clipTools} AppLink={AppLink} navigate={navigate} onPlay={clip => clipTools.play(clip)} />}
       </div>
       {hasAside && <aside className="watch-related" aria-label="More to explore">
-        {episodesAside && <EpisodeList api={api} catalog={catalog} currentId={asset.id} navigate={navigate} formatDuration={formatDuration} height={playerHeight} />}
+        {episodesAside && <EpisodeList api={api} catalog={catalog} currentId={asset.id} navigate={navigate} height={playerHeight} />}
         {!catalog && playlistBeside && <PlaylistQueue navigate={navigate} formatDuration={formatDuration}/>}
         {related.length > 0 && <div className="related-media">{related.map(item => <MediaCard key={item.id} asset={item} navigate={navigate} />)}</div>}
       </aside>}
@@ -178,7 +195,7 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
 }
 
 // The episodes of the season being watched, beside the player: pick any to jump there.
-function EpisodeList({ api, catalog, currentId, navigate, formatDuration, height }) {
+function EpisodeList({ api, catalog, currentId, navigate, height }) {
   const [rows, setRows] = useState(null);
   const listRef = useRef(null);
   useEffect(() => {
@@ -187,17 +204,25 @@ function EpisodeList({ api, catalog, currentId, navigate, formatDuration, height
     api(`/api/v1/titles/${catalog.titleId}/episodes?season=${catalog.season}`).then(result => { if (active) setRows(result.episodes); }).catch(() => { if (active) setRows([]); });
     return () => { active = false; };
   }, [api, catalog.titleId, catalog.season]);
-  useEffect(() => { listRef.current?.querySelector(".is-playing")?.scrollIntoView({ block: "nearest" }); }, [rows, currentId]);
+  useEffect(() => {
+    const list = listRef.current, row = list?.querySelector(".is-playing");
+    if (list && row) list.scrollTop = row.offsetTop - list.offsetTop - 8;
+  }, [rows, currentId]);
   if (!rows?.length) return null;
-  return <section className="episode-queue" aria-label={`Season ${catalog.season} episodes`} style={height ? { maxHeight: `${Math.max(height, 320)}px` } : undefined}>
-    <h2>Season {catalog.season}<span>{rows.length} episodes</span></h2>
-    <ol ref={listRef}>{rows.map(episode => <li key={episode.id} className={episode.id === currentId ? "is-playing" : ""}>
-      <button disabled={episode.availability === "unaired"} onClick={() => navigate(`/watch/${episode.id}`)} aria-label={`Play episode ${episode.episode}, ${episode.title}`}>
-        <span className="episode-number">{episode.id === currentId ? <Play size={11} weight="fill" /> : episode.episode}</span>
-        <span className="episode-thumb">{episode.thumbnail && <img src={episode.thumbnail} alt="" loading="lazy" />}{episode.durationMs > 0 && <em>{formatDuration(episode.durationMs)}</em>}
-          {episode.progressMs > 0 && !episode.watched && <i style={{ width: `${Math.min(100, episode.progressMs / episode.durationMs * 100)}%` }} />}</span>
-        <span className="episode-copy"><strong>{episode.title}</strong><small>{episode.availability === "unaired" ? `Airs ${episode.airDate}` : episode.watched ? "Watched" : episode.id === currentId ? "Now playing" : ""}</small></span>
-      </button>
-    </li>)}</ol>
+  const position = rows.findIndex(episode => episode.id === currentId) + 1;
+  const date = value => value ? new Date(`${value}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
+  return <section className="episode-queue" aria-label={`Season ${catalog.season} episodes`} style={height ? { maxHeight: `${Math.max(height, 360)}px` } : undefined}>
+    <h2><span className="episode-queue-title">{catalog.title}</span><span className="episode-queue-count">{catalog.season > 0 ? `S${catalog.season} · ` : ""}{position > 0 ? `${position} / ${rows.length}` : `${rows.length} episodes`}</span></h2>
+    <ol ref={listRef}>{rows.map(episode => {
+      const unaired = episode.availability === "unaired", playing = episode.id === currentId;
+      return <li key={episode.id} className={`${playing ? "is-playing" : ""} ${unaired ? "is-unaired" : ""}`}>
+        <button disabled={unaired} onClick={() => navigate(`/watch/${episode.id}`)} aria-current={playing ? "true" : undefined} aria-label={`Play episode ${episode.episode}, ${episode.title}`}>
+          <span className="episode-thumb">{episode.thumbnail && <img src={episode.thumbnail} alt="" loading="lazy" />}<b>{playing ? <Play size={10} weight="fill" /> : null}EP {episode.episode}</b>
+            {episode.progressMs > 0 && !episode.watched && <i style={{ width: `${Math.min(100, episode.progressMs / episode.durationMs * 100)}%` }} />}</span>
+          <span className="episode-copy"><strong>{episode.title}</strong>{episode.description && <span className="episode-synopsis">{episode.description}</span>}
+            <small><span>{unaired ? "Upcoming" : episode.watched ? <><CheckCircle size={12} weight="fill" /> Watched</> : ""}</span><span>{date(episode.airDate)}</span></small></span>
+        </button>
+      </li>;
+    })}</ol>
   </section>;
 }

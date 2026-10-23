@@ -1,3 +1,4 @@
+import { Karla } from "next/font/google";
 import "./globals.css";
 import "../src/player.css";
 import "../src/engagement.css";
@@ -13,6 +14,11 @@ import "../src/guide.css";
 import "../src/catalog.css";
 import "../src/streaming.css";
 import "../src/clips.css";
+import "../src/shell.css";
+import "../src/browse.css";
+
+// Self-hosted at build time, exposed as --font-sans for the stylesheets.
+const karla = Karla({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
 
 export const metadata = {
   title: "Kiwi — your media, connected",
@@ -20,5 +26,5 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }) {
-  return <html lang="en"><body>{children}</body></html>;
+  return <html lang="en" className={karla.variable}><body>{children}</body></html>;
 }

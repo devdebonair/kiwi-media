@@ -22,7 +22,7 @@
   padding: 0 18px;
   border: 1px solid #ffffff18;
   border-radius: 999px;
-  background: #23242c;
+  background: #232225;
   color: var(--like-color);
   touch-action: manipulation;
   user-select: none;
@@ -30,8 +30,8 @@
   transition: background .2s, border-color .2s, color .2s, box-shadow .2s;
 }
 .animated-like-control:not([data-like-level="0"]) .like-button {
-  background: color-mix(in srgb, var(--like-color) 9%, #202128);
-  border-color: color-mix(in srgb, var(--like-color) 28%, #202128);
+  background: color-mix(in srgb, var(--like-color) 9%, #1a191b);
+  border-color: color-mix(in srgb, var(--like-color) 28%, #1a191b);
 }
 .like-button:hover {
   border-color: color-mix(in srgb, var(--like-color) 60%, transparent);

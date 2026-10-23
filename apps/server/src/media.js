@@ -103,6 +103,50 @@ export function registerMedia(app, { resolveTopic }) {
     return { page: result.page, totalPages: result.totalPages, items: kind === "anime" ? items.filter(item => item.isAnime) : kind === "movies" || kind === "shows" ? items.filter(item => !item.isAnime && item.type === (kind === "movies" ? "movie" : "show")) : items };
   }));
 
+  // The banner at the top of Home and the Movies, TV Shows, and Anime pages: what you are in the middle of first
+  // (Home only), then what is trending, each with its wide artwork, title logo, and genres.
+  const bannerGenres = (genres, isAnime) => genres.filter(genre => !(isAnime && genre === "Animation")).slice(0, 3);
+  const featureLocal = (title, next) => ({
+    ref: title.id, titleId: title.id, type: title.type, title: title.title, year: title.year, overview: title.overview, rating: title.rating,
+    backdrop: title.backdrop, logo: title.logo, genres: bannerGenres(title.genres, title.isAnime), isAnime: title.isAnime, inLibrary: title.inLibrary,
+    runtimeMin: title.runtimeMin, certification: title.certification, play: next ? { id: next.asset.id, resume: next.resume, season: next.asset.season, episode: next.asset.episode } : null,
+  });
+  app.get("/api/v1/catalog/featured", handle(async req => {
+    const kind = req.query.kind || "home";
+    if (kind !== "home" && !KINDS.includes(kind)) throw new ConfigError("kind must be home, movies, shows, or anime.");
+    const items = [];
+    if (kind === "home") {
+      for (const entry of continueWatching({ limit: 3 })) {
+        if (entry.title.backdrop) items.push(featureLocal(entry.title, { asset: entry.asset, resume: entry.resume }));
+      }
+    }
+    if (getProvider("tmdb").configured) {
+      const { tmdb } = media();
+      const lists = await Promise.allSettled(kind === "home" ? [tmdb.trending("movie"), tmdb.trending("show"), tmdb.discover("show", { anime: true })]
+        : kind === "movies" ? [tmdb.trending("movie")] : kind === "shows" ? [tmdb.trending("show")] : [tmdb.discover("show", { anime: true }), tmdb.discover("movie", { anime: true })]);
+      const pools = lists.map(result => result.status === "fulfilled" ? result.value.results.filter(item => item.backdropPath && (kind === "anime" || kind === "home" ? true : !item.isAnime)) : []);
+      // Take from each list in turn so Home mixes movies, series, and anime.
+      const picks = [];
+      for (let index = 0; picks.length < 9 - items.length && pools.some(pool => pool[index]); index++) {
+        for (const pool of pools) if (pool[index] && !picks.some(pick => pick.type === pool[index].type && pick.tmdbId === pool[index].tmdbId)) picks.push(pool[index]);
+      }
+      const chosen = picks.slice(0, 9 - items.length);
+      const details = await Promise.allSettled(chosen.map(pick => tmdb.details(pick.type, pick.tmdbId)));
+      for (const [index, result] of details.entries()) {
+        if (result.status !== "fulfilled") continue;
+        const detail = result.value;
+        const local = lookup.get(detail.type, detail.tmdbId);
+        if (local && items.some(item => item.titleId === local.id)) continue;
+        items.push({
+          ref: local?.id || `tmdb:${detail.type}:${detail.tmdbId}`, titleId: local?.id || null, type: detail.type, title: detail.title, year: detail.year, overview: detail.overview,
+          rating: detail.rating, backdrop: imageUrl(detail.backdropPath || chosen[index].backdropPath, "w1280"), logo: imageUrl(detail.logoPath, "w500"), genres: bannerGenres(detail.genres, detail.isAnime), isAnime: detail.isAnime,
+          inLibrary: Boolean(local?.in_library), runtimeMin: detail.runtimeMin, certification: detail.certification, play: null,
+        });
+      }
+    }
+    return { items };
+  }));
+
   // --------------------------------------------------------------------------------------------
   // Titles
 

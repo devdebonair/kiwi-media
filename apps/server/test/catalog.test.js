@@ -33,7 +33,7 @@ const tmdbFetch = async (target) => {
   const url = new URL(target);
   requests.push(url.pathname);
   const path = url.pathname.replace('/3', '');
-  if (path === '/trending/movie/week' || path === '/movie/popular') return json({ page: 1, total_pages: 1, results: [{ id: 300, title: 'Test Movie', release_date: '1999-03-31', genre_ids: [28], poster_path: '/poster300abc.jpg', vote_average: 8.1, original_language: 'en' }] });
+  if (path === '/trending/movie/week' || path === '/movie/popular') return json({ page: 1, total_pages: 1, results: [{ id: 300, title: 'Test Movie', release_date: '1999-03-31', genre_ids: [28], poster_path: '/poster300abc.jpg', backdrop_path: '/back300abcd.jpg', vote_average: 8.1, original_language: 'en' }] });
   if (path === '/discover/tv') return json({ page: 1, total_pages: 1, results: [{ id: 200, name: 'Anime Show', first_air_date: '2023-09-29', genre_ids: [16], original_language: 'ja', origin_country: ['JP'], poster_path: '/poster200abc.jpg' }] });
   if (path === '/search/multi') return json({ page: 1, total_pages: 1, results: [{ id: 100, media_type: 'tv', name: 'Test Show', first_air_date: '2020-01-01', genre_ids: [35], original_language: 'en' }, { id: 7, media_type: 'person', name: 'Someone' }] });
   if (path === '/tv/100') return json({
@@ -391,6 +391,26 @@ test('continue watching lists one entry per title with its resume point', async 
   const history = (await get('/api/v1/history?scope=home')).json();
   assert.ok(history.every(item => !item.title_id));
   assert.ok((await get('/api/v1/history?scope=catalog')).json().every(item => item.title_id));
+});
+
+test('the featured banner leads with what you are watching, then trending titles with their artwork', async () => {
+  const title = db.prepare("SELECT id FROM titles WHERE tmdb_id=100").get();
+  const home = (await get('/api/v1/catalog/featured?kind=home')).json();
+  assert.equal(home.items[0].titleId, title.id, 'the series in progress comes first');
+  assert.equal(home.items[0].play.id, `${title.id}-s01e03`);
+  assert.equal(home.items[0].backdrop, '/api/v1/images/tmdb/w1280/back100abcd.jpg');
+  assert.ok(home.items.every(item => item.backdrop), 'only titles with wide artwork are featured');
+  const movies = (await get('/api/v1/catalog/featured?kind=movies')).json();
+  assert.equal(movies.items[0].title, 'Test Movie');
+  assert.deepEqual(movies.items[0].genres, ['Action']);
+  assert.equal(movies.items[0].certification, 'R');
+  assert.equal(movies.items[0].play, null);
+  assert.equal((await get('/api/v1/catalog/featured?kind=nope')).statusCode, 400);
+  // The watch page shows the series behind the player and a card for it under the video.
+  const asset = (await get(`/api/v1/assets/${title.id}-s01e03`)).json();
+  assert.equal(asset.catalog.backdrop, '/api/v1/images/tmdb/w1280/back100abcd.jpg');
+  assert.equal(asset.catalog.seasonCount, 2);
+  assert.deepEqual(asset.catalog.genres, ['Comedy']);
 });
 
 test('a release TorBox is still downloading reports progress instead of failing, and plays once ready', async () => {

@@ -14,44 +14,44 @@
 @media (pointer: coarse) { .clip-handle { width: 18px; height: 30px; top: -9px; } .clip-handle.start { left: -9px; } .clip-handle.end { right: -9px; } .clip-handle::after { left: 8px; } }
 
 .kiwi-control-row button[aria-pressed="true"] { color: var(--green); }
-.clip-editor { margin: 6px 0 10px; padding: 12px 14px; border: 1px solid #b6df8333; border-radius: 12px; background: #1b1c22; display: flex; flex-direction: column; gap: 12px; }
+.clip-editor { margin: 6px 0 10px; padding: 12px 14px; border: 1px solid #b6df8333; border-radius: 12px; background: #19181a; display: flex; flex-direction: column; gap: 12px; }
 .clip-editor-head { display: flex; align-items: center; gap: 12px; }
 .clip-editor-head strong { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; color: var(--green); }
 .clip-duration { font-variant-numeric: tabular-nums; font-size: 13px; padding: 2px 8px; border-radius: 999px; background: #ffffff10; }
-.clip-editor-head small { flex: 1; color: #8d8e9b; font-size: 12px; }
-.clip-editor-head kbd { font: inherit; font-size: 11px; padding: 1px 5px; border: 1px solid #ffffff26; border-radius: 4px; color: #c7c8d2; }
+.clip-editor-head small { flex: 1; color: #94919b; font-size: 12px; }
+.clip-editor-head kbd { font: inherit; font-size: 11px; padding: 1px 5px; border: 1px solid #ffffff26; border-radius: 4px; color: #cbc8d1; }
 .clip-editor .icon-button { width: 30px; height: 30px; padding: 0; margin-left: auto; }
 .clip-edges { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .clip-edge { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 9px; background: #ffffff07; min-width: 0; }
-.clip-edge > span:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: #8d8e9b; width: 26px; }
+.clip-edge > span:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: #94919b; width: 26px; }
 .kiwi-controls .clip-editor button { width: auto; height: auto; display: inline-flex; }
 .clip-time { font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 600; padding: 3px 6px !important; border-radius: 6px; }
 .clip-steps { display: inline-flex; gap: 2px; }
-.clip-steps button, .clip-set { font-size: 12px; padding: 5px 8px !important; border-radius: 6px; background: #ffffff0d !important; color: #c7c8d2 !important; white-space: nowrap; }
+.clip-steps button, .clip-set { font-size: 12px; padding: 5px 8px !important; border-radius: 6px; background: #ffffff0d !important; color: #cbc8d1 !important; white-space: nowrap; }
 .clip-steps button:hover, .clip-set:hover { background: #ffffff1a !important; color: #fff !important; }
 .clip-set { margin-left: auto; }
 .clip-details { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .clip-title { flex: 1 1 220px; min-width: 0; height: 38px; padding: 0 12px; border-radius: 9px; border: 1px solid #ffffff1a; background: #ffffff08; color: var(--text); font-size: 14px; outline: none; }
 .clip-title:focus { border-color: #ffffff40; }
 .clip-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 2 1 280px; }
-.clip-tag { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 4px 4px 10px; border-radius: 999px; background: #23242c; font-size: 13px; color: #c7c8d2; }
+.clip-tag { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 4px 4px 10px; border-radius: 999px; background: #232225; font-size: 13px; color: #cbc8d1; }
 .clip-tag:has(.chip-avatar:not([hidden])) { padding-left: 4px; }
 .clip-tag .chip-avatar { width: 22px; height: 22px; }
-.clip-tag button { width: 22px !important; height: 22px !important; padding: 0 !important; justify-content: center; border-radius: 50% !important; color: #8d8e9b !important; }
+.clip-tag button { width: 22px !important; height: 22px !important; padding: 0 !important; justify-content: center; border-radius: 50% !important; color: #94919b !important; }
 .clip-tags .add-tag-trigger { min-height: 32px; padding: 4px 12px; font-size: 13px; }
 .clip-error { margin: 0; color: #f2a7a7; font-size: 13px; }
 .clip-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .clip-actions .primary-button, .clip-actions .outline-button { height: 36px !important; padding: 0 14px !important; font-size: 13px; border-radius: 9px !important; gap: 7px; }
 .clip-actions .primary-button { background: var(--green) !important; color: #182013 !important; }
-.clip-actions .outline-button { background: #23242c !important; color: #e4e5ee !important; border: 1px solid #ffffff1a; }
+.clip-actions .outline-button { background: #232225 !important; color: #e4e5ee !important; border: 1px solid #ffffff1a; }
 .clip-actions .outline-button.danger { color: #f2a7a7 !important; }
 .clip-spacer { flex: 1; }
-.kiwi-player:fullscreen .clip-editor { background: #1b1c22f2; }
+.kiwi-player:fullscreen .clip-editor { background: #19181af2; }
 
-.clip-ended { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 22px; border-radius: 14px; background: #101115e6; }
+.clip-ended { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 22px; border-radius: 14px; background: #0f0e10e6; }
 .clip-ended strong { font-size: 15px; }
 .clip-ended div { display: flex; gap: 8px; }
-.clip-ended button { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border: 0; border-radius: 999px; background: #303139; color: #eeeef2; font-size: 13px; }
+.clip-ended button { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border: 0; border-radius: 999px; background: #302f33; color: #eeeef0; font-size: 13px; }
 .clip-ended button:first-child { background: var(--green); color: #182013; font-weight: 600; }
 
 .clip-list { border-top: 1px solid var(--line); padding-top: 22px; margin-top: 8px; }
@@ -67,14 +67,14 @@
 .clip-copy strong { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .clip-copy small { font-size: 12px; color: var(--muted); }
 .clip-row-tags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 420px; }
-.clip-row-tags a { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; border-radius: 999px; background: #23242c; font-size: 12px; color: #b1b2bf; }
+.clip-row-tags a { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; border-radius: 999px; background: #232225; font-size: 12px; color: #bdbac4; }
 .clip-row-tags a:not(:has(.chip-avatar:not([hidden]))) { padding-left: 10px; }
 .clip-row-tags .chip-avatar { width: 20px; height: 20px; }
 .clip-row-actions { display: flex; opacity: .65; }
 .clip-list li:hover .clip-row-actions, .clip-row-actions:focus-within { opacity: 1; }
 
 .clip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 24px 16px; }
-.clip-card-art { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: #24262e; }
+.clip-card-art { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: #232225; }
 .clip-card-art img { width: 100%; height: 100%; object-fit: cover; }
 .clip-card-range { position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 6px; background: #0a0c0ad9; color: #ffc876; font-size: 12px; font-variant-numeric: tabular-nums; }
 .clip-card h3 { margin: 10px 0 2px; font-size: 14px; font-weight: 600; line-height: 1.35; }

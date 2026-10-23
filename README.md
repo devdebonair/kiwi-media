@@ -4,7 +4,7 @@ Kiwi is a self-hosted media library centered on topics, precise moments, and sav
 
 ## Features
 
-- Browse and search a mixed media library
+- Browse and search a mixed media library, with movies, series, and anime up front: a featured banner, poster shelves, and a side list of what's on the TV Guide now, followed by your own videos
 - Organize media around topic profiles and dynamic feeds
 - Attach topics and notes to whole assets or precise moments and regions
 - Direct-play local video and audio with HTTP range requests
@@ -46,7 +46,7 @@ when scrolled out of the active position. More items load as you scroll.
 
 ## Movies, TV shows, and anime
 
-Kiwi can also stream movies, series, and anime next to your home videos, kept in their own sections: **Movies**, **TV Shows**, and **Anime** in the sidebar, while **Home Videos**, Shorts, and Topics stay for your own files. Episodes never appear in the home-video grids, search shows a movie or series once (not every episode), and each section has its own *Continue watching* and *My list* rows.
+Kiwi can also stream movies, series, and anime next to your home videos, kept in their own sections: **Movies**, **TV Shows**, and **Anime** in the navigation, while **Home Videos**, Shorts, and Topics stay for your own files. Episodes never appear in the home-video grids, search shows a movie or series once (not every episode), and each section has its own *Continue watching* and *My list* rows.
 
 **Set up** in Settings → *Catalogs and sources*: add a [TMDB](https://www.themoviedb.org/settings/api) key (metadata, posters, where a title streams) and a [TorBox](https://torbox.app) API key (instant streams and downloads). Torrentio and Nyaa find releases and need nothing. OpenSubtitles is optional, for subtitles a release lacks. Keys are stored on the server and are never sent back to the browser.
 
@@ -186,7 +186,7 @@ source link, title, and thumbnail, and folder tags apply as usual.
 
 ### Downloads page
 
-**Downloads** in the sidebar lists your download history in three sections:
+**Downloads** in the navigation lists your download history in three sections:
 **In progress** first, then **Failed & canceled**, then **Completed**. Failed
 and Completed collapse, and Kiwi remembers your choice. Switch between a table
 and a thumbnail grid. Completed videos use library thumbnails, so hovering plays

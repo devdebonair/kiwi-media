@@ -4,7 +4,7 @@
 .guide-hero { flex-shrink: 0; display: grid; grid-template-columns: minmax(0, 1fr) 480px; gap: 28px; }
 .guide-info { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
 .guide-info h2 { margin: 2px 0 0; font-size: 25px; font-weight: 600; letter-spacing: -.035em; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.guide-channel-line { display: flex; align-items: center; gap: 9px; min-width: 0; font-size: 13px; color: #c7c8d2; }
+.guide-channel-line { display: flex; align-items: center; gap: 9px; min-width: 0; font-size: 13px; color: #cbc8d1; }
 .guide-channel-line a:hover { color: var(--green); }
 .guide-channel-line .icon-button { padding: 5px; }
 .guide-channel-rule { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -53,18 +53,18 @@
 .guide-page > .error-notice { margin: 0; }
 /* Phone-only toolbar controls. */
 .guide-filter-select { position: relative; display: none; align-items: center; }
-.guide-filter-select select { appearance: none; -webkit-appearance: none; height: 34px; padding: 0 32px 0 14px; border: 1px solid #ffffff12; border-radius: 999px; background: #23242c; color: var(--text); font: inherit; font-size: 14px; font-weight: 600; }
+.guide-filter-select select { appearance: none; -webkit-appearance: none; height: 34px; padding: 0 32px 0 14px; border: 1px solid #ffffff12; border-radius: 999px; background: #232225; color: var(--text); font: inherit; font-size: 14px; font-weight: 600; }
 .guide-filter-select svg { position: absolute; right: 12px; color: var(--muted); pointer-events: none; }
 .guide-search-toggle { display: none; place-items: center; width: 34px; height: 34px; padding: 0; }
 
 /* The board stacks the time bar over the scrolling grid; the time bar mirrors the grid's sideways scroll. */
 .guide-board { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-bottom: 0; border-radius: 12px 12px 0 0; background: #1a1b21; }
-.guide-timebar { flex: none; overflow: hidden; scrollbar-gutter: stable; background: #1e1f26; }
+.guide-timebar { flex: none; overflow: hidden; scrollbar-gutter: stable; background: #1a191b; }
 .guide-grid { position: relative; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scroll-padding: 0 0 0 var(--channel-col); }
 .guide-canvas { position: relative; width: calc(var(--channel-col) + var(--span) * var(--ppm)); min-width: 100%; min-height: 100%; }
 .guide-row { display: flex; height: var(--row-h); border-bottom: 1px solid var(--line); }
-.guide-head { width: calc(var(--channel-col) + var(--span) * var(--ppm)); min-width: 100%; height: var(--head-h); background: #1e1f26; }
-.guide-channel, .guide-corner { position: sticky; left: 0; z-index: 3; flex: 0 0 var(--channel-col); display: flex; align-items: center; background: #1e1f26; border-right: 1px solid var(--line); }
+.guide-head { width: calc(var(--channel-col) + var(--span) * var(--ppm)); min-width: 100%; height: var(--head-h); background: #1a191b; }
+.guide-channel, .guide-corner { position: sticky; left: 0; z-index: 3; flex: 0 0 var(--channel-col); display: flex; align-items: center; background: #1a191b; border-right: 1px solid var(--line); }
 .guide-corner { z-index: 5; padding: 0 16px; font-size: 12px; font-weight: 600; color: #d5d6de; }
 .guide-times, .guide-programs { position: relative; flex: 0 0 calc(var(--span) * var(--ppm)); }
 .guide-times span { position: absolute; top: 0; bottom: 0; left: calc(var(--x) * var(--ppm)); display: flex; align-items: center; padding-left: 10px; border-left: 1px solid var(--line); font-size: 12px; color: var(--muted); white-space: nowrap; }
@@ -75,7 +75,7 @@
 .guide-channel-tune:hover .guide-channel-name { color: var(--green); }
 .guide-number { flex-shrink: 0; min-width: 28px; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; color: #9fa0ad; }
 .guide-channel-name { min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.guide-logo { flex-shrink: 0; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; overflow: hidden; color: #8d8e9b; background: #ffffff0d; }
+.guide-logo { flex-shrink: 0; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; overflow: hidden; color: #94919b; background: #ffffff0d; }
 .guide-logo img { width: 100%; height: 100%; object-fit: cover; }
 .guide-logo img[hidden] { display: none; }
 .guide-logo.is-custom { color: var(--green); background: #b6df8318; }
@@ -115,7 +115,7 @@
 .channel-editor .tag-search { height: 38px; padding: 0 12px 0 38px; border-radius: 999px; }
 .channel-match { border: 0; margin: 0; padding: 0; min-width: 0; }
 .channel-match legend { padding: 0; margin-bottom: 8px; font-weight: 600; }
-.channel-match [role="radiogroup"] { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 10px; background: #191a21; }
+.channel-match [role="radiogroup"] { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 10px; background: #161517; }
 .channel-match button { height: 34px; border: 0; border-radius: 7px; background: none; font-size: 13px; color: var(--muted); }
 .channel-match button.selected { background: #2e3039; color: var(--text); font-weight: 600; }
 .channel-picked > p { margin: 0; font-size: 13px; }
@@ -170,7 +170,7 @@
 .dialog.guide-sheet { width: 100%; max-width: none; max-height: 80dvh; overflow-y: auto; border-bottom: 0; border-radius: 18px 18px 0 0; padding: 10px 18px calc(18px + env(safe-area-inset-bottom)); animation: guide-sheet-in .22s cubic-bezier(.2, .8, .3, 1); }
 .dialog.guide-sheet::before { content: ""; display: block; width: 36px; height: 4px; margin: 0 auto 10px; border-radius: 2px; background: #ffffff30; }
 .guide-sheet .dialog-head { margin-bottom: 8px; }
-.guide-sheet .dialog-head h2 { font-size: 14px; font-weight: 600; color: #c7c8d2; }
+.guide-sheet .dialog-head h2 { font-size: 14px; font-weight: 600; color: #cbc8d1; }
 .guide-info.in-sheet h2 { font-size: 20px; -webkit-line-clamp: 3; }
 .guide-info.in-sheet .guide-actions { flex-wrap: wrap; margin-top: 10px; }
 @keyframes guide-sheet-in { from { transform: translateY(100%); } }

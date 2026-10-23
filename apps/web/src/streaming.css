@@ -16,33 +16,33 @@
 .kiwi-controls { position: relative; }
 .kiwi-player:fullscreen .kiwi-controls { position: absolute; }
 .kiwi-control-row button.is-open, .kiwi-control-row .is-on button { color: var(--green); }
-.player-menu { position: absolute; right: 12px; bottom: calc(100% + 8px); z-index: 5; width: 300px; max-height: min(420px, 70vh); overflow-y: auto; background: #1b1c22; border: 1px solid #ffffff14; border-radius: 12px; padding: 8px; box-shadow: 0 18px 50px #000a; display: flex; flex-direction: column; gap: 2px; }
+.player-menu { position: absolute; right: 12px; bottom: calc(100% + 8px); z-index: 5; width: 300px; max-height: min(420px, 70vh); overflow-y: auto; background: #19181a; border: 1px solid #ffffff14; border-radius: 12px; padding: 8px; box-shadow: 0 18px 50px #000a; display: flex; flex-direction: column; gap: 2px; }
 .player-menu.wide { width: 380px; }
 .player-menu h3 { margin: 4px 8px 6px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #9a9bab; font-weight: 600; }
 .player-menu button { width: 100%; height: auto !important; min-height: 38px; display: flex !important; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px !important; text-align: left; font-size: 13px; border-radius: 8px; place-items: unset; }
 .player-menu button span { min-width: 0; display: flex; flex-direction: column; gap: 1px; overflow-wrap: anywhere; }
-.player-menu button small { color: #858696; font-size: 11px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.player-menu button small { color: #8a8791; font-size: 11px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .player-menu button.is-selected { color: var(--green); background: #b6df8310; }
 .player-menu button:disabled { opacity: .5; }
 .player-menu svg { width: 16px !important; height: 16px !important; flex-shrink: 0; }
-.player-menu-action { color: #c7c8d2; border-top: 1px solid #ffffff0d !important; border-radius: 0 0 8px 8px !important; margin-top: 4px; }
+.player-menu-action { color: #cbc8d1; border-top: 1px solid #ffffff0d !important; border-radius: 0 0 8px 8px !important; margin-top: 4px; }
 .player-menu-action span { flex-direction: row !important; align-items: center; gap: 8px !important; }
 .player-menu-note { margin: 4px 10px 6px; font-size: 12px; color: #9a9bab; line-height: 1.4; display: flex; gap: 8px; align-items: center; }
 .player-menu-group { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; border-top: 1px solid #ffffff0a; font-size: 12px; color: #9a9bab; }
 .segmented { display: flex; background: #ffffff0a; border-radius: 8px; padding: 2px; gap: 2px; }
-.player-menu .segmented button { width: auto; min-height: 28px; padding: 4px 9px !important; justify-content: center; font-size: 12px; border-radius: 6px; gap: 0; color: #c7c8d2; }
+.player-menu .segmented button { width: auto; min-height: 28px; padding: 4px 9px !important; justify-content: center; font-size: 12px; border-radius: 6px; gap: 0; color: #cbc8d1; }
 .player-menu .segmented button[aria-pressed="true"] { background: var(--green); color: #182013; font-weight: 600; }
 .segmented button i { display: none; }
 .segmented button:not(.text) { font-weight: 700; }
 .segmented > button:nth-child(1) { font-size: 11px; } .segmented > button:nth-child(2) { font-size: 13px; } .segmented > button:nth-child(3) { font-size: 15px; } .segmented > button:nth-child(4) { font-size: 17px; }
 .segmented.text > button:nth-child(n) { font-size: 12px; }
 .stepper { display: flex; align-items: center; gap: 6px; }
-.stepper output { min-width: 62px; text-align: center; font-variant-numeric: tabular-nums; color: #eeeef2; }
+.stepper output { min-width: 62px; text-align: center; font-variant-numeric: tabular-nums; color: #eeeef0; }
 .player-menu .stepper button { width: 28px; min-height: 28px; padding: 0 !important; justify-content: center; background: #ffffff0a; border-radius: 50%; }
 .player-menu .stepper .reset { width: auto; padding: 0 8px !important; border-radius: 6px; font-size: 11px; }
 .source-current { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 4px; background: #ffffff06; border-radius: 8px; margin-bottom: 4px; }
 .source-current strong { font-size: 13px; }
-.source-current small { color: #858696; font-size: 11px; overflow-wrap: anywhere; }
+.source-current small { color: #8a8791; font-size: 11px; overflow-wrap: anywhere; }
 .source-current ul { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px; }
 .source-current li { font-size: 10px; padding: 2px 7px; border-radius: 999px; background: #b6df8318; color: var(--green); }
 /* On narrow screens the menus are bottom sheets, since the video is too short to hold them above its controls. */
@@ -54,7 +54,7 @@
 
 /* Settings → Streaming */
 .provider-list { gap: 14px; }
-.settings-list > li.provider-card { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 14px; padding: 16px; margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; background: #1b1c22; }
+.settings-list > li.provider-card { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 14px; padding: 16px; margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; background: #19181a; }
 .provider-head strong { display: flex; align-items: center; gap: 10px; font-size: 15px; } .provider-head small { display: block; margin-top: 4px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
 .provider-actions, .settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .settings-actions { margin-top: 6px; }
@@ -70,7 +70,7 @@
 .language-rank { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--green-soft); color: var(--green); font-size: 11px; font-weight: 700; }
 .language-order li strong { flex: 1; font-size: 14px; font-weight: 500; }
 .language-actions { display: flex; }
-.language-order select { height: 38px; border-radius: 9px; padding: 0 10px; background: #23242c; border: 1px solid #ffffff10; }
+.language-order select { height: 38px; border-radius: 9px; padding: 0 10px; background: #232225; border: 1px solid #ffffff10; }
 .cache-stats { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; width: 100%; }
 .cache-stats li { padding: 14px; border-radius: 10px; background: #ffffff06; display: flex; flex-direction: column; gap: 3px; }
 .cache-stats strong { text-transform: capitalize; } .cache-stats small { color: var(--muted); }

@@ -3,94 +3,95 @@
 import { useEffect, useRef, useState } from "react";
 import { SearchBar } from "./search-bar.jsx";
 import { UploadButton } from "./download-dialog.jsx";
-import { ClockCounterClockwise, Compass, DownloadSimple, FilmSlate, FolderOpen, Gear, Heart, Leaf, List, MonitorPlay, Play, Rows, Sparkle, Tag, Television, Camera } from "@phosphor-icons/react";
+import { CaretRight, ClockCounterClockwise, DownloadSimple, FilmStrip, Gear, Heart, House, Leaf, List, MagnifyingGlass, MonitorPlay, Play, Rows, Sparkle, Tag, Television, VideoCamera, X } from "@phosphor-icons/react";
 
-// Below this width (phones, tablets, laptops) the sidebar is an overlay drawer; wider desktops keep it docked.
-export const DRAWER_NAV_QUERY = "(max-width: 1799px)";
+// Below this width the icon rail is replaced by a top bar with a menu button; it matches `max-width: 899px` in shell.css.
+export const MOBILE_NAV_QUERY = "(max-width: 899px)";
 
-export function Brand({ navigate }) {
-  return <a href="/" className="brand" aria-label="Kiwi home" onClick={event => {
+// Streaming first, then your own media, then what you have collected. Settings sits at the bottom of the rail.
+const groups = [
+  [["/", "Home", "home", House], ["/movies", "Movies", "movies", FilmStrip], ["/shows", "TV Shows", "shows", MonitorPlay], ["/anime", "Anime", "anime", Sparkle], ["/guide", "TV Guide", "guide", Television]],
+  [["/library", "Home Videos", "library", VideoCamera], ["/shorts", "Shorts", "shorts", Play], ["/topics", "Topics", "topics", Tag]],
+  [["/feeds", "Feeds", "feeds", Rows], ["/liked", "Liked", "liked", Heart], ["/history", "History", "history", ClockCounterClockwise], ["/downloads", "Downloads", "downloads", DownloadSimple]],
+];
+
+// A feed lights up Feeds and a topic lights up Topics.
+const active = (route, page) => route.page === page || (page === "feeds" && route.page === "feed") || (page === "topics" && route.page === "topic");
+
+export function Brand({ navigate, compact = false }) {
+  return <a href="/" className={`brand ${compact ? "is-compact" : ""}`} aria-label="Kiwi home" onClick={event => {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault(); navigate("/");
-  }}><span className="brand-mark"><Leaf size={22} weight="fill" /></span><span>kiwi<span className="brand-dot">.</span></span></a>;
+  }}><span className="brand-mark"><Leaf size={20} weight="fill" /></span>{!compact && <span className="brand-word">kiwi</span>}</a>;
 }
 
-export function Header({ query, setQuery, onSubmit, openMenu, navigate, mobileOpen, collapsed, api }) {
+// The page header: a search field floating over the page (and over the banner art on pages that have one).
+// It gains a blurred background once the page scrolls. On phones it also carries the logo and the menu button.
+export function Header({ query, setQuery, onSubmit, navigate, api, menuOpen, toggleMenu }) {
   const searchRef = useRef(null);
-  const [mobile, setMobile] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const [searching, setSearching] = useState(false);
   useEffect(() => {
-    const query = window.matchMedia(DRAWER_NAV_QUERY);
-    const update = () => setMobile(query.matches);
+    const update = () => setScrolled(window.scrollY > 8);
     update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
+    window.addEventListener("scroll", update, { passive: true });
+    return () => window.removeEventListener("scroll", update);
   }, []);
   useEffect(() => {
     const shortcut = event => {
-      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
-        event.preventDefault(); searchRef.current?.focus();
-      }
+      if ((event.metaKey || event.ctrlKey) && event.key === "k") { event.preventDefault(); setSearching(true); searchRef.current?.focus(); }
     };
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
   }, []);
+  useEffect(() => { if (searching) searchRef.current?.focus(); }, [searching]);
 
-  return <header className="topbar">
-    <div className="brand-group">
-      <button className="menu-toggle icon-button" onClick={openMenu} aria-label="Toggle navigation" aria-controls="site-navigation" aria-expanded={mobile ? mobileOpen : !collapsed}><List size={23} /></button>
-      <Brand navigate={navigate} />
+  return <header className={`site-header ${scrolled || menuOpen ? "is-scrolled" : ""} ${searching ? "is-searching" : ""}`}>
+    <div className="header-start"><Brand navigate={navigate} /></div>
+    <div className="header-search">
+      <button type="button" className="header-icon search-close" onClick={() => setSearching(false)} aria-label="Close search"><X size={20} /></button>
+      <SearchBar query={query} setQuery={setQuery} navigate={navigate} inputRef={searchRef} onSubmit={event => { setSearching(false); onSubmit(event); }} />
     </div>
-    <SearchBar query={query} setQuery={setQuery} onSubmit={onSubmit} navigate={navigate} inputRef={searchRef} />
-    <div className="topbar-actions"><UploadButton api={api} navigate={navigate} /></div>
+    <div className="header-end">
+      <UploadButton api={api} navigate={navigate} />
+      <button type="button" className="header-icon search-open" onClick={() => setSearching(true)} aria-label="Search"><MagnifyingGlass size={21} /></button>
+      <button type="button" className="header-icon menu-open" onClick={toggleMenu} aria-label={menuOpen ? "Close menu" : "Open menu"} aria-expanded={menuOpen} aria-controls="site-menu">{menuOpen ? <X size={21} /> : <List size={21} />}</button>
+    </div>
   </header>;
 }
 
-const groups = [
-  { label: "DISCOVER", items: [["/", "Home", "home", Compass], ["/movies", "Movies", "movies", FilmSlate], ["/shows", "TV Shows", "shows", MonitorPlay], ["/anime", "Anime", "anime", Sparkle], ["/guide", "TV Guide", "guide", Television]] },
-  { label: "HOME MEDIA", items: [["/library", "Home Videos", "library", Camera], ["/shorts", "Shorts", "shorts", Play], ["/topics", "Topics", "topics", Tag]] },
-  { label: "COLLECTION", items: [["/feeds", "Your feeds", "feeds", Rows], ["/liked", "Liked videos", "liked", Heart], ["/history", "Watch history", "history", ClockCounterClockwise], ["/downloads", "Downloads", "downloads", DownloadSimple], ["/search", "Explore", "search", FolderOpen]] },
-];
+// The narrow icon rail on the left of larger screens. Labels appear beside each icon on hover or focus.
+export function Rail({ route, navigate, AppLink }) {
+  const link = ([href, label, page, Icon]) => {
+    const current = active(route, page);
+    return <AppLink key={page} href={href} navigate={navigate} data-label={label} aria-label={label} aria-current={current ? "page" : undefined} className={`rail-link ${current ? "active" : ""}`}><Icon size={20} weight={current ? "fill" : "regular"} /></AppLink>;
+  };
+  return <aside className="site-rail" aria-label="Site">
+    <Brand navigate={navigate} compact />
+    <nav aria-label="Main">{groups.map((group, index) => <div className="rail-group" key={index}>{group.map(link)}</div>)}</nav>
+    <div className="rail-bottom">{link(["/settings", "Settings", "settings", Gear])}</div>
+  </aside>;
+}
 
-// A title page lights up the section it belongs to: Movies, TV Shows, or Anime.
-const active = (route, page) => route.page === page || (page === "feeds" && route.page === "feed");
-
-export function Sidebar({ route, navigate, open, close, AppLink }) {
-  const sidebarRef = useRef(null);
+// On phones the menu button opens a panel of large tiles under the top bar.
+export function MobileMenu({ open, close, route, navigate, AppLink }) {
+  const panel = useRef(null);
   useEffect(() => {
     if (!open) return;
-    const query = window.matchMedia(DRAWER_NAV_QUERY);
-    const closeOnDock = () => { if (!query.matches) close(); };
-    query.addEventListener("change", closeOnDock);
-    return () => query.removeEventListener("change", closeOnDock);
+    const query = window.matchMedia(MOBILE_NAV_QUERY);
+    const closeWhenWide = () => { if (!query.matches) close(); };
+    const onKey = event => { if (event.key === "Escape") close(); };
+    query.addEventListener("change", closeWhenWide);
+    document.addEventListener("keydown", onKey);
+    panel.current?.querySelector("a")?.focus();
+    return () => { query.removeEventListener("change", closeWhenWide); document.removeEventListener("keydown", onKey); };
   }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const previousFocus = document.activeElement;
-    sidebarRef.current?.querySelector("button")?.focus();
-    const handleKey = event => {
-      if (event.key === "Escape") close();
-      if (event.key === "Tab") {
-        const items = sidebarRef.current?.querySelectorAll("a, button");
-        const first = items?.[0], last = items?.[items.length - 1];
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-      }
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => { document.removeEventListener("keydown", handleKey); previousFocus?.focus(); };
-  }, [open]);
-
+  if (!open) return null;
   return <>
-    {open && <button className="scrim" onClick={close} aria-label="Close navigation" />}
-    <aside ref={sidebarRef} id="site-navigation" className={`sidebar ${open ? "open" : ""}`}>
-      <div className="drawer-heading brand-group"><button className="menu-toggle icon-button" onClick={close} aria-label="Close navigation"><List size={23} /></button><Brand navigate={href => { close(); navigate(href); }} /></div>
-      {groups.map(group => <nav className="nav-group" aria-label={group.label.toLowerCase()} key={group.label}>
-        {group.label !== "DISCOVER" && <span className="nav-label">{group.label}</span>}
-        {group.items.map(([href, label, page, Icon]) => <AppLink key={page} href={href} navigate={navigate} onClick={close} title={label} aria-current={active(route, page) ? "page" : undefined} className={active(route, page) ? "active" : ""}><Icon size={22} /><span>{label}</span></AppLink>)}
-      </nav>)}
-      <div className="sidebar-bottom">
-        <AppLink href="/settings" navigate={navigate} onClick={close} title="Settings" aria-current={route.page === "settings" ? "page" : undefined} className={route.page === "settings" ? "active" : ""}><Gear size={22} /><span>Settings</span></AppLink>
-      </div>
-    </aside>
+    <button className="menu-scrim" onClick={close} aria-label="Close menu" tabIndex={-1} />
+    <nav ref={panel} id="site-menu" className="mobile-menu" aria-label="Site">
+      <div className="menu-tiles">{groups.flat().map(([href, label, page, Icon]) => <AppLink key={page} href={href} navigate={navigate} onClick={close} aria-current={active(route, page) ? "page" : undefined} className={active(route, page) ? "active" : ""}><Icon size={20} weight={active(route, page) ? "fill" : "regular"} /><span>{label}</span></AppLink>)}</div>
+      <AppLink href="/settings" navigate={navigate} onClick={close} className={`menu-row ${route.page === "settings" ? "active" : ""}`} aria-current={route.page === "settings" ? "page" : undefined}><Gear size={18} /><span>Settings</span><CaretRight size={15} /></AppLink>
+    </nav>
   </>;
 }
