@@ -40,7 +40,7 @@ export function usePlaybackSession({ asset, api }) {
       for (let tries = 0; tries < 160; tries++) {
         const response = await fetch(`/api/v1/assets/${asset.id}/stream`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ caps, ...attempt.options }), signal });
         const body = await response.json().catch(() => ({}));
-        if (response.status === 202) { setState(current => ({ ...current, stage: body.stage || current.stage })); await wait(1500, signal); continue; }
+        if (response.status === 202) { setState(current => ({ ...current, stage: body.stage || current.stage })); await wait(1000, signal); continue; }
         if (!response.ok) { setState({ phase: "error", stage: "", error: { message: body.error || "Playback is unavailable.", code: body.code }, info: null }); return; }
         setState({ phase: "ready", stage: "", error: null, info: body });
         return;

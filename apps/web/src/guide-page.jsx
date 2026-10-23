@@ -318,10 +318,33 @@ function ChannelLine({ channel, navigate, onEdit }) {
   </div>;
 }
 
+// Gets the next program ready shortly before it starts. The server already has its source; on Apple browsers
+// the repackaged stream is also started from the program's first second, so the change of program is instant.
+async function warmNext(next, env, signal) {
+  const caps = detectCaps();
+  for (let tries = 0; tries < 30; tries++) {
+    const response = await fetch(`/api/v1/assets/${next.id}/stream`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ caps }), signal });
+    if (response.status === 202) { await new Promise(resolve => setTimeout(resolve, 1000)); continue; }
+    if (!response.ok) return;
+    const info = await response.json();
+    const chosen = applyPreference(info, loadPreference(`title:${next.title_id}`));
+    const plan = planPlayback(info, { audioPosition: chosen?.audioPosition ?? null, env });
+    if (plan.remux && plan.hls) await fetch(remuxUrl(`/api/v1/assets/${next.id}/file`, plan, 0), { signal });
+    return;
+  }
+}
+
+// A program joined in its first seconds starts from the beginning (the stream readied ahead of time) and skips forward.
+const JOIN_FROM_START = 15;
+// How far a repackaged stream may drift from the broadcast before it is reopened at the live position.
+const REMUX_DRIFT = 15, DIRECT_DRIFT = 5;
+// With a source ready, the picture should appear well within this; otherwise the stream is reopened once.
+const START_TIMEOUT = 30_000;
+
 // Live TV for the tuned channel: joins each program at the elapsed time and rolls into the next one,
 // like the picture-in-picture window on a satellite guide. It never touches the playlist.
-// Movies and episodes open their source first (and the next program is prepared a little before it starts);
-// when the audio you want is not the file's default, the stream is repackaged from the live position.
+// The server readies the programs of the channel being watched ahead of time; the artwork and progress stay up
+// until the picture actually plays, and a program that cannot play gives way to what is on next.
 function GuidePlayer({ api, channel, navigate, onLost }) {
   const [lineup, setLineup] = useState(null);
   const [airingStart, setAiringStart] = useState(null);
@@ -332,7 +355,11 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
   const [transcode, setTranscode] = useState(false);
   const [restart, setRestart] = useState(0);
   const [time, setTime] = useState(0);
-  const shell = useRef(null), video = useRef(null), counted = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const [buffering, setBuffering] = useState(false);
+  const [needsTap, setNeedsTap] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const shell = useRef(null), video = useRef(null), counted = useRef(null), skipped = useRef(new Set()), reopened = useRef(0);
   // Fetches the channel from now on and starts whatever is airing.
   const sync = useCallback(() => {
     let active = true;
@@ -345,13 +372,21 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
     return () => { active = false; };
   }, [api, channel.key, onLost]);
   useEffect(() => { setLineup(null); setFailed(false); return sync(); }, [sync]);
+  // Tell the server which channel is on (and that it still is), so it readies what airs next.
+  useEffect(() => {
+    const report = () => fetch("/api/v1/guide/tune", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel: channel.key }) }).catch(() => {});
+    report();
+    const timer = setInterval(report, 10 * 60_000);
+    return () => clearInterval(timer);
+  }, [channel.key]);
   useEffect(() => {
     const update = () => setFullscreen(document.fullscreenElement === shell.current);
     document.addEventListener("fullscreenchange", update);
     return () => document.removeEventListener("fullscreenchange", update);
   }, []);
   const program = lineup?.find(item => item.start === airingStart) || null;
-  useEffect(() => { setFailed(false); setTranscode(false); setRestart(0); setTime(0); }, [program?.id, program?.start]);
+  useEffect(() => { setFailed(false); setTranscode(false); setRestart(0); setTime(0); reopened.current = 0; }, [program?.id, program?.start]);
+  useEffect(() => { setPlaying(false); setBuffering(false); setNeedsTap(false); }, [program?.id, program?.start, restart, transcode]);
 
   const guideAsset = useMemo(() => ({ id: program?.id || "none", kind: "video", catalog: program?.catalog ? { titleId: program.title_id } : undefined }), [program?.id, program?.catalog, program?.title_id]);
   const session = usePlaybackSession({ asset: guideAsset, api });
@@ -361,18 +396,32 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
   const plan = useMemo(() => planPlayback(info, { audioPosition: chosen?.audioPosition ?? null, transcode, env }), [info, chosen, transcode, env]);
   const sessionReady = session.phase === "ready";
   // Where a repackaged stream begins: the live position when it is opened (or reopened after falling behind).
-  const streamStart = useMemo(() => program ? Math.floor(Math.max(0, (Date.now() - program.start) / 1000)) : 0, [program?.id, program?.start, sessionReady, restart, transcode]);
+  const streamStart = useMemo(() => {
+    if (!program) return 0;
+    const elapsed = Math.max(0, (Date.now() - program.start) / 1000);
+    return elapsed < JOIN_FROM_START ? 0 : Math.floor(elapsed);
+  }, [program?.id, program?.start, sessionReady, restart, transcode]);
   const subtitles = useSubtitleCues(captions && chosen?.subtitleId);
   const [subtitleStyle] = useSubtitleStyle();
 
-  // Prepare the next program shortly before it starts so the change of program is seamless.
   useEffect(() => {
     if (!lineup || !program) return;
     const next = lineup.find(item => item.start === program.end);
     if (!next?.catalog) return;
-    const timer = setTimeout(() => { fetch(`/api/v1/assets/${next.id}/stream`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ caps: detectCaps() }) }).catch(() => {}); }, Math.max(0, program.end - 45_000 - Date.now()));
-    return () => clearTimeout(timer);
-  }, [lineup, program?.id, program?.start]);
+    const controller = new AbortController();
+    const timer = setTimeout(() => { warmNext(next, env, controller.signal).catch(() => {}); }, Math.max(0, program.end - 30_000 - Date.now()));
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [lineup, program?.id, program?.start, env]);
+
+  // A program with no playable source gives way to what is on next: the server has taken it off the schedule.
+  const code = session.phase === "error" ? session.error?.code : null;
+  useEffect(() => {
+    if (!program || !["no-source", "failed"].includes(code) || skipped.current.has(program.id)) return;
+    skipped.current.add(program.id);
+    setNotice(`${program.title} can't be played right now. Switching to what's on next…`);
+    const timer = setTimeout(() => { setNotice(null); sync(); }, 2500);
+    return () => { clearTimeout(timer); setNotice(null); };
+  }, [code, program?.id, sync]);
 
   // Stay on the broadcast clock: after a program ends (or playback fell behind), play what is airing now.
   const advance = () => {
@@ -382,26 +431,38 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
     else sync();
   };
   const liveSeconds = () => Math.max(0, (Date.now() - program.start) / 1000);
-  const playMuted = media => media.play().catch(() => { media.muted = true; setMuted(true); media.play().catch(() => {}); });
-  const playLive = media => {
-    // A repackaged stream already begins at the live position.
-    if (!plan.remux) media.currentTime = liveSeconds();
-    // Browsers block sound until the page has been interacted with; fall back to muted playback.
-    playMuted(media);
+  const position = media => (plan.remux ? streamStart : 0) + media.currentTime;
+  // Moves to the live position inside the current stream. A repackaged stream can only go as far as it has
+  // been made; returns false when the live position is past that.
+  const reachLive = media => {
+    const target = liveSeconds() - (plan.remux ? streamStart : 0);
+    if (plan.remux) {
+      const end = media.seekable.length ? media.seekable.end(media.seekable.length - 1) : 0;
+      if (target > end - 1) return false;
+    }
+    if (Math.abs(media.currentTime - target) > 1) media.currentTime = target;
+    return true;
   };
+  const playMuted = media => media.play().then(() => setNeedsTap(false)).catch(() => {
+    // Browsers block sound until the page has been interacted with; fall back to muted playback, then to a tap.
+    media.muted = true; setMuted(true);
+    media.play().then(() => setNeedsTap(false)).catch(() => setNeedsTap(true));
+  });
   const start = event => {
     const media = event.currentTarget;
     const total = plan.remux && info?.durationMs ? info.durationMs / 1000 : media.duration;
     if (Number.isFinite(total) && liveSeconds() >= total - 1) { advance(); return; }
-    playLive(media);
+    reachLive(media);
+    playMuted(media);
   };
   // Phones pause video while the browser is in the background; on return, rejoin the broadcast where it is now.
   const catchUp = () => {
     const live = lineup && airing(lineup, Date.now());
     if (!live) { if (lineup) sync(); return; }
     if (live.start !== airingStart) { setAiringStart(live.start); return; }
-    if (plan.remux) { setRestart(value => value + 1); return; }
-    if (video.current?.readyState >= 1) playLive(video.current);
+    const media = video.current;
+    if (!media || media.readyState < 1) return;
+    if (reachLive(media)) playMuted(media); else setRestart(value => value + 1);
   };
   const catchUpRef = useRef(catchUp);
   catchUpRef.current = catchUp;
@@ -413,9 +474,9 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
   }, []);
   // Playback that resumes behind (a stall, or a pause in the system player) jumps back to live.
   const keepLive = event => {
-    const here = (plan.remux ? streamStart : 0) + event.currentTarget.currentTime;
-    if (Math.abs(liveSeconds() - here) <= 5) return;
-    if (plan.remux) setRestart(value => value + 1); else event.currentTarget.currentTime = liveSeconds();
+    const media = event.currentTarget;
+    if (Math.abs(liveSeconds() - position(media)) <= (plan.remux ? REMUX_DRIFT : DIRECT_DRIFT)) return;
+    if (!reachLive(media)) setRestart(value => value + 1);
   };
   const countView = () => {
     const key = `${program.id}:${program.start}`;
@@ -423,29 +484,51 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
     counted.current = key;
     api(`/api/v1/assets/${program.id}/views`, { method: "POST", body: JSON.stringify({ sessionId: crypto.randomUUID() }) }).catch(() => {});
   };
+  // Reopens the stream once before giving up on it.
+  const reopen = () => {
+    if (reopened.current >= 1) { setFailed(true); return; }
+    reopened.current++;
+    setRestart(value => value + 1);
+  };
   const onVideoError = event => {
     // Video the browser cannot decode is re-encoded by the server, once.
     if (program?.catalog && !transcode && [3, 4].includes(event.currentTarget.error?.code)) { setTranscode(true); setRestart(value => value + 1); return; }
-    setFailed(true);
+    reopen();
   };
+  const showing = Boolean(program && sessionReady && !failed);
+  useEffect(() => {
+    if (!showing || playing || needsTap) return;
+    // Phones hold video back while the page is in the background; that is not a failure.
+    const timer = setTimeout(() => { if (!document.hidden) reopen(); }, START_TIMEOUT);
+    return () => clearTimeout(timer);
+  }, [showing, playing, needsTap, restart]);
+  const retry = () => { reopened.current = 0; skipped.current.delete(program?.id); setFailed(false); if (session.phase === "error") session.retry(); else setRestart(value => value + 1); };
   const toggleMute = () => { const next = !muted; setMuted(next); if (video.current) video.current.muted = next; };
   const toggleFullscreen = () => document.fullscreenElement ? document.exitFullscreen() : shell.current?.requestFullscreen?.();
   const base = program ? `/api/v1/assets/${program.id}/file` : "";
   const src = program && (plan.remux ? remuxUrl(base, plan, streamStart) : base);
   const tuning = program && session.phase === "loading";
-  const unavailable = program && session.phase === "error";
+  const unavailable = program && session.phase === "error" && !notice;
+  const starting = showing && !playing;
+  const stage = notice || (tuning ? session.stage || "Tuning in…" : needsTap ? "Ready to play" : restart && !transcode ? "Catching up…" : "Starting the stream…");
 
   return <div className="guide-screen">
     <div ref={shell} className={`guide-player ${fullscreen ? "is-fullscreen" : ""}`} onDoubleClick={toggleFullscreen}>
       {program?.thumbnail_url && <img src={program.thumbnail_url} alt="" />}
-      {program && sessionReady && !failed && <video ref={video} key={`${program.id}:${program.start}:${restart}`} src={src} muted={muted} playsInline disablePictureInPicture preload="auto"
-        onLoadedMetadata={start} onPlaying={event => { countView(); keepLive(event); }} onEnded={advance} onError={onVideoError}
-        onTimeUpdate={event => setTime((plan.remux ? streamStart : 0) + event.currentTarget.currentTime)} />}
-      {sessionReady && !failed && captions && chosen?.subtitleId && <SubtitleLayer cues={subtitles.cues} time={time} size={subtitleStyle.size} background={subtitleStyle.background} />}
-      {tuning && <div className="guide-player-message" role="status"><p>Tuning in… {session.stage}</p></div>}
-      {unavailable && <div className="guide-player-message" role="alert"><p>{session.error.message}</p>{session.error.code === "not-configured" ? <a className="outline-button" href="/settings#streaming">Open streaming settings</a> : <button className="outline-button" onClick={() => session.retry()}>Try again</button>}</div>}
+      {showing && <video ref={video} key={`${program.id}:${program.start}:${restart}`} src={src} muted={muted} playsInline disablePictureInPicture preload="auto" className={playing ? "" : "is-starting"}
+        onLoadedMetadata={start} onPlaying={event => { setPlaying(true); setBuffering(false); countView(); keepLive(event); }} onWaiting={() => setBuffering(true)} onEnded={advance} onError={onVideoError}
+        onTimeUpdate={event => setTime(position(event.currentTarget))} />}
+      {showing && playing && captions && chosen?.subtitleId && <SubtitleLayer cues={subtitles.cues} time={time} size={subtitleStyle.size} background={subtitleStyle.background} />}
+      {program && (tuning || starting || notice) && <div className="guide-player-message guide-tuning" role="status">
+        {!needsTap && <span className="guide-spinner" aria-hidden="true" />}
+        <p className="guide-tuning-title"><strong>{program.title}</strong>{program.subtitle && <small>{program.subtitle}</small>}</p>
+        <p className="guide-tuning-stage">{stage}</p>
+        {needsTap && <button className="primary-button" onClick={() => video.current && playMuted(video.current)}><Play size={16} weight="fill" /> Play</button>}
+      </div>}
+      {showing && playing && buffering && <span className="guide-spinner guide-buffering" aria-label="Buffering" />}
+      {unavailable && <div className="guide-player-message" role="alert"><p>{session.error.message}</p>{session.error.code === "not-configured" ? <a className="outline-button" href="/settings#streaming">Open streaming settings</a> : <button className="outline-button" onClick={retry}><ArrowCounterClockwise size={16} /> Try again</button>}</div>}
       {lineup && !program && <p className="guide-player-message">Nothing is airing on this channel right now.</p>}
-      {failed && <div className="guide-player-message"><p>This video can't play here.</p><button className="outline-button" onClick={() => navigate(`/watch/${program.id}?t=${liveOffset(program, Date.now()) ?? 0}`)}><ArrowSquareOut size={16} /> Open in player</button></div>}
+      {failed && <div className="guide-player-message" role="alert"><p>This video can't play here.</p><div className="guide-player-actions"><button className="outline-button" onClick={retry}><ArrowCounterClockwise size={16} /> Try again</button><button className="outline-button" onClick={() => navigate(`/watch/${program.id}?t=${liveOffset(program, Date.now()) ?? 0}`)}><ArrowSquareOut size={16} /> Open in player</button></div></div>}
       <div className="guide-player-bar">
         <span className="guide-live-pill"><Broadcast size={13} weight="fill" /> Live</span>
         <span className="guide-player-title"><strong>{channel.number} · {channel.name}</strong>{program && <small>{program.subtitle ? `${program.title} · ${program.subtitle}` : program.title}</small>}</span>

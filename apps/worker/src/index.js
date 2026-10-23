@@ -3,7 +3,7 @@ import { createDownloadRunner } from "@kiwi/downloads/runner";
 import { registerPlugin } from "@kiwi/downloads";
 import { mediaDownloadPlugin } from "@kiwi/media";
 import { scanRoot, enrichRoot, enqueue, importDownloadedFiles } from "./library.js";
-import { refreshLibrary } from "./catalog.js";
+import { checkAvailability, refreshLibrary } from "./catalog.js";
 
 const workerId = `worker-${process.pid}`;
 const now = () => new Date().toISOString();
@@ -47,6 +47,15 @@ for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => downloads
 const maintain = () => refreshLibrary().then(result => { if (result.refreshed || result.pruned) console.log(JSON.stringify({ catalog: result })); }).catch(console.error);
 setTimeout(maintain, 60_000).unref();
 setInterval(maintain, 3_600_000).unref();
+// Streamed episodes are checked for a playable release in small batches, so the TV guide skips the ones without.
+let checking = false;
+const check = () => {
+  if (checking) return;
+  checking = true;
+  checkAvailability().then(result => { if (result.checked) console.log(JSON.stringify({ availability: result })); }).catch(console.error).finally(() => { checking = false; });
+};
+setTimeout(check, 90_000).unref();
+setInterval(check, 10 * 60_000).unref();
 
 console.log(`Kiwi worker ${workerId} ready`);
 setInterval(() => poll().catch(console.error), 1500);

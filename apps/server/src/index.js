@@ -12,10 +12,11 @@ import { parseRange } from "./range.js";
 import { registerTagMetadata, tagMetadata } from "./tag-metadata.js";
 import { registerDownloads } from "./downloads.js";
 import { registerGuide } from "./guide.js";
+import { createGuideWarmer } from "./guide-warm.js";
 import { registerMedia } from "./media.js";
 import { clipById, listClips, registerClips } from "./clips.js";
 import { registerPlugin } from "@kiwi/downloads";
-import { mediaDownloadPlugin, nextEpisodeAfter, previousEpisodeBefore, imageUrl } from "@kiwi/media";
+import { getMedia, getProvider, mediaDownloadPlugin, nextEpisodeAfter, previousEpisodeBefore, imageUrl } from "@kiwi/media";
 
 const app = Fastify({ logger: true });
 const playbackCache = createPlaybackCache(resolve(generatedDir, "playback"), {
@@ -34,7 +35,11 @@ await app.register(fastifyStatic, { root: webPublic, prefix: "/assets/", decorat
 registerTagMetadata(app);
 // Lazy: resolveTopic is declared further down.
 registerDownloads(app, { resolveTopic: (...args) => resolveTopic(...args) });
-registerGuide(app);
+const guideWarmer = createGuideWarmer({
+  prepare: id => getProvider("torbox").configured ? getMedia().sources.prepare(id) : Promise.resolve(),
+  log: message => console.log(`[guide] ${message}`),
+});
+registerGuide(app, { warmer: guideWarmer });
 registerPlugin(mediaDownloadPlugin);
 // Lazy: resolveTopic is declared further down.
 const streaming = registerMedia(app, { resolveTopic: (...args) => resolveTopic(...args) });
@@ -489,4 +494,7 @@ app.post("/api/v1/library/scan", async (req, reply) => {
 app.get("/api/v1/jobs", async () => db.prepare("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 50").all());
 
 export { app };
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await app.listen({ host, port });
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await app.listen({ host, port });
+  guideWarmer.start();
+}

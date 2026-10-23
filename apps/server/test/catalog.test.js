@@ -248,6 +248,39 @@ test('the file route proxies the source with range support', async () => {
   assert.deepEqual([...part.rawPayload], [...bytes.subarray(10, 20)]);
 });
 
+test('tuning back in reuses the tracks read the first time instead of probing the file again', async () => {
+  const title = db.prepare("SELECT id FROM titles WHERE tmdb_id=100").get();
+  const assetId = `${title.id}-s01e02`;
+  let probes = 0;
+  const counting = () => media.createSourceService({ torbox, indexers: [indexer], probeImpl: async () => { probes++; return probeInfo; } });
+  const saved = media.getMedia();
+  try {
+    // A new service has no memory of earlier links or results, like the server after a restart.
+    media.setMedia({ ...saved, sources: counting() });
+    assert.equal((await post(`/api/v1/assets/${assetId}/stream`, { caps: [] })).statusCode, 200);
+    media.setMedia({ ...saved, sources: counting() });
+    const again = await post(`/api/v1/assets/${assetId}/stream`, { caps: [] });
+    assert.equal(again.statusCode, 200, again.body);
+    assert.equal(again.json().audio.length, 2);
+    assert.equal(probes, 0, 'the stored tracks of the chosen source are used');
+  } finally { media.setMedia(saved); }
+});
+
+test('a slow indexer does not hold up a release another one has already found', async () => {
+  const anime = db.prepare("SELECT id FROM titles WHERE tmdb_id=200").get();
+  const assetId = `${anime.id}-s01e01`;
+  torboxState.cached.add('e'.repeat(40));
+  const fast = { id: 'torrentio', async search() { return [{ infoHash: 'e'.repeat(40), releaseName: 'Anime.Show.S01E01.1080p.WEB-DL.x264-GRP', fileName: 'Test.Show.S01E01.1080p.mkv', size: 1.5e9, seeders: 30, indexer: 'torrentio', idBased: true }]; } };
+  let slowTimer;
+  const slow = { id: 'nyaa', search: () => new Promise(resolve => { slowTimer = setTimeout(() => resolve([]), 5_000); }) };
+  const sources = media.createSourceService({ torbox, indexers: [fast, slow], probeImpl: async () => probeInfo, indexerGraceMs: 50 });
+  const started = Date.now();
+  const result = await sources.prepare(assetId);
+  clearTimeout(slowTimer);
+  assert.equal(result.status, 'ready');
+  assert.ok(Date.now() - started < 2_000, `prepared in ${Date.now() - started} ms`);
+});
+
 test('with nothing cached the player gets a clear message instead of a hang', async () => {
   const title = db.prepare("SELECT id FROM titles WHERE tmdb_id=100").get();
   torboxState.cached.clear();
@@ -272,6 +305,42 @@ test('the guide airs library episodes in order, back to back, under the show nam
   assert.equal(labels[labels.indexOf('1.3') + 1], '2.1');
   assert.equal(labels.includes('2.2'), false);
   for (let index = 1; index < programs.length; index++) assert.equal(programs[index].start, programs[index - 1].end);
+});
+
+test('the background check keeps an episode with nothing playable off the guide until a release appears', async () => {
+  const title = db.prepare("SELECT id FROM titles WHERE tmdb_id=100").get();
+  const assetId = `${title.id}-s01e03`;
+  db.prepare("DELETE FROM playback_sources WHERE asset_id=?").run(assetId);
+  db.prepare("UPDATE assets SET availability='unknown' WHERE id=?").run(assetId);
+  const third = { id: 'torrentio', async search() { return [{ infoHash: 'f'.repeat(40), releaseName: 'Test.Show.S01E03.1080p.WEB-DL.x264-GRP', size: 1.5e9, seeders: 30, indexer: 'torrentio', idBased: true }]; } };
+  const sources = media.createSourceService({ torbox, indexers: [third], probeImpl: async () => probeInfo });
+  const aired = async () => (await get(`/api/v1/guide?start=${GUIDE_EPOCH}&hours=12&limit=100&filter=genres`)).json()
+    .channels.find(channel => channel.name === 'Comedy').programs.some(program => program.id === assetId);
+  assert.equal(await aired(), true);
+  torboxState.cached.clear();
+  assert.equal(await sources.check(assetId), 'unavailable');
+  assert.equal(await aired(), false, 'nothing instantly playable: it does not air');
+  assert.equal(await sources.check(assetId), 'unavailable', 'checked again only after a day');
+  torboxState.cached.add('f'.repeat(40));
+  db.prepare("UPDATE assets SET updated_at='2000-01-01T00:00:00.000Z' WHERE id=?").run(assetId);
+  assert.equal(await sources.check(assetId), 'available');
+  assert.equal(await aired(), true);
+  assert.equal(await sources.check(assetId), 'known', 'found releases are not searched for again');
+});
+
+test('the channel being watched has its current and next programs readied ahead of time', async () => {
+  const { createGuideWarmer } = await import('../src/guide-warm.js');
+  const rows = (await get(`/api/v1/guide?start=${GUIDE_EPOCH + 3_600_000}&hours=1&limit=100&filter=genres`)).json();
+  const comedy = rows.channels.find(channel => channel.name === 'Comedy');
+  const at = comedy.programs[0].end - 5 * 60_000;
+  const readied = [];
+  const warmer = createGuideWarmer({ prepare: async id => { readied.push(id); }, now: () => at });
+  assert.deepEqual(await warmer.run(), [], 'nothing is warmed until a channel is tuned');
+  warmer.tune(comedy.key);
+  await warmer.run();
+  assert.deepEqual(readied.slice(0, 2), [comedy.programs[0].id, comedy.programs[1].id], 'what is on now, then what starts within minutes');
+  assert.equal((await post('/api/v1/guide/tune', { channel: comedy.key })).statusCode, 204);
+  assert.equal((await post('/api/v1/guide/tune', {})).statusCode, 400);
 });
 
 test('downloads need a destination, then queue one job per episode that attaches to the same item', async () => {

@@ -176,3 +176,16 @@
 @keyframes guide-sheet-in { from { transform: translateY(100%); } }
 @media (prefers-reduced-motion: reduce) { .dialog.guide-sheet { animation: none; } }
 @media (hover: none) { .guide-channel-edit { opacity: 1; } }
+
+/* Tuning in: the program's artwork and progress stay up until the picture actually plays. */
+.guide-player > video.is-starting { opacity: 0; }
+.guide-tuning { background: radial-gradient(ellipse at center, #0009, #000c); }
+.guide-tuning-title { display: flex; flex-direction: column; gap: 3px; max-width: 90%; color: #fff; }
+.guide-tuning-title strong { font-size: 16px; }
+.guide-tuning-title small { font-size: 12px; color: #ffffffb3; }
+.guide-tuning-stage { font-size: 12px; color: #ffffffa6; min-height: 1.4em; }
+.guide-spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid #ffffff2e; border-top-color: #fff; animation: guide-spin .8s linear infinite; }
+.guide-buffering { position: absolute; z-index: 1; top: 50%; left: 50%; margin: -14px 0 0 -14px; pointer-events: none; }
+.guide-player-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+@keyframes guide-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .guide-spinner { animation-duration: 2.4s; } }

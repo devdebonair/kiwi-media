@@ -236,7 +236,8 @@ export function registerMedia(app, { resolveTopic }) {
     const { sources } = media();
     const work = sources.prepare(id, { sourceId: req.body?.sourceId, caps: capsOf(req.body), rediscover: Boolean(req.body?.rediscover) });
     work.catch(() => {});
-    const waited = await within(work.then(result => ({ result }), error => ({ error })), 20_000, { pending: true });
+    // Answer within a few seconds either way, so the player can show what is happening while it waits.
+    const waited = await within(work.then(result => ({ result }), error => ({ error })), 4_000, { pending: true });
     if (waited.pending) return reply.code(202).send({ status: "preparing", stage: sources.stage(id) });
     if (waited.error?.code === "downloading") return reply.code(202).send({ status: "preparing", stage: waited.error.message });
     if (waited.error) throw waited.error;
@@ -271,7 +272,7 @@ export function registerMedia(app, { resolveTopic }) {
   const sourceInput = async assetId => {
     const asset = db.prepare("SELECT file_path FROM assets WHERE id=?").get(assetId);
     if (asset?.file_path && existsSync(asset.file_path)) return asset.file_path;
-    return (await media().sources.streamUrl(assetId)).url;
+    return (await media().sources.input(assetId)).url;
   };
 
   const hls = createHlsSessions({ directory: join(generatedDir, "hls") });
@@ -305,19 +306,14 @@ export function registerMedia(app, { resolveTopic }) {
   async function proxy(req, reply, assetId) {
     const controller = new AbortController();
     reply.raw.on("close", () => controller.abort());
-    const open = async force => {
-      const { url, row } = await media().sources.streamUrl(assetId, { force });
-      const headers = {};
-      if (req.headers.range) headers.range = req.headers.range;
-      const upstream = await fetch(url, { headers, signal: controller.signal, redirect: "follow" });
-      return { upstream, row };
-    };
-    let { upstream, row } = await open(false);
-    if ([401, 403, 404, 410].includes(upstream.status)) { await upstream.body?.cancel().catch(() => {}); ({ upstream, row } = await open(true)); }
+    // The stream cache refreshes expired links and serves the file's start and end from disk.
+    const { url, row } = await media().sources.input(assetId);
+    const upstream = await fetch(url, { headers: req.headers.range ? { range: req.headers.range } : {}, signal: controller.signal });
     if (upstream.status >= 400 && upstream.status !== 416) { await upstream.body?.cancel().catch(() => {}); return reply.code(502).send({ error: "The stream is unavailable right now." }); }
     const type = row.file_name ? mime.lookup(row.file_name) : false;
     reply.code(upstream.status).header("Accept-Ranges", "bytes").header("Content-Type", type || upstream.headers.get("content-type") || "video/mp4").header("Cache-Control", "no-store");
     for (const name of ["content-length", "content-range"]) if (upstream.headers.get(name)) reply.header(name, upstream.headers.get(name));
+    if (req.method === "HEAD") { await upstream.body?.cancel().catch(() => {}); return reply.send(); }
     return reply.send(Readable.fromWeb(upstream.body));
   }
 

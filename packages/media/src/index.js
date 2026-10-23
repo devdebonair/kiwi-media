@@ -11,5 +11,6 @@ export * from "./tracks.js";
 export * from "./sources.js";
 export * from "./subtitles.js";
 export * from "./stream.js";
+export * from "./source-cache.js";
 export * from "./services.js";
 export { mediaDownloadPlugin, MEDIA_SCHEME, MEDIA_DOWNLOADER_ID, libraryPath } from "./download-plugin.js";

@@ -4,6 +4,7 @@ import { createImageStore } from "./images.js";
 import { createNyaa, createTorrentio } from "./indexers.js";
 import { createOpenSubtitles } from "./opensubtitles.js";
 import { getPlayback, getProvider } from "./settings.js";
+import { createSourceCache } from "./source-cache.js";
 import { createSourceService, describeSource } from "./sources.js";
 import { createSubtitleService, languageLabel } from "./subtitles.js";
 import { createTmdb } from "./tmdb.js";
@@ -16,12 +17,14 @@ let media;
 export function getMedia() {
   if (media) return media;
   const tmdb = createTmdb(), torbox = createTorbox(), images = createImageStore(), opensubs = createOpenSubtitles();
-  const sources = createSourceService({ torbox, indexers: [createTorrentio(), createNyaa()], log: message => console.log(`[media] ${message}`) });
+  // Readers open streamed files through the local stream cache, which keeps their start and end on disk.
+  const streams = createSourceCache({ resolve: (sourceId, options) => sources.linkFor(sourceId, options), log: message => console.log(`[media] ${message}`) });
+  const sources = createSourceService({ torbox, indexers: [createTorrentio(), createNyaa()], inputFor: sourceId => streams.address(sourceId), log: message => console.log(`[media] ${message}`) });
   const subtitles = createSubtitleService({
     resolveInput: async assetId => {
       const asset = db.prepare("SELECT file_path FROM assets WHERE id=?").get(assetId);
       if (asset?.file_path && existsSync(asset.file_path)) return asset.file_path;
-      return (await sources.streamUrl(assetId)).url;
+      return (await sources.input(assetId)).url;
     },
     external: {
       search: query => opensubs.available() ? opensubs.search(query) : [],
@@ -29,7 +32,7 @@ export function getMedia() {
     },
     log: message => console.log(`[media] ${message}`),
   });
-  media = { tmdb, torbox, images, sources, subtitles, opensubs };
+  media = { tmdb, torbox, images, sources, subtitles, opensubs, streams };
   return media;
 }
 export function setMedia(custom) { media = custom; }

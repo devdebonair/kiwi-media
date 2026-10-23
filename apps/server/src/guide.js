@@ -167,7 +167,15 @@ const transaction = work => {
   try { const result = work(); db.exec("COMMIT"); return result; } catch (error) { db.exec("ROLLBACK"); throw error; }
 };
 
-export function registerGuide(app) {
+export function registerGuide(app, { warmer } = {}) {
+  // The guide's player reports the channel it is showing, so its programs can be readied ahead of time.
+  app.post("/api/v1/guide/tune", async (req, reply) => {
+    const key = typeof req.body?.channel === "string" ? req.body.channel : "";
+    if (!key || key.length > 200) return reply.code(400).send({ error: "channel is required" });
+    warmer?.tune(key);
+    return reply.code(204).send();
+  });
+
   // Channels (paged, in number order) with the programs airing in [start, start + hours).
   app.get("/api/v1/guide", async (req, reply) => {
     const now = Date.now();
