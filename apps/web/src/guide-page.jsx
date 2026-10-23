@@ -1,8 +1,8 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
-import { ArrowCounterClockwise, ArrowSquareOut, Broadcast, CaretDown, CaretLeft, ClosedCaptioning, CornersIn, CornersOut, FilmSlate, MagnifyingGlass, PencilSimple, Play, Plus, SpeakerHigh, SpeakerSlash, Stack, Television, X } from "@phosphor-icons/react";
+import { createPortal, flushSync } from "react-dom";
+import { ArrowCounterClockwise, ArrowSquareOut, Broadcast, CaretDown, CaretLeft, ClosedCaptioning, CornersIn, CornersOut, FilmSlate, MagnifyingGlass, MonitorPlay, PencilSimple, Play, Plus, SpeakerHigh, SpeakerSlash, Stack, Television, X } from "@phosphor-icons/react";
 import { InfiniteScroll } from "./infinite-scroll.jsx";
 import { ChannelEditor } from "./guide-channel-editor.jsx";
 import { Modal } from "./modal.jsx";
@@ -14,6 +14,7 @@ import { detectCaps, usePlaybackSession } from "./playback-session.jsx";
 import { detectEnvironment, planPlayback, remuxUrl } from "./playback-plan.mjs";
 import { applyPreference, loadPreference } from "./track-preferences.mjs";
 import { SubtitleLayer, useSubtitleCues, useSubtitleStyle } from "./subtitle-layer.jsx";
+import { TheaterGuide } from "./guide-theater.jsx";
 
 const HOURS = 4, PAGE = 40;
 const filters = [["all", "All channels"], ["media", "Movies & shows"], ["genres", "Genres"], ["services", "Services"], ["custom", "My channels"], ["people", "People"], ["tags", "Tags"]];
@@ -28,6 +29,11 @@ export const rememberChannel = channel => {
     else localStorage.removeItem(LAST_CHANNEL_KEY);
   } catch { /* The guide falls back to the top channel. */ }
 };
+
+// Theater (the picture filling the window under an on-screen guide) is the default on screens wider than a phone;
+// leaving it for the full grid is remembered on this device.
+const THEATER_KEY = "kiwi.guide.theater.v1";
+const theaterPreferred = () => { try { return localStorage.getItem(THEATER_KEY) !== "0"; } catch { return true; } };
 
 // Phones get a page-scrolling layout: pinned player, compact toolbar, and program details in a bottom sheet.
 const PHONE_QUERY = "(max-width: 680px)";
@@ -59,6 +65,20 @@ export function GuidePage({ api, navigate, Loading }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [sheet, setSheet] = useState(false);
   const phone = usePhone();
+  const [theaterChoice, setTheaterChoice] = useState(theaterPreferred);
+  const theater = theaterChoice && !phone;
+  const [controls, setControls] = useState(null);
+  const pageRef = useRef(null);
+  const chooseTheater = value => {
+    setTheaterChoice(value);
+    try { localStorage.setItem(THEATER_KEY, value ? "1" : "0"); } catch { /* Only this visit. */ }
+    if (!value && document.fullscreenElement === pageRef.current) document.exitFullscreen?.().catch(() => {});
+  };
+  // In theater the whole page (picture and guide) goes full screen; otherwise just the player.
+  const toggleTheaterFullscreen = useCallback(() => {
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    else pageRef.current?.requestFullscreen?.().catch(() => {});
+  }, []);
   // Until the last channel's row is on screen, keep loading pages so it can be shown and selected.
   const revealing = useRef(Boolean(tuned));
   const gridRef = useRef(null), timebarRef = useRef(null), searchRef = useRef(null), generation = useRef(0), queryKey = useRef(null), pending = useRef(false), dataRef = useRef(null);
@@ -182,9 +202,13 @@ export function GuidePage({ api, navigate, Loading }) {
   const deleted = () => { setEditing(null); setSelected(null); setVersion(v => v + 1); };
   const nowX = (now - start) / 60_000;
 
-  return <div className="content guide-page">
+  return <div ref={pageRef} className={`content guide-page ${theater ? "is-theater" : ""}`}>
     <h1 className="sr-only">TV guide</h1>
-    <GuideHero api={api} phone={phone} channel={channel} program={program} now={now} tuned={tuned} onTune={tune} onEdit={setEditing} onLost={lostChannel} navigate={navigate} />
+    <GuideHero api={api} phone={phone} channel={channel} program={program} now={now} tuned={tuned} onTune={tune} onEdit={setEditing} onLost={lostChannel} navigate={navigate}
+      controls={theater ? controls : null} fullscreenRoot={theater ? pageRef : null} />
+    {theater && <TheaterGuide channels={channels} total={data?.total ?? 0} channel={channel} program={program} tuned={tuned} now={now} start={start} end={end}
+      select={select} tune={tune} tuneChannel={tuneChannel} loadMore={loadMore} exit={() => chooseTheater(false)} setControls={setControls}
+      toggleFullscreen={toggleTheaterFullscreen} navigate={navigate} Logo={ChannelLogo} />}
 
     <div className={`guide-toolbar ${searchOpen ? "is-searching" : ""}`}>
       <div className="chips" role="group" aria-label="Filter channels">
@@ -196,6 +220,7 @@ export function GuidePage({ api, navigate, Loading }) {
       </label>
       <label className="guide-search search"><MagnifyingGlass size={17} aria-hidden="true" /><input ref={searchRef} type="search" enterKeyHint="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Channel number or name" aria-label="Find a channel" /></label>
       <button className="guide-search-toggle icon-button" onClick={toggleSearch} aria-expanded={searchOpen} aria-label={searchOpen ? "Close channel search" : "Find a channel"}>{searchOpen ? <X size={19} /> : <MagnifyingGlass size={19} />}</button>
+      {!phone && <button className="outline-button guide-theater-button" onClick={() => chooseTheater(true)} title="Watch with the guide over the picture"><MonitorPlay size={17} /><span>Theater</span></button>}
       <button className="primary-button guide-new-channel" onClick={() => setEditing({})} aria-label="New channel"><Plus size={17} /><span>New channel</span></button>
     </div>
 
@@ -266,10 +291,10 @@ const GuideRow = memo(function GuideRow({ channel, row, start, end, now, isTuned
   </div>;
 });
 
-function GuideHero({ api, phone, tuned, onLost, navigate, ...info }) {
+function GuideHero({ api, phone, tuned, onLost, navigate, controls, fullscreenRoot, ...info }) {
   return <section className="guide-hero" aria-label="Live TV">
     {!phone && <ProgramInfo api={api} tuned={tuned} navigate={navigate} {...info} />}
-    {tuned ? <GuidePlayer key="player" api={api} channel={tuned} navigate={navigate} onLost={onLost} /> : <div className="guide-player is-idle" />}
+    {tuned ? <GuidePlayer key="player" api={api} channel={tuned} navigate={navigate} onLost={onLost} controls={controls} fullscreenRoot={fullscreenRoot} /> : <div className="guide-player is-idle" />}
   </section>;
 }
 
@@ -345,7 +370,8 @@ const START_TIMEOUT = 30_000;
 // like the picture-in-picture window on a satellite guide. It never touches the playlist.
 // The server readies the programs of the channel being watched ahead of time; the artwork and progress stay up
 // until the picture actually plays, and a program that cannot play gives way to what is on next.
-function GuidePlayer({ api, channel, navigate, onLost }) {
+// In theater its buttons move into the on-screen guide's top bar (`controls`), and full screen covers the whole page.
+function GuidePlayer({ api, channel, navigate, onLost, controls = null, fullscreenRoot = null }) {
   const [lineup, setLineup] = useState(null);
   const [airingStart, setAiringStart] = useState(null);
   const [muted, setMuted] = useState(false);
@@ -379,11 +405,15 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
     const timer = setInterval(report, 10 * 60_000);
     return () => clearInterval(timer);
   }, [channel.key]);
+  const fullscreenTarget = () => fullscreenRoot?.current || shell.current;
+  const targetRef = useRef(fullscreenTarget);
+  targetRef.current = fullscreenTarget;
   useEffect(() => {
-    const update = () => setFullscreen(document.fullscreenElement === shell.current);
+    const update = () => setFullscreen(Boolean(document.fullscreenElement) && document.fullscreenElement === targetRef.current());
+    update();
     document.addEventListener("fullscreenchange", update);
     return () => document.removeEventListener("fullscreenchange", update);
-  }, []);
+  }, [fullscreenRoot]);
   const program = lineup?.find(item => item.start === airingStart) || null;
   useEffect(() => { setFailed(false); setTranscode(false); setRestart(0); setTime(0); reopened.current = 0; }, [program?.id, program?.start]);
   useEffect(() => { setPlaying(false); setBuffering(false); setNeedsTap(false); }, [program?.id, program?.start, restart, transcode]);
@@ -504,7 +534,7 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
   }, [showing, playing, needsTap, restart]);
   const retry = () => { reopened.current = 0; skipped.current.delete(program?.id); setFailed(false); if (session.phase === "error") session.retry(); else setRestart(value => value + 1); };
   const toggleMute = () => { const next = !muted; setMuted(next); if (video.current) video.current.muted = next; };
-  const toggleFullscreen = () => document.fullscreenElement ? document.exitFullscreen() : shell.current?.requestFullscreen?.();
+  const toggleFullscreen = () => document.fullscreenElement ? document.exitFullscreen() : fullscreenTarget()?.requestFullscreen?.();
   const base = program ? `/api/v1/assets/${program.id}/file` : "";
   const src = program && (plan.remux ? remuxUrl(base, plan, streamStart) : base);
   const tuning = program && session.phase === "loading";
@@ -512,8 +542,14 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
   const starting = showing && !playing;
   const stage = notice || (tuning ? session.stage || "Tuning in…" : needsTap ? "Ready to play" : restart && !transcode ? "Catching up…" : "Starting the stream…");
 
+  const buttons = <>
+    {chosen?.subtitleId && <button className="guide-player-button" onClick={() => setCaptions(value => !value)} aria-pressed={captions} aria-label={captions ? "Turn subtitles off" : "Turn subtitles on"} title={captions ? "Subtitles on" : "Subtitles off"}><ClosedCaptioning size={17} weight={captions ? "fill" : "regular"} /></button>}
+    <button className="guide-player-button" onClick={toggleMute} aria-label={muted ? "Unmute" : "Mute"} title={muted ? "Unmute" : "Mute"}>{muted ? <SpeakerSlash size={17} weight="fill" /> : <SpeakerHigh size={17} weight="fill" />}</button>
+    <button className="guide-player-button" onClick={toggleFullscreen} aria-label={fullscreen ? "Exit full screen" : "Full screen"} title={fullscreen ? "Exit full screen" : "Full screen"}>{fullscreen ? <CornersIn size={17} /> : <CornersOut size={17} />}</button>
+  </>;
+
   return <div className="guide-screen">
-    <div ref={shell} className={`guide-player ${fullscreen ? "is-fullscreen" : ""}`} onDoubleClick={toggleFullscreen}>
+    <div ref={shell} className={`guide-player ${fullscreen && !controls ? "is-fullscreen" : ""}`} onDoubleClick={toggleFullscreen}>
       {program?.thumbnail_url && <img src={program.thumbnail_url} alt="" />}
       {showing && <video ref={video} key={`${program.id}:${program.start}:${restart}`} src={src} muted={muted} playsInline disablePictureInPicture preload="auto" className={playing ? "" : "is-starting"}
         onLoadedMetadata={start} onPlaying={event => { setPlaying(true); setBuffering(false); countView(); keepLive(event); }} onWaiting={() => setBuffering(true)} onEnded={advance} onError={onVideoError}
@@ -529,13 +565,12 @@ function GuidePlayer({ api, channel, navigate, onLost }) {
       {unavailable && <div className="guide-player-message" role="alert"><p>{session.error.message}</p>{session.error.code === "not-configured" ? <a className="outline-button" href="/settings#streaming">Open streaming settings</a> : <button className="outline-button" onClick={retry}><ArrowCounterClockwise size={16} /> Try again</button>}</div>}
       {lineup && !program && <p className="guide-player-message">Nothing is airing on this channel right now.</p>}
       {failed && <div className="guide-player-message" role="alert"><p>This video can't play here.</p><div className="guide-player-actions"><button className="outline-button" onClick={retry}><ArrowCounterClockwise size={16} /> Try again</button><button className="outline-button" onClick={() => navigate(`/watch/${program.id}?t=${liveOffset(program, Date.now()) ?? 0}`)}><ArrowSquareOut size={16} /> Open in player</button></div></div>}
-      <div className="guide-player-bar">
+      {!controls && <div className="guide-player-bar">
         <span className="guide-live-pill"><Broadcast size={13} weight="fill" /> Live</span>
         <span className="guide-player-title"><strong>{channel.number} · {channel.name}</strong>{program && <small>{program.subtitle ? `${program.title} · ${program.subtitle}` : program.title}</small>}</span>
-        {chosen?.subtitleId && <button className="guide-player-button" onClick={() => setCaptions(value => !value)} aria-pressed={captions} aria-label={captions ? "Turn subtitles off" : "Turn subtitles on"} title={captions ? "Subtitles on" : "Subtitles off"}><ClosedCaptioning size={17} weight={captions ? "fill" : "regular"} /></button>}
-        <button className="guide-player-button" onClick={toggleMute} aria-label={muted ? "Unmute" : "Mute"} title={muted ? "Unmute" : "Mute"}>{muted ? <SpeakerSlash size={17} weight="fill" /> : <SpeakerHigh size={17} weight="fill" />}</button>
-        <button className="guide-player-button" onClick={toggleFullscreen} aria-label={fullscreen ? "Exit full screen" : "Full screen"} title={fullscreen ? "Exit full screen" : "Full screen"}>{fullscreen ? <CornersIn size={17} /> : <CornersOut size={17} />}</button>
-      </div>
+        {buttons}
+      </div>}
+      {controls && createPortal(buttons, controls)}
     </div>
     {program && <LiveActions key={program.id} api={api} id={program.id} navigate={navigate} />}
   </div>;
