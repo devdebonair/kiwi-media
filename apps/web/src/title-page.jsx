@@ -6,6 +6,7 @@ import { AddTag } from "./add-tag.jsx";
 import { TopicLabel } from "./topic-label.jsx";
 import { SetupNotice } from "./catalog-page.jsx";
 import { RatingSelect, useSession } from "./profiles.jsx";
+import { ListPicker } from "./lists.jsx";
 
 const runtime = minutes => minutes ? (minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60 ? `${minutes % 60}m` : ""}`.trim() : `${minutes}m`) : null;
 const clock = ms => { const total = Math.round(ms / 1000), h = Math.floor(total / 3600), m = Math.floor(total % 3600 / 60), s = total % 60; return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`; };
@@ -109,7 +110,8 @@ export function TitlePage({ reference, api, navigate, AppLink, Loading, Empty })
         <div className="title-facts">{facts.map(([Icon, text]) => <span key={text}>{Icon && <Icon size={14} />}{text}</span>)}</div>
         <div className="title-actions">
           {next ? <AppLink href={`/watch/${next.id}`} navigate={navigate} className="primary-button"><Play weight="fill" size={16} />{playLabel}</AppLink> : <button className="primary-button" disabled><Play weight="fill" size={16} />{title.type === "show" ? "Loading episodes…" : "Play"}</button>}
-          <button className={title.inLibrary ? "outline-button is-active" : "outline-button"} onClick={toggleLibrary} disabled={busy === "library"} aria-pressed={title.inLibrary}>{busy === "library" ? <ArrowsClockwise size={16} className="spin" /> : title.inLibrary ? <Check size={16} weight="bold" /> : <Plus size={16} weight="bold" />}{title.inLibrary ? "In My list" : "Add to My list"}</button>
+          <button className={title.inLibrary ? "outline-button is-active" : "outline-button"} onClick={toggleLibrary} disabled={busy === "library"} aria-pressed={title.inLibrary}>{busy === "library" ? <ArrowsClockwise size={16} className="spin" /> : title.inLibrary ? <Check size={16} weight="bold" /> : <Plus size={16} weight="bold" />}{title.inLibrary ? "On your list" : "Watch List"}</button>
+          <ListPicker api={api} item={{ titleId: title.id }} label="" onChange={inList => setTitle(current => ({ ...current, inLibrary: inList }))} />
           {isAdmin && <div className="menu-anchor" ref={menuRef}>
             <button className="outline-button" onClick={() => setMenu(value => !value)} aria-haspopup="menu" aria-expanded={menu} disabled={busy === "download"}><DownloadSimple size={16} />Download<CaretDown size={13} /></button>
             {menu && <div className="action-menu" role="menu">

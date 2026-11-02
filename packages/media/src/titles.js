@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { db, currentUserId, assetVisibleSql, ratingKey, titleVisibleSql, ensureTopic, reindexTitleSearch } from "@kiwi/database";
+import { db, currentUserId, assetVisibleSql, ensureWatchlist, ratingKey, titleVisibleSql, ensureTopic, reindexTitleSearch } from "@kiwi/database";
 import { imageUrl } from "./images.js";
 import { iso3 } from "./tmdb.js";
 
@@ -191,15 +191,16 @@ export async function openTitle(type, tmdbId, tmdb, { refresh = false } = {}) {
   catch (error) { if (existing) return existing; throw error; }
 }
 
-// Whether a title is on the current profile's My list.
-export const inMyList = (titleId, user = userId()) => Boolean(titleId && db.prepare("SELECT 1 FROM title_lists WHERE user_id=? AND title_id=?").get(user, titleId));
+// Whether a title (or a home video) is on any of the current profile's lists.
+export const inMyList = (titleId, user = userId()) => Boolean(titleId && db.prepare("SELECT 1 FROM list_items i JOIN lists l ON l.id=i.list_id WHERE l.user_id=? AND i.title_id=?").get(user, titleId));
+export const assetInMyList = (assetId, user = userId()) => Boolean(assetId && db.prepare("SELECT 1 FROM list_items i JOIN lists l ON l.id=i.list_id WHERE l.user_id=? AND i.asset_id=?").get(user, assetId));
 
 // The household library is every title on anyone's list: those stay synced by the worker, keep their
 // artwork offline, air on the TV guide, and are never pruned. Call after a list changes.
 export function syncHouseholdLibrary(titleId, { images } = {}) {
   const title = getTitle(titleId);
   if (!title) return null;
-  const first = db.prepare("SELECT min(added_at) at FROM title_lists WHERE title_id=?").get(titleId).at;
+  const first = db.prepare("SELECT min(added_at) at FROM list_items WHERE title_id=?").get(titleId).at;
   if (first && !title.in_library) {
     db.prepare("UPDATE titles SET in_library=1,library_added_at=?,updated_at=? WHERE id=?").run(first, now(), titleId);
     images?.prefetch(titleArtwork(getTitle(titleId)), { pin: true }).catch(() => {});
@@ -210,17 +211,34 @@ export function syncHouseholdLibrary(titleId, { images } = {}) {
   return getTitle(titleId);
 }
 
-// Adds a title to (or removes it from) the current profile's My list.
-export async function setLibrary(titleId, inLibrary, { tmdb, images } = {}) {
+// Puts a title on one of the current profile's lists (the Watch List unless another is given).
+// Returns false when the list isn't the profile's.
+export async function addTitleToList(titleId, { listId, tmdb, images } = {}) {
   const title = getTitle(titleId);
-  if (!title) return null;
-  if (inLibrary) {
-    if (title.type === "show" && tmdb) await ensureAllSeasons(titleId, tmdb);
-    db.prepare("INSERT OR IGNORE INTO title_lists (user_id,title_id,added_at) VALUES (?,?,?)").run(userId(), titleId, now());
-  } else {
-    db.prepare("DELETE FROM title_lists WHERE user_id=? AND title_id=?").run(userId(), titleId);
-  }
+  if (!title) return false;
+  const target = listId || ensureWatchlist(userId());
+  if (!db.prepare("SELECT 1 FROM lists WHERE id=? AND user_id=?").get(target, userId())) return false;
+  // A series needs all of its episodes known before the worker can keep it ready.
+  if (title.type === "show" && tmdb && !title.in_library) await ensureAllSeasons(titleId, tmdb);
+  db.prepare("INSERT OR IGNORE INTO list_items (list_id,title_id,added_at) VALUES (?,?,?)").run(target, titleId, now());
+  db.prepare("UPDATE lists SET updated_at=? WHERE id=?").run(now(), target);
+  syncHouseholdLibrary(titleId, { images });
+  return true;
+}
+
+// Takes a title off one list, or off every list of the current profile.
+export function removeTitleFromLists(titleId, { listId, images } = {}) {
+  if (listId) db.prepare("DELETE FROM list_items WHERE title_id=? AND list_id IN (SELECT id FROM lists WHERE id=? AND user_id=?)").run(titleId, listId, userId());
+  else db.prepare("DELETE FROM list_items WHERE title_id=? AND list_id IN (SELECT id FROM lists WHERE user_id=?)").run(titleId, userId());
   return syncHouseholdLibrary(titleId, { images });
+}
+
+// The quick + / ✓ toggle: adding goes to the Watch List; removing takes it off all of your lists.
+export async function setLibrary(titleId, inLibrary, { tmdb, images } = {}) {
+  if (!getTitle(titleId)) return null;
+  if (inLibrary) await addTitleToList(titleId, { tmdb, images });
+  else removeTitleFromLists(titleId, { images });
+  return getTitle(titleId);
 }
 
 export function setAnime(titleId, isAnime) {
@@ -321,14 +339,15 @@ export function assetSummary(row, progress) {
   };
 }
 
-export function libraryTitles({ type, anime, sort = "added", limit = 60, offset = 0, q } = {}) {
-  // My list: the current profile's titles.
-  const filters = ["l.user_id=?", titleVisibleSql("titles")], params = [userId()];
+// Titles on one of the current profile's lists (the Watch List by default).
+export function libraryTitles({ type, anime, sort = "added", limit = 60, offset = 0, q, listId } = {}) {
+  const filters = ["l.list_id=?", "EXISTS(SELECT 1 FROM lists x WHERE x.id=l.list_id AND x.user_id=?)", titleVisibleSql("titles")];
+  const params = [listId || ensureWatchlist(userId()), userId()];
   if (type) { filters.push("titles.type=?"); params.push(type); }
   if (anime !== undefined) { filters.push("titles.is_anime=?"); params.push(Number(anime)); }
   if (q) { filters.push("lower(titles.title) LIKE ?"); params.push(`%${q.toLowerCase()}%`); }
   const order = { added: "l.added_at DESC", title: "titles.title COLLATE NOCASE", year: "titles.year DESC, titles.title", rating: "titles.rating DESC" }[sort] || "l.added_at DESC";
-  return db.prepare(`SELECT titles.* FROM titles JOIN title_lists l ON l.title_id=titles.id WHERE ${filters.join(" AND ")} ORDER BY ${order}, titles.id LIMIT ? OFFSET ?`).all(...params, limit, offset);
+  return db.prepare(`SELECT titles.* FROM titles JOIN list_items l ON l.title_id=titles.id WHERE ${filters.join(" AND ")} ORDER BY ${order}, titles.id LIMIT ? OFFSET ?`).all(...params, limit, offset);
 }
 
 // Removes catalog entries that were only browsed: not in the library, never watched, tagged, or liked.
@@ -336,7 +355,7 @@ export function pruneStubs({ olderThanDays = 30 } = {}) {
   const cutoff = new Date(Date.now() - olderThanDays * 86_400_000).toISOString();
   const rows = db.prepare(`SELECT t.id FROM titles t WHERE t.in_library=0 AND t.updated_at<? AND NOT EXISTS (
       SELECT 1 FROM assets a LEFT JOIN consumption_state cs ON cs.asset_id=a.id LEFT JOIN asset_likes l ON l.asset_id=a.id LEFT JOIN annotations an ON an.asset_id=a.id
-      LEFT JOIN saved_assets sa ON sa.asset_id=a.id
+      LEFT JOIN list_items sa ON sa.asset_id=a.id
       WHERE a.title_id=t.id AND (cs.asset_id IS NOT NULL OR l.asset_id IS NOT NULL OR an.id IS NOT NULL OR sa.asset_id IS NOT NULL OR a.file_path IS NOT NULL))
       AND NOT EXISTS (SELECT 1 FROM title_topics tt WHERE tt.title_id=t.id AND tt.topic_id NOT IN (SELECT value FROM json_each(coalesce(json_extract(t.metadata_json,'$.autoTopics'),'[]'))))`).all(cutoff);
   for (const row of rows) {

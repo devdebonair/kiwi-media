@@ -601,7 +601,7 @@ function LiveActions({ api, id, navigate }) {
 
 function GuideEmpty({ filter, q, create }) {
   const [title, message] = q ? ["No channels match", "Try another channel number or name."]
-    : ["media", "genres", "services"].includes(filter) ? ["Nothing on these channels yet", "Add movies, shows, or anime to My list and they join the guide, grouped by genre and service."]
+    : ["media", "genres", "services"].includes(filter) ? ["Nothing on these channels yet", "Add movies, shows, or anime to a list and they join the guide, grouped by genre and service."]
     : filter === "custom" ? ["You haven't made a channel yet", "Combine tags into a channel that plays everything they share."]
     : ["No channels yet", "Any tag on three or more videos becomes a channel automatically."];
   return <div className="empty guide-empty"><Television size={38} /><h2>{title}</h2><p>{message}</p>{!q && <button className="primary-button" onClick={create}><Plus size={17} /> New channel</button>}</div>;

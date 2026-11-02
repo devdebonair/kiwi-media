@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { getMedia, syncHouseholdLibrary } from "@kiwi/media";
-import { db, profileContext, currentProfile, ratingKey, ratingLevel, levelAllowed, MAX_LEVEL, RATINGS } from "@kiwi/database";
+import { db, ensureWatchlist, profileContext, currentProfile, ratingKey, ratingLevel, levelAllowed, MAX_LEVEL, RATINGS } from "@kiwi/database";
 
 // Netflix-style profiles. A profile is a row in users; choosing one sets a signed cookie naming it.
 // Every API request runs as that profile (see profileContext), which limits what content it can see.
@@ -219,6 +219,7 @@ export function registerProfiles(app) {
       VALUES (?,?,?,?,?,?,?,?,?,(SELECT coalesce(max(position),0)+1 FROM users))`).run(
       id, fields.display_name, now(), fields.avatar ?? null, fields.color ?? COLORS[count % COLORS.length], fields.role || "member",
       max, fields.allow_unrated ?? Number(max >= 4), req.body.pin ? hashPin(req.body.pin) : null);
+    ensureWatchlist(id);
     return reply.code(201).send({ profile: fullProfile(row(id)) });
   });
 
@@ -261,10 +262,10 @@ export function registerProfiles(app) {
     const user = row(req.params.id);
     if (!user) return reply.code(404).send({ error: "Profile not found" });
     if (user.id === OWNER_ID) return reply.code(409).send({ error: "The owner profile can't be removed." });
-    const listed = db.prepare("SELECT title_id FROM title_lists WHERE user_id=?").all(user.id).map(entry => entry.title_id);
+    const listed = db.prepare("SELECT DISTINCT i.title_id FROM list_items i JOIN lists l ON l.id=i.list_id WHERE l.user_id=? AND i.title_id IS NOT NULL").all(user.id).map(entry => entry.title_id);
     db.exec("BEGIN IMMEDIATE");
     try {
-      for (const table of ["consumption_state", "asset_views", "asset_likes", "saved_assets", "topic_follows", "feed_follows", "user_settings", "title_lists", "profile_preferences"]) db.prepare(`DELETE FROM ${table} WHERE user_id=?`).run(user.id);
+      for (const table of ["consumption_state", "asset_views", "asset_likes", "topic_follows", "feed_follows", "user_settings", "lists", "profile_preferences"]) db.prepare(`DELETE FROM ${table} WHERE user_id=?`).run(user.id);
       // Feeds and collections stay with the household.
       db.prepare("UPDATE feeds SET owner_id=? WHERE owner_id=?").run(OWNER_ID, user.id);
       db.prepare("UPDATE collections SET owner_id=? WHERE owner_id=?").run(OWNER_ID, user.id);

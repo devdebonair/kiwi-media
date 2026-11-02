@@ -561,5 +561,5 @@ export function registerMedia(app, { resolveTopic }) {
     return reply.code(202).send(queueDownloads(ids));
   }));
 
-  return { remux, proxy };
+  return { remux, proxy, libraryCard };
 }

@@ -11,6 +11,7 @@ import { LikeButton, ViewCount, usePlaybackTracking } from "./engagement.jsx";
 import { resumeSeconds } from "./playback-progress.mjs";
 import { ClipList, useClips } from "./clips.jsx";
 import { RatingSelect, useSession } from "./profiles.jsx";
+import { ListPicker } from "./lists.jsx";
 
 // Matches the `max-width: 860px` block in modern.css where the watch layout collapses to one column.
 const STACKED_WATCH_QUERY = "(max-width: 860px)";
@@ -169,6 +170,7 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
           {catalog && <p className="watch-kicker">{[catalog.type === "show" && catalog.season != null ? `Season ${catalog.season} · Episode ${catalog.episode}` : catalog.type === "movie" ? "Movie" : null, airDate].filter(Boolean).join(" · ")}</p>}
           <h1>{asset.title}</h1>
           <div className="watch-toolbar"><ViewCount count={asset.view_count} /><div className="watch-actions"><LikeButton asset={asset} api={api} onChange={values => setAsset(current => ({ ...current, ...values }))} /><button className={asset.saved ? "primary-button" : "outline-button"} disabled={saving} onClick={save}><BookmarkSimple weight={asset.saved ? "fill" : "regular"} />{asset.saved ? "Saved" : "Save"}</button>
+            {!catalog && !mini && <ListPicker api={api} item={{ assetId: asset.id }} label="" onChange={inList => setAsset(current => current?.id === asset.id ? { ...current, saved: inList } : current)} />}
             {catalog && !mini && isAdmin && (asset.file_path ? <span className="download-state" title="Saved in your library folder"><CheckCircle weight="fill" size={18} /> Downloaded</span> : <button className="outline-button" onClick={async () => { try { const result = await api(`/api/v1/assets/${asset.id}/download`, { method: "POST" }); setSaveNote(result.queued.length ? "Download started" : result.skipped[0]?.reason === "already queued" ? "Already downloading" : "Already saved"); } catch (e) { setSaveNote(e.message); } }}><DownloadSimple />Download</button>)}</div></div>
           {isAdmin && !catalog && !mini && <RatingSelect id={`asset-rating-${asset.id}`} label={asset.effective_rating && asset.effective_rating !== asset.content_rating ? "Content rating (its folder sets a minimum)" : "Content rating"} value={asset.content_rating}
             onChange={async rating => { const value = await api(`/api/v1/assets/${asset.id}/rating`, { method: "PUT", body: JSON.stringify({ rating }) }); setAsset(current => current?.id === asset.id ? { ...current, ...value } : current); }} />}
@@ -181,7 +183,8 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
             <AppLink href={`/title/${catalog.titleId}`} navigate={navigate}><strong>{catalog.title}</strong></AppLink>
             <span>{[catalog.year, catalog.type === "show" && catalog.seasonCount ? `${catalog.seasonCount} ${catalog.seasonCount === 1 ? "season" : "seasons"}` : null, catalog.isAnime ? "Anime" : catalog.type === "movie" ? "Movie" : "Series", ...(catalog.genres || []).filter(genre => !(catalog.isAnime && genre === "Animation")).slice(0, 2)].filter(Boolean).join(" · ")}{catalog.rating > 0 && <em><Star size={12} weight="fill" />{catalog.rating.toFixed(1)}</em>}</span>
           </div>
-          <button className={`outline-button ${catalog.inLibrary ? "is-active" : ""}`} onClick={toggleList} aria-pressed={catalog.inLibrary}>{catalog.inLibrary ? <Check size={16} weight="bold" /> : <Plus size={16} weight="bold" />}{catalog.inLibrary ? "In My list" : "Add to My list"}</button>
+          <button className={`outline-button ${catalog.inLibrary ? "is-active" : ""}`} onClick={toggleList} aria-pressed={catalog.inLibrary}>{catalog.inLibrary ? <Check size={16} weight="bold" /> : <Plus size={16} weight="bold" />}{catalog.inLibrary ? "On your list" : "Watch List"}</button>
+          <ListPicker api={api} item={{ titleId: catalog.titleId }} label="" onChange={inList => setAsset(current => current?.id === asset.id ? { ...current, catalog: { ...current.catalog, inLibrary: inList } } : current)} />
         </section>}
         <section className="watch-description">
           <div className="watch-topics">{asset.topics?.map(topic => <AppLink key={topic.id} href={`/topic/${topic.slug}`} navigate={navigate}><TopicLabel topic={topic} /></AppLink>)}{!mini && <AddTag key={asset.id} asset={asset} api={api} onChange={topics => setAsset(current => current?.id === asset.id ? { ...current, topics } : current)}/>}</div>

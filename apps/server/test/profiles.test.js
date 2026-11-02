@@ -222,7 +222,7 @@ test('changing a PIN signs out other devices, and the owner profile stays', asyn
   assert.equal((await owner({ method: 'PATCH', url: '/api/v1/profiles/user-local', payload: { role: 'member' } })).statusCode, 409);
   assert.equal((await owner({ method: 'DELETE', url: `/api/v1/profiles/${kidId}` })).statusCode, 200);
   assert.equal(db.prepare('SELECT count(*) n FROM consumption_state WHERE user_id=?').get(kidId).n, 0);
-  assert.equal(db.prepare('SELECT count(*) n FROM title_lists WHERE user_id=?').get(kidId).n, 0);
+  assert.equal(db.prepare('SELECT count(*) n FROM lists WHERE user_id=?').get(kidId).n, 0);
   // title-pg was only on the deleted profile's list.
   assert.equal(db.prepare('SELECT in_library FROM titles WHERE id=?').get('title-pg').in_library, 0);
 });

@@ -21,11 +21,11 @@ function Art({ src, alt, Icon, title }) {
   return src && !failed ? <img src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} /> : <div className="poster-empty"><Icon size={34} /><span>{title}</span></div>;
 }
 
-// A 2:3 poster for a movie or series. The corner button adds it to or removes it from My list.
+// A 2:3 poster for a movie or series. The corner button adds it to your Watch List, or takes it off your lists.
 export function PosterCard({ item, AppLink, navigate, onToggle, busy }) {
   const Icon = item.type === "movie" ? FilmSlate : MonitorPlay;
   const progress = item.watchedCount > 0 && item.episodeCount > 0 ? item.watchedCount / item.episodeCount : item.progressMs > 0 && item.durationMs > 0 ? item.progressMs / item.durationMs : 0;
-  const foot = item.watchedCount > 0 && item.episodeCount > 0 ? `${item.watchedCount} / ${item.episodeCount} watched` : item.inLibrary ? "In My list" : null;
+  const foot = item.watchedCount > 0 && item.episodeCount > 0 ? `${item.watchedCount} / ${item.episodeCount} watched` : item.inLibrary ? "On your list" : null;
   return <article className="poster-card">
     <AppLink href={`/title/${item.ref}`} navigate={navigate} className="poster-link" aria-label={`${item.title}${item.year ? ` (${item.year})` : ""}`}>
       <div className="poster-art">
@@ -37,7 +37,7 @@ export function PosterCard({ item, AppLink, navigate, onToggle, busy }) {
       <MetaChips item={item} />
       <h3>{item.title}</h3>
     </AppLink>
-    {onToggle && <button className={`poster-add ${item.inLibrary ? "is-added" : ""}`} disabled={busy} aria-label={item.inLibrary ? `Remove ${item.title} from My list` : `Add ${item.title} to My list`} title={item.inLibrary ? "In My list" : "Add to My list"} onClick={event => { event.preventDefault(); event.stopPropagation(); onToggle(item); }}>
+    {onToggle && <button className={`poster-add ${item.inLibrary ? "is-added" : ""}`} disabled={busy} aria-label={item.inLibrary ? `Remove ${item.title} from your lists` : `Add ${item.title} to your Watch List`} title={item.inLibrary ? "On your list" : "Add to Watch List"} onClick={event => { event.preventDefault(); event.stopPropagation(); onToggle(item); }}>
       {item.inLibrary ? <Check size={14} weight="bold" /> : <Plus size={14} weight="bold" />}
     </button>}
   </article>;

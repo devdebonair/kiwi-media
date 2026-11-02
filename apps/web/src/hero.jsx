@@ -8,7 +8,7 @@ const kindLabel = item => item.type === "movie" ? "Movie" : item.isAnime ? "Anim
 const runtime = minutes => minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60 ? `${minutes % 60}m` : ""}`.trim() : `${minutes}m`;
 
 // The banner at the top of Home and the Movies, TV Shows, and Anime pages: wide artwork that fills the top of the
-// window (behind the header and rail), the title's logo, a few facts, and Watch / Details / My list. It moves on
+// window (behind the header and rail), the title's logo, a few facts, and Watch / Details / Watch List. It moves on
 // every few seconds, pausing while the pointer or keyboard focus is on it.
 export function Hero({ kind = "home", api, navigate, AppLink }) {
   const [items, setItems] = useState(null);
@@ -71,7 +71,7 @@ export function Hero({ kind = "home", api, navigate, AppLink }) {
       <div className="hero-actions">
         <button type="button" className="primary-button" onClick={watch} disabled={busy === "watch"}>{busy === "watch" ? <SpinnerGap size={16} className="spin" /> : <Play size={16} weight="fill" />}{playLabel}</button>
         <AppLink href={`/title/${item.titleId || item.ref}`} navigate={navigate} className="outline-button"><Info size={16} />Details</AppLink>
-        <button type="button" className={`outline-button icon-only ${item.inLibrary ? "is-active" : ""}`} onClick={toggleList} disabled={busy === "list"} aria-pressed={item.inLibrary} aria-label={item.inLibrary ? "Remove from My list" : "Add to My list"} title={item.inLibrary ? "In My list" : "Add to My list"}>{item.inLibrary ? <Check size={16} weight="bold" /> : <Plus size={16} />}</button>
+        <button type="button" className={`outline-button icon-only ${item.inLibrary ? "is-active" : ""}`} onClick={toggleList} disabled={busy === "list"} aria-pressed={item.inLibrary} aria-label={item.inLibrary ? "Remove from your lists" : "Add to Watch List"} title={item.inLibrary ? "On your list" : "Add to Watch List"}>{item.inLibrary ? <Check size={16} weight="bold" /> : <Plus size={16} />}</button>
       </div>
       {note && <p className="hero-note" role="status">{note}</p>}
     </div>

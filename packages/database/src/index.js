@@ -134,10 +134,6 @@ export function migrate() {
       position INTEGER NOT NULL, added_at TEXT NOT NULL,
       PRIMARY KEY(collection_id, asset_id)
     );
-    CREATE TABLE IF NOT EXISTS saved_assets (
-      user_id TEXT NOT NULL REFERENCES users(id), asset_id TEXT NOT NULL REFERENCES assets(id),
-      saved_at TEXT NOT NULL, PRIMARY KEY(user_id, asset_id)
-    );
     CREATE TABLE IF NOT EXISTS consumption_state (
       user_id TEXT NOT NULL REFERENCES users(id), asset_id TEXT NOT NULL REFERENCES assets(id),
       progress_ms INTEGER, completed INTEGER NOT NULL DEFAULT 0, last_viewed_at TEXT,
@@ -243,13 +239,24 @@ export function migrate() {
     CREATE INDEX IF NOT EXISTS subtitle_tracks_asset_idx ON subtitle_tracks(asset_id, source_key);
     -- Settings for catalogs, source ranking, playback, and downloads. Provider entries hold secrets.
     CREATE TABLE IF NOT EXISTS media_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT NOT NULL);
-    -- Each profile's My list. titles.in_library is the household library: titles on anyone's list
-    -- (kept in step by syncHouseholdLibrary), which the worker keeps synced and the TV guide airs.
-    CREATE TABLE IF NOT EXISTS title_lists (
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, title_id TEXT NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
-      added_at TEXT NOT NULL, PRIMARY KEY(user_id, title_id)
+    -- Each profile's lists of movies, shows, and home videos. Every profile has the Watch List (system_key
+    -- 'watchlist', id "watchlist-<user id>"), where adding something goes by default; others are its own.
+    -- titles.in_library is the household library: titles on anyone's list (kept in step by
+    -- syncHouseholdLibrary), which the worker keeps synced and the TV guide airs.
+    CREATE TABLE IF NOT EXISTS lists (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL,
+      system_key TEXT CHECK(system_key IN ('watchlist')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(user_id, system_key)
     );
-    CREATE INDEX IF NOT EXISTS title_lists_title_idx ON title_lists(title_id);
+    CREATE TABLE IF NOT EXISTS list_items (
+      list_id TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+      title_id TEXT REFERENCES titles(id) ON DELETE CASCADE, asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
+      added_at TEXT NOT NULL, CHECK((title_id IS NULL) != (asset_id IS NULL))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS list_items_title_key ON list_items(list_id, title_id) WHERE title_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS list_items_asset_key ON list_items(list_id, asset_id) WHERE asset_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS list_items_title_idx ON list_items(title_id);
+    CREATE INDEX IF NOT EXISTS list_items_asset_idx ON list_items(asset_id);
     -- Small per-profile preferences that follow the profile across devices (e.g. audio and subtitle picks per series).
     CREATE TABLE IF NOT EXISTS profile_preferences (
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, key TEXT NOT NULL, value_json TEXT NOT NULL,
@@ -382,12 +389,29 @@ export function migrate() {
     }
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
-  // When My list became per profile, everyone kept the titles that were on the shared list.
-  if (!db.prepare("SELECT 1 FROM app_state WHERE key='title-lists-seeded'").get()) {
+  // Lists replace the earlier per-profile My list (title_lists) and saved videos (saved_assets): both move
+  // into each profile's Watch List, a saved episode as its series. Older installs that only had the shared
+  // library flag give every profile those titles.
+  if (!db.prepare("SELECT 1 FROM app_state WHERE key='lists-v1'").get()) {
+    const has = name => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
     db.exec("BEGIN IMMEDIATE");
     try {
-      db.exec("INSERT OR IGNORE INTO title_lists (user_id,title_id,added_at) SELECT u.id, t.id, coalesce(t.library_added_at, t.created_at) FROM titles t, users u WHERE t.in_library=1");
-      db.prepare("INSERT INTO app_state VALUES ('title-lists-seeded', ?)").run(new Date().toISOString());
+      const at = new Date().toISOString();
+      db.prepare("INSERT OR IGNORE INTO lists (id,user_id,name,system_key,created_at,updated_at) SELECT 'watchlist-' || id, id, 'Watch List', 'watchlist', ?, ? FROM users").run(at, at);
+      if (has("title_lists")) db.exec("INSERT OR IGNORE INTO list_items (list_id,title_id,added_at) SELECT 'watchlist-' || l.user_id, l.title_id, l.added_at FROM title_lists l JOIN users u ON u.id=l.user_id");
+      else db.exec("INSERT OR IGNORE INTO list_items (list_id,title_id,added_at) SELECT 'watchlist-' || u.id, t.id, coalesce(t.library_added_at, t.created_at) FROM titles t, users u WHERE t.in_library=1");
+      if (has("saved_assets")) {
+        db.exec(`INSERT OR IGNORE INTO list_items (list_id,asset_id,added_at) SELECT 'watchlist-' || s.user_id, s.asset_id, s.saved_at
+          FROM saved_assets s JOIN users u ON u.id=s.user_id JOIN assets a ON a.id=s.asset_id WHERE a.title_id IS NULL`);
+        db.exec(`INSERT OR IGNORE INTO list_items (list_id,title_id,added_at) SELECT 'watchlist-' || s.user_id, a.title_id, min(s.saved_at)
+          FROM saved_assets s JOIN users u ON u.id=s.user_id JOIN assets a ON a.id=s.asset_id WHERE a.title_id IS NOT NULL GROUP BY s.user_id, a.title_id`);
+        db.exec("DROP TABLE saved_assets");
+      }
+      db.exec("DROP TABLE IF EXISTS title_lists");
+      // Series saved through an episode join the household library like any listed title.
+      db.exec(`UPDATE titles SET in_library=1, library_added_at=coalesce(library_added_at, (SELECT min(added_at) FROM list_items i WHERE i.title_id=titles.id))
+        WHERE in_library=0 AND EXISTS(SELECT 1 FROM list_items i WHERE i.title_id=titles.id)`);
+      db.prepare("INSERT INTO app_state VALUES ('lists-v1', ?)").run(at);
       db.exec("COMMIT");
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   }
@@ -633,6 +657,14 @@ export function assetWithTopics(row) {
   const moments = db.prepare(`SELECT s.start_ms,s.end_ms,a.note_markdown,(SELECT group_concat(t.name, ', ') FROM annotation_topics at JOIN topics t ON t.id=at.topic_id WHERE at.annotation_id=a.id) topic
     FROM annotation_selectors s JOIN annotations a ON a.id=s.annotation_id WHERE a.asset_id=? AND a.motivation='clipping' AND s.selector_type='time-range' ORDER BY s.start_ms`).all(row.id);
   return { ...row, topics, moments, saved: Boolean(row.saved) };
+}
+
+// Every profile has a Watch List; this creates it when missing and returns its id.
+export const watchlistId = userId => `watchlist-${userId}`;
+export function ensureWatchlist(userId) {
+  const at = now();
+  db.prepare("INSERT OR IGNORE INTO lists (id,user_id,name,system_key,created_at,updated_at) VALUES (?,?,?,?,?,?)").run(watchlistId(userId), userId, "Watch List", "watchlist", at, at);
+  return watchlistId(userId);
 }
 
 migrate();

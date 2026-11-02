@@ -5,7 +5,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { basename, isAbsolute, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import mime from "mime-types";
-import { db, currentUserId, currentProfile, assetVisibleSql, titleVisibleSql, ratingKey, ratingLevel, generatedDir, rebuildSearch, reindexAssetSearch, reindexTopicSearch, assetWithTopics, tagAssetWithTopic } from "@kiwi/database";
+import { db, currentUserId, currentProfile, ensureWatchlist, assetVisibleSql, titleVisibleSql, ratingKey, ratingLevel, generatedDir, rebuildSearch, reindexAssetSearch, reindexTopicSearch, assetWithTopics, tagAssetWithTopic } from "@kiwi/database";
 import { fileURLToPath } from "node:url";
 import { createPlaybackCache } from "./playback.js";
 import { parseRange } from "./range.js";
@@ -15,9 +15,10 @@ import { registerGuide } from "./guide.js";
 import { createGuideWarmer } from "./guide-warm.js";
 import { registerMedia } from "./media.js";
 import { registerProfiles, assetAllowed, titleAllowed } from "./profiles.js";
+import { registerLists } from "./lists.js";
 import { clipById, listClips, registerClips } from "./clips.js";
 import { registerPlugin } from "@kiwi/downloads";
-import { getMedia, getProvider, inMyList, mediaDownloadPlugin, nextEpisodeAfter, previousEpisodeBefore, imageUrl } from "@kiwi/media";
+import { assetInMyList, getMedia, getProvider, inMyList, mediaDownloadPlugin, setLibrary, nextEpisodeAfter, previousEpisodeBefore, imageUrl } from "@kiwi/media";
 
 const app = Fastify({ logger: true });
 // Buttons send actions like "save" or "sign out" as JSON requests with no body. Fastify's own parser
@@ -74,8 +75,13 @@ const ratings = id => {
   return { content_rating: ratingKey(own), effective_rating: ratingKey(effective) };
 };
 const enrichAsset = row => ({ ...assetWithTopics(row), ...engagement(row.id), ...catalogInfo(row), ...ratings(row.id) });
+const savedSql = "EXISTS(SELECT 1 FROM list_items li JOIN lists ls ON ls.id=li.list_id WHERE li.asset_id=a.id AND ls.user_id=?) saved";
+registerLists(app, {
+  titleCard: title => title && streaming.libraryCard(title),
+  assetCard: id => { const row = db.prepare(`SELECT a.*, ${savedSql} FROM assets a WHERE a.id=?`).get(userId(), id); return row ? enrichAsset(row) : null; },
+});
 const listAssets = (where = "1=1", params = [], limit = 60, offset = 0, orderBy = "a.added_at DESC,a.id DESC") => db.prepare(`
-  SELECT a.*, EXISTS(SELECT 1 FROM saved_assets sa WHERE sa.asset_id=a.id AND sa.user_id=?) saved
+  SELECT a.*, EXISTS(SELECT 1 FROM list_items li JOIN lists ls ON ls.id=li.list_id WHERE li.asset_id=a.id AND ls.user_id=?) saved
   FROM assets a WHERE a.title_id IS NULL AND (${where}) AND ${assetVisibleSql("a")} ORDER BY ${orderBy} LIMIT ? OFFSET ?
 `).all(userId(), ...params, limit, offset).map(enrichAsset);
 
@@ -112,7 +118,7 @@ const searchHits = (query, kind = "all") => {
       return [{ entityType: "title", id: title.id, ref: title.id, type: title.type, title: title.title, year: title.year, overview: title.overview, isAnime: Boolean(title.is_anime), inLibrary: inMyList(title.id), poster: imageUrl(title.poster_path, "w342") }];
     }
     if (hit.entity_type === "asset" && (kind === "all" || kind === "assets" || kind === "videos" || kind === "music" || kind === "photos" || kind === "articles")) {
-      const row = db.prepare("SELECT a.*, EXISTS(SELECT 1 FROM saved_assets WHERE user_id=? AND asset_id=a.id) saved FROM assets a WHERE a.id=?").get(userId(), hit.entity_id);
+      const row = db.prepare("SELECT a.*, EXISTS(SELECT 1 FROM list_items li JOIN lists ls ON ls.id=li.list_id WHERE li.asset_id=a.id AND ls.user_id=?) saved FROM assets a WHERE a.id=?").get(userId(), hit.entity_id);
       if (!row || !assetAllowed(row.id, currentProfile())) return [];
       const map = { videos: "video", music: "audio", photos: "image", articles: "article" };
       if (map[kind] && row.kind !== map[kind]) return [];
@@ -173,7 +179,7 @@ app.put("/api/v1/assets/:id/likes", async (req, reply) => {
 });
 
 app.get("/api/v1/assets/:id", async (req, reply) => {
-  const row = db.prepare("SELECT a.*, EXISTS(SELECT 1 FROM saved_assets WHERE user_id=? AND asset_id=a.id) saved FROM assets a WHERE a.id=?").get(userId(), req.params.id);
+  const row = db.prepare("SELECT a.*, EXISTS(SELECT 1 FROM list_items li JOIN lists ls ON ls.id=li.list_id WHERE li.asset_id=a.id AND ls.user_id=?) saved FROM assets a WHERE a.id=?").get(userId(), req.params.id);
   if (!row) return reply.code(404).send({ error: "Asset not found" });
   const progress = db.prepare("SELECT progress_ms, completed FROM consumption_state WHERE user_id=? AND asset_id=?").get(userId(), row.id);
   const detail = { ...enrichAsset(row), progress_ms: progress?.progress_ms ?? 0, completed: progress?.completed ?? 0 };
@@ -367,7 +373,7 @@ app.get("/api/v1/topics/:slug", async (req, reply) => {
   `).all(topic.id, topic.id);
   const { item_count } = db.prepare(`SELECT count(*) item_count FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND a.title_id IS NULL AND ${assetVisibleSql("a")}`).get(topic.id);
   const titles = db.prepare(`SELECT t.* FROM titles t WHERE t.id IN (SELECT a.title_id FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND a.title_id IS NOT NULL AND ${assetVisibleSql("a")}) AND ${titleVisibleSql("t")}
-    ORDER BY EXISTS(SELECT 1 FROM title_lists l WHERE l.title_id=t.id AND l.user_id=?) DESC, t.rating DESC LIMIT 60`).all(topic.id, userId()).map(title => ({ ref: title.id, type: title.type, title: title.title, year: title.year, rating: title.rating, isAnime: Boolean(title.is_anime), inLibrary: inMyList(title.id), poster: imageUrl(title.poster_path, "w342") }));
+    ORDER BY EXISTS(SELECT 1 FROM list_items li JOIN lists ls ON ls.id=li.list_id WHERE li.title_id=t.id AND ls.user_id=?) DESC, t.rating DESC LIMIT 60`).all(topic.id, userId()).map(title => ({ ref: title.id, type: title.type, title: title.title, year: title.year, rating: title.rating, isAnime: Boolean(title.is_anime), inLibrary: inMyList(title.id), poster: imageUrl(title.poster_path, "w342") }));
   return { ...topic, item_count, assets, titles, clips: listClips({ topic: topic.id, limit: 48 }).filter(clip => assetAllowed(clip.assetId, currentProfile())), related, rules: topicRules(topic.id), providerLinks: tagMetadata(topic.id).links };
 });
 
@@ -418,11 +424,20 @@ app.post("/api/v1/feeds", async (req, reply) => {
   return reply.code(201).send({ id, slug, name, query });
 });
 
-app.post("/api/v1/assets/:id/save", async req => {
-  const exists = db.prepare("SELECT 1 FROM saved_assets WHERE user_id=? AND asset_id=?").get(userId(), req.params.id);
-  if (exists) db.prepare("DELETE FROM saved_assets WHERE user_id=? AND asset_id=?").run(userId(), req.params.id);
-  else db.prepare("INSERT INTO saved_assets VALUES (?,?,?)").run(userId(), req.params.id, new Date().toISOString());
-  return { saved: !exists };
+// The Save button on a video: adds it to your Watch List, or takes it off all of your lists. An episode or
+// movie from the catalog is saved as its title. (Choosing a specific list is in lists.js.)
+app.post("/api/v1/assets/:id/save", async (req, reply) => {
+  const asset = db.prepare("SELECT id, title_id FROM assets WHERE id=?").get(req.params.id);
+  if (!asset) return reply.code(404).send({ error: "Asset not found" });
+  if (asset.title_id) {
+    const listed = inMyList(asset.title_id);
+    await setLibrary(asset.title_id, !listed, { images: getMedia().images });
+    return { saved: !listed };
+  }
+  const listed = assetInMyList(asset.id);
+  if (listed) db.prepare("DELETE FROM list_items WHERE asset_id=? AND list_id IN (SELECT id FROM lists WHERE user_id=?)").run(asset.id, userId());
+  else db.prepare("INSERT OR IGNORE INTO list_items (list_id,asset_id,added_at) VALUES (?,?,?)").run(ensureWatchlist(userId()), asset.id, new Date().toISOString());
+  return { saved: !listed };
 });
 
 // Which media a list covers: everything, home videos only, or movies and shows only.
@@ -434,7 +449,7 @@ app.get("/api/v1/history", async (req, reply) => {
   const scope = scopeFilter(req.query.scope);
   if (scope === null) return reply.code(400).send({ error: "scope must be all, home, or catalog" });
   return db.prepare(`SELECT a.*, cs.last_viewed_at, cs.progress_ms, cs.completed,
-    EXISTS(SELECT 1 FROM saved_assets sa WHERE sa.asset_id=a.id AND sa.user_id=cs.user_id) saved
+    EXISTS(SELECT 1 FROM list_items li JOIN lists ls ON ls.id=li.list_id WHERE li.asset_id=a.id AND ls.user_id=cs.user_id) saved
     FROM consumption_state cs JOIN assets a ON a.id=cs.asset_id
     WHERE cs.user_id=? AND cs.last_viewed_at IS NOT NULL${scope} AND ${assetVisibleSql("a")}
     ORDER BY cs.last_viewed_at DESC, a.id DESC LIMIT ? OFFSET ?
@@ -452,7 +467,7 @@ app.get("/api/v1/liked", async (req, reply) => {
   if (scope) filters.push(scope.replace(" AND ", ""));
   if (likes) { filters.push("l.count=?"); params.push(Number(likes)); }
   if (topic) { filters.push("EXISTS(SELECT 1 FROM effective_asset_topics et JOIN topics t ON t.id=et.topic_id WHERE et.asset_id=a.id AND (t.slug=? OR t.id=?))"); params.push(topic, topic); }
-  return db.prepare(`SELECT a.*, EXISTS(SELECT 1 FROM saved_assets sa WHERE sa.asset_id=a.id AND sa.user_id=l.user_id) saved
+  return db.prepare(`SELECT a.*, EXISTS(SELECT 1 FROM list_items li JOIN lists ls ON ls.id=li.list_id WHERE li.asset_id=a.id AND ls.user_id=l.user_id) saved
     ${likedVideos()}${filters.map(filter => ` AND ${filter}`).join("")}
     ORDER BY l.count DESC, a.added_at DESC, a.id DESC LIMIT ? OFFSET ?
   `).all(userId(), ...params, Number(limit), Number(offset)).map(enrichAsset);

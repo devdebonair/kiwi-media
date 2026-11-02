@@ -1,0 +1,68 @@
+/* My List: the list tabs, toolbar, selection bar, and the grid of posters and videos; plus the list picker. */
+
+.lists-heading-actions { display: flex; gap: 10px; align-items: center; }
+.lists-heading-actions .action-menu { left: auto; right: 0; }
+.action-menu button { display: flex; align-items: center; gap: 9px; color: var(--text); }
+.action-menu button.danger { color: #f2c4c4; }
+
+.list-tabs { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 14px; margin-bottom: 18px; scrollbar-width: thin; }
+.list-tabs a { flex: none; display: flex; align-items: center; gap: 11px; min-width: 190px; padding: 9px 14px 9px 9px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--muted); }
+.list-tabs a:hover { border-color: #ffffff2a; color: var(--text); }
+.list-tabs a.is-current { border-color: #ffffff66; background: var(--raised); color: var(--text); }
+.list-tab-art { flex: none; width: 44px; height: 44px; border-radius: 8px; overflow: hidden; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; place-items: center; background: #ffffff0d; }
+.list-tab-art > svg { grid-column: 1 / -1; grid-row: 1 / -1; }
+.list-tab-art img { width: 100%; height: 100%; object-fit: cover; }
+.list-tab-art img:only-child { grid-column: 1 / -1; grid-row: 1 / -1; }
+.list-tab-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.list-tab-copy strong { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.list-tab-copy small { font-size: 12px; color: var(--muted); }
+
+.list-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.list-toolbar .chips { padding: 0; flex: 1 1 auto; min-width: 0; }
+.list-toolbar-end { display: flex; align-items: center; gap: 10px; }
+.list-toolbar-end .primary-button, .list-toolbar-end .outline-button { height: 38px; }
+.list-sort { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.list-sort select { height: 38px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--text); font: inherit; font-size: 14px; }
+
+.list-selection { position: sticky; top: calc(var(--topbar) + 8px); z-index: 6; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; padding: 10px 14px; border: 1px solid #ffffff1f; border-radius: 12px; background: var(--raised); box-shadow: 0 12px 30px #0007; }
+.list-selection > span { color: var(--muted); font-size: 14px; }
+.list-selection-actions { margin-left: auto; display: flex; gap: 8px; }
+.list-selection-actions .outline-button { height: 36px; }
+.list-selection-actions .action-menu { left: auto; right: 0; }
+.outline-button.danger { color: #f2c4c4; border-color: #a6656580; }
+.list-note { margin: 0 0 16px; }
+
+/* Posters take one column; home videos (16:9) take two. */
+.list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); grid-auto-flow: dense; gap: 30px 18px; }
+.list-item { position: relative; min-width: 0; }
+.list-item.is-video { grid-column: span 2; }
+.list-item-remove, .list-item-select { position: absolute; z-index: 3; top: 8px; display: grid; place-items: center; border: 0; color: #fff; }
+.list-item-remove { right: 8px; width: 28px; height: 28px; border-radius: 50%; background: #000000b0; opacity: 0; transition: opacity .15s; }
+.list-item:hover .list-item-remove, .list-item-remove:focus-visible { opacity: 1; }
+.list-item-select { inset: 0; top: 0; padding: 10px; place-items: start end; background: none; border-radius: 10px; cursor: pointer; }
+.list-item-select svg { filter: drop-shadow(0 1px 3px #000c); }
+.is-selecting .list-item a { pointer-events: none; }
+.list-item.is-selected .poster-art, .list-item.is-selected .thumb { outline: 3px solid var(--green, #b6df83); outline-offset: 2px; }
+@media (hover: none) { .list-item-remove { opacity: 1; } }
+
+/* The picker beside a title's or video's Watch List button. */
+.list-picker { position: relative; display: inline-flex; }
+.list-picker > button { gap: 6px; }
+.list-picker > button.icon-only { width: auto; padding: 0 12px; }
+.list-picker-panel { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; width: 260px; padding: 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); box-shadow: 0 18px 50px #000a; display: flex; flex-direction: column; gap: 6px; }
+.list-picker-title { padding: 2px 6px 4px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.list-picker-panel ul { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; }
+.list-picker-panel label { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 7px; cursor: pointer; font-size: 14px; color: var(--text); }
+.list-picker-panel label:hover { background: #ffffff0d; }
+.list-picker-panel label span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-picker-panel label small { color: var(--muted); font-size: 12px; }
+.list-picker-new { display: flex; gap: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+.list-picker-new input { flex: 1; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); color: var(--text); font: inherit; font-size: 14px; }
+.list-picker-panel .field-error { margin: 0; font-size: 13px; }
+
+@media (max-width: 580px) {
+  .list-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px 12px; }
+  .list-item.is-video { grid-column: 1 / -1; }
+  .list-tabs a { min-width: 160px; }
+  .list-picker-panel { left: auto; right: 0; }
+}

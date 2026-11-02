@@ -121,7 +121,7 @@ export function CatalogPage({ kind, api, navigate, AppLink, Loading, Empty, form
         </> : <Empty title="No matches" message="Try another genre or a different search." />)
         : <>
           {continuing.length > 0 && <Rail title="Continue watching"><>{continuing.map(entry => <ContinueCard key={entry.title.id} entry={entry} AppLink={AppLink} navigate={navigate} />)}</></Rail>}
-          {mine.length > 0 && <Rail title="My list" subtitle={`${mine.length} ${mine.length === 1 ? "title" : "titles"}`}><>{mine.map(item => <PosterCard key={item.id} item={{ ...item, ref: item.id, titleId: item.id }} AppLink={AppLink} navigate={navigate} onToggle={toggle} busy={busy === item.id} />)}</></Rail>}
+          {mine.length > 0 && <Rail title="Watch List" subtitle={`${mine.length} ${mine.length === 1 ? "title" : "titles"}`} action={<AppLink href="/lists" navigate={navigate} className="shelf-link">See all</AppLink>}><>{mine.map(item => <PosterCard key={item.id} item={{ ...item, ref: item.id, titleId: item.id }} AppLink={AppLink} navigate={navigate} onToggle={toggle} busy={busy === item.id} />)}</></Rail>}
           {home === null && !error ? <Loading /> : error ? <div className="error-notice" role="alert"><span>{error}</span></div> : home.map(rail => <Rail key={rail.id} title={rail.title}><>{rail.items.map(card)}</></Rail>)}
           {home && !home.length && !mine.length && <Empty title="Nothing to show yet" message="The catalog returned no titles. Try again in a moment." />}
         </>}

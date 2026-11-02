@@ -18,6 +18,7 @@ import "../src/shell.css";
 import "../src/browse.css";
 import "../src/profiles.css";
 import "../src/settings.css";
+import "../src/lists.css";
 
 // Self-hosted at build time, exposed as --font-sans for the stylesheets.
 const karla = Karla({ subsets: ["latin"], variable: "--font-sans", display: "swap" });

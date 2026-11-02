@@ -76,7 +76,7 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty, format
     finally { pending.current = false; if (generation.current === current) setLoadingMore(false); }
   }, [assets, hasMore, selected, seed]);
 
-  // Adding from a trending row makes the title local first, then puts it in My list.
+  // Adding from a trending row makes the title local first, then puts it on your Watch List.
   const toggle = async item => {
     setBusy(item.ref);
     try {
@@ -97,8 +97,8 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty, format
     <div className="content home-page">
       <div className="home-main">
         {continuing.length > 0 && <Rail title="Continue watching"><>{continuing.map(entry => <ContinueCard key={entry.title.id} entry={entry} AppLink={AppLink} navigate={navigate} />)}</></Rail>}
-        {mine.length > 0 && <Rail title="My list" action={<Segmented label="Filter My list" options={LIST_FILTERS.filter(([key]) => key === "all" || mine.some(item => listMatches(item, key)))} value={listFilter} onChange={setListFilter} />}>
-          <>{shownMine.map(item => <PosterCard key={item.id} item={{ ...item, ref: item.id, titleId: item.id }} AppLink={AppLink} navigate={navigate} />)}</>
+        {mine.length > 0 && <Rail title="Watch List" action={<><Segmented label="Filter Watch List" options={LIST_FILTERS.filter(([key]) => key === "all" || mine.some(item => listMatches(item, key)))} value={listFilter} onChange={setListFilter} /><AppLink href="/lists" navigate={navigate} className="shelf-link">See all</AppLink></>}>
+          <>{shownMine.map(item => <PosterCard key={item.id} item={{ ...item, ref: item.id, titleId: item.id }} AppLink={AppLink} navigate={navigate} onToggle={toggle} busy={busy === item.id} />)}</>
         </Rail>}
         {trending.map(rail => <Rail key={rail.id} title={rail.title} action={<AppLink href={rail.href} navigate={navigate} className="shelf-link">View all</AppLink>}><>{rail.items.map(card)}</></Rail>)}
 
