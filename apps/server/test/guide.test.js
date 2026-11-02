@@ -60,33 +60,34 @@ test('a window starting mid-program includes the program already airing, and is 
 });
 
 test('custom channels combine tags with all or any, take low numbers, and can be edited and deleted', async () => {
-  const count = async (ids, match) => (await app.inject(`/api/v1/guide/count?topics=${ids.join(',')}&match=${match}`)).json().item_count;
+  const count = async (ids, match) => (await app.inject({ method: 'POST', url: '/api/v1/guide/preview', payload: { rules: { topicIds: ids, match } } })).json().item_count;
   assert.equal(await count([comedy.id, drama.id], 'all'), 2);
   assert.equal(await count([comedy.id, drama.id], 'any'), 4);
 
-  const created = await app.inject({ method: 'POST', url: '/api/v1/guide/channels', payload: { name: ' Both ', topicIds: [comedy.id, drama.id, comedy.id], match: 'all' } });
+  const created = await app.inject({ method: 'POST', url: '/api/v1/guide/channels', payload: { name: ' Both ', rules: { topicIds: [comedy.id, drama.id, comedy.id], match: 'all' } } });
   assert.equal(created.statusCode, 201);
   const channel = created.json();
   assert.equal(channel.number, 1);
   assert.equal(channel.name, 'Both');
-  assert.equal(channel.topics.length, 2);
+  assert.equal(channel.sources.topics.length, 2);
+  assert.equal(channel.scope, 'household', "an admin's channel is for everyone unless they choose otherwise");
   let rows = await guide(`start=${GUIDE_EPOCH}&filter=custom`);
   assert.equal(rows.total, 1);
   assert.equal(rows.channels[0].item_count, 2);
   assert.ok(rows.channels[0].programs.every(p => ['g2', 'g3'].includes(p.id)));
   assert.equal((await guide(`start=${GUIDE_EPOCH}`)).channels[0].key, `custom:${channel.id}`, 'custom channels list first');
 
-  const second = (await app.inject({ method: 'POST', url: '/api/v1/guide/channels', payload: { name: 'Either', topicIds: [sparse.id], match: 'any' } })).json();
+  const second = (await app.inject({ method: 'POST', url: '/api/v1/guide/channels', payload: { name: 'Either', rules: { topicIds: [sparse.id], match: 'any' } } })).json();
   assert.equal(second.number, 2);
-  const edited = await app.inject({ method: 'PUT', url: `/api/v1/guide/channels/${channel.id}`, payload: { name: 'Either way', topicIds: [comedy.id, drama.id], match: 'any' } });
-  assert.equal(edited.json().match, 'any');
+  const edited = await app.inject({ method: 'PUT', url: `/api/v1/guide/channels/${channel.id}`, payload: { name: 'Either way', rules: { topicIds: [comedy.id, drama.id], match: 'any' } } });
+  assert.equal(edited.json().rules.match, 'any');
   rows = await guide(`start=${GUIDE_EPOCH}&filter=custom`);
   assert.equal(rows.channels[0].item_count, 4);
   assert.equal(rows.channels[1].item_count, 1, 'custom channels show even when sparse');
 
   assert.equal((await app.inject({ method: 'DELETE', url: `/api/v1/guide/channels/${channel.id}` })).statusCode, 204);
   assert.equal((await app.inject({ method: 'DELETE', url: `/api/v1/guide/channels/${channel.id}` })).statusCode, 404);
-  const reused = (await app.inject({ method: 'POST', url: '/api/v1/guide/channels', payload: { name: 'Again', topicIds: [drama.id], match: 'all' } })).json();
+  const reused = (await app.inject({ method: 'POST', url: '/api/v1/guide/channels', payload: { name: 'Again', rules: { topicIds: [drama.id] } } })).json();
   assert.equal(reused.number, 1, 'freed numbers are reused');
   assert.deepEqual((await app.inject('/api/v1/guide/channels')).json().map(c => c.number), [1, 2]);
 });
@@ -96,10 +97,21 @@ test('guide requests and channel edits are validated', async () => {
     assert.equal((await app.inject(`/api/v1/guide?${query}`)).statusCode, 400, query);
   }
   const post = payload => app.inject({ method: 'POST', url: '/api/v1/guide/channels', payload });
-  assert.equal((await post({ name: '', topicIds: [comedy.id], match: 'all' })).statusCode, 400);
-  assert.equal((await post({ name: 'x'.repeat(61), topicIds: [comedy.id], match: 'all' })).statusCode, 400);
-  assert.equal((await post({ name: 'No tags', topicIds: [], match: 'all' })).statusCode, 400);
-  assert.equal((await post({ name: 'Bad mode', topicIds: [comedy.id], match: 'some' })).statusCode, 400);
-  assert.equal((await post({ name: 'Ghost', topicIds: ['missing-topic'], match: 'all' })).statusCode, 404);
-  assert.equal((await app.inject({ method: 'PUT', url: '/api/v1/guide/channels/missing', payload: { name: 'x', topicIds: [comedy.id], match: 'all' } })).statusCode, 404);
+  const rules = { topicIds: [comedy.id] };
+  assert.equal((await post({ name: '', rules })).statusCode, 400);
+  assert.equal((await post({ name: 'x'.repeat(61), rules })).statusCode, 400);
+  assert.equal((await post({ name: 'No rules' })).statusCode, 400);
+  assert.equal((await post({ name: 'No sources', rules: { topicIds: [], types: ['home'] } })).statusCode, 400);
+  assert.equal((await post({ name: 'Bad mode', rules: { ...rules, match: 'some' } })).statusCode, 400);
+  assert.equal((await post({ name: 'Bad type', rules: { ...rules, types: ['cartoons'] } })).statusCode, 400);
+  assert.equal((await post({ name: 'Bad rating', rules: { ...rules, maxRating: 'pg' } })).statusCode, 400);
+  assert.equal((await post({ name: 'Bad years', rules: { ...rules, yearFrom: 2000, yearTo: 1990 } })).statusCode, 400);
+  assert.equal((await post({ name: 'Bad order', rules, order: 'random' })).statusCode, 400);
+  assert.equal((await post({ name: 'Bad block', rules, episodeBlock: 3 })).statusCode, 400);
+  assert.equal((await post({ name: 'Bad scope', rules, scope: 'friends' })).statusCode, 400);
+  assert.equal((await post({ name: 'Ghost', rules: { topicIds: ['missing-topic'] } })).statusCode, 404);
+  assert.equal((await post({ name: 'Ghost show', rules: { titleIds: ['missing-title'] } })).statusCode, 404);
+  assert.equal((await post({ name: 'Ghost list', rules: { listIds: ['missing-list'] } })).statusCode, 404);
+  assert.equal((await post({ name: 'Ghost folder', rules: { rootIds: ['missing-root'] } })).statusCode, 404);
+  assert.equal((await app.inject({ method: 'PUT', url: '/api/v1/guide/channels/missing', payload: { name: 'x', rules } })).statusCode, 404);
 });

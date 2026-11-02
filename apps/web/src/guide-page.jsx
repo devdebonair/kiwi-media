@@ -273,7 +273,7 @@ const GuideRow = memo(function GuideRow({ channel, row, start, end, now, isTuned
       <button className="guide-channel-tune" onClick={() => onTuneChannel(channel)} title={`${channel.name} · ${channel.item_count.toLocaleString()} ${channel.item_count === 1 ? "video" : "videos"}`} aria-label={`Channel ${channel.number}, ${channel.name}. ${isTuned ? "Now playing" : "Watch live"}`}>
         <span className="guide-number">{isTuned ? <SpeakerHigh size={14} weight="fill" aria-hidden="true" /> : channel.number}</span><ChannelLogo channel={channel} /><span className="guide-channel-name">{channel.name}</span>
       </button>
-      {channel.type === "custom" && <button className="guide-channel-edit icon-button" onClick={() => onEdit(channel)} aria-label={`Edit ${channel.name}`} title="Edit channel"><PencilSimple size={15} /></button>}
+      {channel.editable && <button className="guide-channel-edit icon-button" onClick={() => onEdit(channel)} aria-label={`Edit ${channel.name}`} title="Edit channel"><PencilSimple size={15} /></button>}
     </div>
     <div className="guide-programs">
       {channel.programs.map(show => {
@@ -332,18 +332,26 @@ function ProgramInfo({ api, channel, program, now, tuned, onTune, onEdit, naviga
       {playing ? <span className="guide-now-playing"><SpeakerHigh size={16} weight="fill" /> Now playing</span>
         : <button className="primary-button" onClick={() => onTune(channel, program)}><Play size={16} weight="fill" />{live ? "Watch live" : "Watch"}</button>}
       {live && <button className="outline-button" onClick={() => navigate(`/watch/${program.id}?t=0`)}><ArrowCounterClockwise size={16} /> Start over</button>}
-      {inSheet && channel.type === "custom" && <button className="outline-button" onClick={() => onEdit(channel)}><PencilSimple size={16} /> Edit channel</button>}
+      {inSheet && channel.editable && <button className="outline-button" onClick={() => onEdit(channel)}><PencilSimple size={16} /> Edit channel</button>}
     </div>
   </div>;
 }
+
+// A one-line description of what a channel you made airs, e.g. "Comedy + Drama · Alpha Show · Kids folder · just you".
+const channelRule = ({ sources, rules, scope }) => [
+  sources.topics.map(topic => topic.name).join(rules.match === "all" ? " + " : " or "),
+  ...sources.titles.map(title => title.title), ...sources.lists.map(list => `${list.name} list`), ...sources.roots.map(root => `${root.name} folder`),
+  sources.excludeTopics.length ? `not ${sources.excludeTopics.map(topic => topic.name).join(", ")}` : "",
+  scope === "personal" ? "just you" : "",
+].filter(Boolean).join(" · ");
 
 function ChannelLine({ channel, navigate, onEdit }) {
   return <div className="guide-channel-line">
     <ChannelLogo channel={channel} /><span className="guide-number">{channel.number}</span>
     {channel.slug ? <a href={`/topic/${channel.slug}`} onClick={event => { if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigate(`/topic/${channel.slug}`); }}>{channel.name}</a> : <span>{channel.name}</span>}
     {channel.type === "custom" && <>
-      <span className="guide-channel-rule">{channel.topics.map(topic => topic.name).join(channel.match === "all" ? " + " : " or ")}</span>
-      <button className="icon-button" onClick={() => onEdit(channel)} aria-label={`Edit ${channel.name}`} title="Edit channel"><PencilSimple size={15} /></button>
+      <span className="guide-channel-rule">{channelRule(channel)}</span>
+      {channel.editable && <button className="icon-button" onClick={() => onEdit(channel)} aria-label={`Edit ${channel.name}`} title="Edit channel"><PencilSimple size={15} /></button>}
     </>}
   </div>;
 }
@@ -604,7 +612,7 @@ function LiveActions({ api, id, navigate }) {
 function GuideEmpty({ filter, q, create }) {
   const [title, message] = q ? ["No channels match", "Try another channel number or name."]
     : ["media", "genres", "services"].includes(filter) ? ["Nothing on these channels yet", "Add movies, shows, or anime to a list and they join the guide, grouped by genre and service."]
-    : filter === "custom" ? ["You haven't made a channel yet", "Combine tags into a channel that plays everything they share."]
+    : filter === "custom" ? ["You haven't made a channel yet", "Build one from tags, shows and movies, lists, or folders, then narrow it down by type, rating, or year."]
     : ["No channels yet", "Any tag on three or more videos becomes a channel automatically."];
   return <div className="empty guide-empty"><Television size={38} /><h2>{title}</h2><p>{message}</p>{!q && <button className="primary-button" onClick={create}><Plus size={17} /> New channel</button>}</div>;
 }

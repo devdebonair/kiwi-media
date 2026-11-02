@@ -195,12 +195,14 @@ export async function openTitle(type, tmdbId, tmdb, { refresh = false } = {}) {
 export const inMyList = (titleId, user = userId()) => Boolean(titleId && db.prepare("SELECT 1 FROM list_items i JOIN lists l ON l.id=i.list_id WHERE l.user_id=? AND i.title_id=?").get(user, titleId));
 export const assetInMyList = (assetId, user = userId()) => Boolean(assetId && db.prepare("SELECT 1 FROM list_items i JOIN lists l ON l.id=i.list_id WHERE l.user_id=? AND i.asset_id=?").get(user, assetId));
 
-// The household library is every title on anyone's list: those stay synced by the worker, keep their
-// artwork offline, air on the TV guide, and are never pruned. Call after a list changes.
+// The household library is every title on anyone's list or picked for a TV channel: those stay synced by the
+// worker, keep their artwork offline, can air on the TV guide, and are never pruned. Call after a list or a
+// channel changes.
 export function syncHouseholdLibrary(titleId, { images } = {}) {
   const title = getTitle(titleId);
   if (!title) return null;
-  const first = db.prepare("SELECT min(added_at) at FROM list_items WHERE title_id=?").get(titleId).at;
+  const first = db.prepare(`SELECT min(at) at FROM (SELECT added_at at FROM list_items WHERE title_id=?
+    UNION ALL SELECT c.created_at FROM guide_channels c, json_each(c.rules_json, '$.titleIds') j WHERE j.value=?)`).get(titleId, titleId).at;
   if (first && !title.in_library) {
     db.prepare("UPDATE titles SET in_library=1,library_added_at=?,updated_at=? WHERE id=?").run(first, now(), titleId);
     images?.prefetch(titleArtwork(getTitle(titleId)), { pin: true }).catch(() => {});

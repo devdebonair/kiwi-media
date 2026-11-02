@@ -37,8 +37,7 @@ db.prepare("INSERT INTO annotations(id,asset_id,motivation,note_markdown,created
 db.prepare("INSERT INTO annotation_selectors(id,annotation_id,selector_type,start_ms,end_ms) VALUES ('sel-bad','clip-bad','time-range',0,5000)").run();
 db.prepare("INSERT INTO annotation_topics(annotation_id,topic_id,role) VALUES ('clip-bad','performer','subject')").run();
 db.prepare("INSERT INTO feeds(id,owner_id,slug,name,query_json,created_at,updated_at) VALUES ('feed-performer','user-local','performer-feed','Velvet Performer','{\"topicIds\":[\"performer\"]}',?,?)").run(now, now);
-db.prepare("INSERT INTO guide_channels(id,number,name,created_at,updated_at) VALUES ('ch-performer',7,'Velvet channel',?,?)").run(now, now);
-db.prepare("INSERT INTO guide_channel_topics(channel_id,topic_id) VALUES ('ch-performer','performer')").run();
+db.prepare("INSERT INTO guide_channels(id,number,name,rules_json,created_at,updated_at) VALUES ('ch-performer',7,'Velvet channel',?,?,?)").run(JSON.stringify({ topicIds: ['performer'] }), now, now);
 rebuildSearch();
 
 let owner, kid;

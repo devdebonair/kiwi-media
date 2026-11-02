@@ -267,15 +267,19 @@ export function registerProfiles(app) {
     return { profile: fullProfile(updated) };
   });
 
-  // Removes the profile and everything that was only its own: history, likes, saved items, follows, settings.
+  // Removes the profile and everything that was only its own: history, likes, lists, follows, settings, channels.
   app.delete("/api/v1/profiles/:id", async (req, reply) => {
     const user = row(req.params.id);
     if (!user) return reply.code(404).send({ error: "Profile not found" });
     if (user.id === OWNER_ID) return reply.code(409).send({ error: "The owner profile can't be removed." });
-    const listed = db.prepare("SELECT DISTINCT i.title_id FROM list_items i JOIN lists l ON l.id=i.list_id WHERE l.user_id=? AND i.title_id IS NOT NULL").all(user.id).map(entry => entry.title_id);
+    // Titles on its lists or picked for its own channels.
+    const listed = db.prepare(`SELECT i.title_id FROM list_items i JOIN lists l ON l.id=i.list_id WHERE l.user_id=? AND i.title_id IS NOT NULL
+      UNION SELECT j.value FROM guide_channels c, json_each(c.rules_json, '$.titleIds') j WHERE c.owner_id=?`).all(user.id, user.id).map(entry => entry.title_id);
     db.exec("BEGIN IMMEDIATE");
     try {
       for (const table of ["consumption_state", "asset_views", "asset_likes", "topic_follows", "feed_follows", "user_settings", "lists", "profile_preferences"]) db.prepare(`DELETE FROM ${table} WHERE user_id=?`).run(user.id);
+      // Its personal TV channels go too; household channels stay.
+      db.prepare("DELETE FROM guide_channels WHERE owner_id=?").run(user.id);
       // Feeds and collections stay with the household.
       db.prepare("UPDATE feeds SET owner_id=? WHERE owner_id=?").run(OWNER_ID, user.id);
       db.prepare("UPDATE collections SET owner_id=? WHERE owner_id=?").run(OWNER_ID, user.id);

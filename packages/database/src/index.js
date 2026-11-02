@@ -149,16 +149,14 @@ export function migrate() {
       user_id TEXT NOT NULL REFERENCES users(id), asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
       count INTEGER NOT NULL CHECK(count BETWEEN 0 AND 5), PRIMARY KEY(user_id, asset_id)
     );
-    -- TV guide channels built from a combination of tags; every tag also gets an automatic channel.
+    -- TV guide channels you make (every tag and media class also gets an automatic channel). rules_json holds what
+    -- the channel airs; see apps/server/src/channel-rules.js. owner_id is NULL for household channels.
     CREATE TABLE IF NOT EXISTS guide_channels (
       id TEXT PRIMARY KEY, number INTEGER NOT NULL UNIQUE, name TEXT NOT NULL,
-      match_mode TEXT NOT NULL DEFAULT 'all' CHECK(match_mode IN ('all','any')),
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS guide_channel_topics (
-      channel_id TEXT NOT NULL REFERENCES guide_channels(id) ON DELETE CASCADE,
-      topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-      PRIMARY KEY(channel_id, topic_id)
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      owner_id TEXT REFERENCES users(id) ON DELETE CASCADE, rules_json TEXT NOT NULL DEFAULT '{}',
+      order_mode TEXT NOT NULL DEFAULT 'shuffle' CHECK(order_mode IN ('shuffle','in_order','newest')),
+      episode_block INTEGER NOT NULL DEFAULT 2 CHECK(episode_block IN (0,1,2,4))
     );
     CREATE TABLE IF NOT EXISTS user_settings (
       user_id TEXT PRIMARY KEY REFERENCES users(id), shorts_max_seconds INTEGER NOT NULL DEFAULT 90
@@ -412,6 +410,28 @@ export function migrate() {
       db.exec(`UPDATE titles SET in_library=1, library_added_at=coalesce(library_added_at, (SELECT min(added_at) FROM list_items i WHERE i.title_id=titles.id))
         WHERE in_library=0 AND EXISTS(SELECT 1 FROM list_items i WHERE i.title_id=titles.id)`);
       db.prepare("INSERT INTO app_state VALUES ('lists-v1', ?)").run(at);
+      db.exec("COMMIT");
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
+  }
+  // Channels v2: what a channel airs moves from a tag table plus a match mode into one rules object (tags, titles,
+  // lists, folders, and filters), and a channel can belong to one profile instead of the household.
+  if (!db.prepare("SELECT 1 FROM app_state WHERE key='channels-v2'").get()) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const columns = db.prepare("PRAGMA table_info(guide_channels)").all().map(column => column.name);
+      for (const [name, definition] of [
+        ["owner_id", "TEXT REFERENCES users(id) ON DELETE CASCADE"], ["rules_json", "TEXT NOT NULL DEFAULT '{}'"],
+        ["order_mode", "TEXT NOT NULL DEFAULT 'shuffle' CHECK(order_mode IN ('shuffle','in_order','newest'))"],
+        ["episode_block", "INTEGER NOT NULL DEFAULT 2 CHECK(episode_block IN (0,1,2,4))"],
+      ]) if (!columns.includes(name)) db.exec(`ALTER TABLE guide_channels ADD COLUMN ${name} ${definition}`);
+      if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='guide_channel_topics'").get()) {
+        db.exec(`UPDATE guide_channels SET rules_json=json_object(
+          'topicIds', json((SELECT json_group_array(ct.topic_id) FROM guide_channel_topics ct WHERE ct.channel_id=guide_channels.id)),
+          'match', ${columns.includes("match_mode") ? "match_mode" : "'all'"})`);
+        db.exec("DROP TABLE guide_channel_topics");
+      }
+      if (columns.includes("match_mode")) db.exec("ALTER TABLE guide_channels DROP COLUMN match_mode");
+      db.prepare("INSERT OR IGNORE INTO app_state VALUES ('channels-v2', ?)").run(new Date().toISOString());
       db.exec("COMMIT");
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   }

@@ -14,7 +14,8 @@ export function createGuideWarmer({ prepare, now = Date.now, log = () => {} }) {
   async function work() {
     for (const [key, at] of tuned) if (now() - at > TUNED_FOR) tuned.delete(key);
     if (!tuned.size) return [];
-    const { channels, info } = guideChannels();
+    // Runs in the background, so it sees every profile's channels; tune() is only called for a channel the profile has.
+    const { channels, info } = guideChannels({ everyone: true });
     const ids = [];
     for (const channel of channels.filter(item => tuned.has(item.key))) {
       for (const program of schedule(channel, info, now(), now() + AHEAD)) {
