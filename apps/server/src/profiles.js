@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { getMedia, syncHouseholdLibrary } from "@kiwi/media";
-import { db, ensureWatchlist, profileContext, currentProfile, ratingKey, ratingLevel, levelAllowed, MAX_LEVEL, RATINGS } from "@kiwi/database";
+import { db, ensureWatchlist, profileContext, currentProfile, clipVisibleSql, topicVisibleSql, ratingKey, ratingLevel, levelAllowed, MAX_LEVEL, RATINGS } from "@kiwi/database";
 
 // Netflix-style profiles. A profile is a row in users; choosing one sets a signed cookie naming it.
 // Every API request runs as that profile (see profileContext), which limits what content it can see.
@@ -94,7 +94,9 @@ const PUBLIC = [
 // Server configuration, downloads, and library management are for admins. Tagging stays open to everyone.
 const ADMIN = [
   [null, /^\/api\/v1\/(media|downloads|downloaders|vpn)(\/|$)/], [null, /^\/api\/v1\/library\/(roots|scan)/], [null, /^\/api\/v1\/(jobs|libraries)/],
-  [null, /^\/api\/v1\/(assets|titles)\/:id\/(download|rating)$/], [null, /^\/api\/v1\/library\/roots\/:id\/rating$/],
+  [null, /^\/api\/v1\/(assets|titles|topics)\/:id\/(download|rating)$/],
+  // Tag metadata comes from adult performer databases (StashDB, ThePornDB) among others.
+  [null, /^\/api\/v1\/metadata\//], [null, /^\/api\/v1\/topics\/:id\/metadata/], [null, /^\/api\/v1\/library\/roots\/:id\/rating$/],
   ["POST", /^\/api\/v1\/profiles$/], ["PATCH", /^\/api\/v1\/profiles\/:id$/], ["DELETE", /^\/api\/v1\/profiles\/:id$/],
 ];
 const matches = (list, method, url) => list.some(([verb, pattern]) => (!verb || verb === method) && pattern.test(url));
@@ -104,6 +106,13 @@ const assetLevel = id => db.prepare("SELECT level FROM asset_ratings WHERE asset
 const titleLevel = id => db.prepare("SELECT level FROM title_ratings WHERE title_id=?").get(id);
 export const assetAllowed = (id, profile = currentProfile()) => { const found = assetLevel(id); return !found || levelAllowed(found.level, profile); };
 export const titleAllowed = (id, profile = currentProfile()) => { const found = titleLevel(id); return !found || levelAllowed(found.level, profile); };
+// Tags: rated ones by their rating, unrated ones only where they have something the profile can see.
+export const topicAllowed = (id, profile = currentProfile()) => !id || !db.prepare("SELECT 1 FROM topics WHERE id=?").get(id)
+  || Boolean(db.prepare(`SELECT 1 FROM topics t WHERE t.id=? AND ${topicVisibleSql("t", profile)}`).get(id));
+export const clipAllowed = (id, profile = currentProfile()) => {
+  const clip = db.prepare("SELECT asset_id FROM annotations WHERE id=?").get(id);
+  return !clip || (assetAllowed(clip.asset_id, profile) && Boolean(db.prepare(`SELECT 1 FROM annotations a WHERE a.id=? AND ${clipVisibleSql("a", profile)}`).get(id)));
+};
 
 // Single-item routes answer 404 for content the profile may not see, as if it did not exist.
 function hiddenFrom(req, profile) {
@@ -116,10 +125,11 @@ function hiddenFrom(req, profile) {
     const track = db.prepare("SELECT asset_id FROM subtitle_tracks WHERE id=?").get(String(file || "").replace(/\.vtt$/, ""));
     return Boolean(track) && !assetAllowed(track.asset_id, profile);
   }
-  if (/^\/api\/v1\/clips\/:id$/.test(url)) {
-    const clip = db.prepare("SELECT asset_id FROM annotations WHERE id=?").get(id);
-    return Boolean(clip) && !assetAllowed(clip.asset_id, profile);
-  }
+  if (/^\/api\/v1\/clips\/:id$/.test(url)) return !clipAllowed(id, profile);
+  if (url === "/api/v1/topics/:slug") { const topic = db.prepare("SELECT id FROM topics WHERE slug=? OR id=?").get(req.params.slug, req.params.slug); return Boolean(topic) && !topicAllowed(topic.id, profile); }
+  if (/^\/api\/v1\/topics\/:id(\/|$)/.test(url)) return !topicAllowed(id, profile) || Boolean(req.params.topicId && !topicAllowed(req.params.topicId, profile));
+  // Removing a tag from something: the tag must be one the profile can see.
+  if (req.params?.topicId && !topicAllowed(req.params.topicId, profile)) return true;
   return false;
 }
 

@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { MAX_LEVEL, certificationSql } from "./ratings.js";
+import { MAX_LEVEL, certificationSql, clipVisibleSql } from "./ratings.js";
 
 export * from "./ratings.js";
 
@@ -384,7 +384,7 @@ export function migrate() {
     db.exec("UPDATE users SET role='admin' WHERE id='user-local' AND role!='admin'");
     // Content ratings: an explicit rating on a folder (a floor for everything in it), a title, or an asset.
     const rated = `INTEGER CHECK(content_rating BETWEEN 1 AND ${MAX_LEVEL})`;
-    for (const table of ["library_roots", "titles", "assets"]) {
+    for (const table of ["library_roots", "titles", "assets", "topics"]) {
       if (!db.prepare(`PRAGMA table_info(${table})`).all().some(column => column.name === "content_rating")) db.exec(`ALTER TABLE ${table} ADD COLUMN content_rating ${rated}`);
     }
     db.exec("COMMIT");
@@ -415,16 +415,24 @@ export function migrate() {
       db.exec("COMMIT");
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   }
-  // A title's rating is the admin's choice, else its certification. An asset's is the higher of its folder's
-  // rating and its own (the admin's choice, else its title's). NULL is unrated.
+  // A title's own rating is the admin's choice, else its certification; an asset's own rating is the admin's
+  // choice, else its title's. Folders and tags with a rating are minimums for everything in or under them: an
+  // item's rating is the highest of its own, its folder's, and its rated tags' (including tags implied by topic
+  // rules and, for episodes, the series' tags). NULL is unrated.
   const ratingViews = [
     ["title_ratings", `CREATE VIEW title_ratings AS
-    SELECT t.id title_id, coalesce(t.content_rating, ${certificationSql("t.certification")}) level FROM titles t`],
+    SELECT t.id title_id, nullif(max(
+      coalesce(t.content_rating, ${certificationSql("t.certification")}, 0),
+      coalesce((SELECT max(x.content_rating) FROM topics x WHERE x.content_rating IS NOT NULL AND (
+        x.id IN (SELECT tt.topic_id FROM title_topics tt WHERE tt.title_id=t.id)
+        OR x.id IN (SELECT i.topic_id FROM implied_topics i JOIN title_topics tt ON tt.topic_id=i.source_topic_id WHERE tt.title_id=t.id))), 0)
+    ), 0) level FROM titles t`],
     ["asset_ratings", `CREATE VIEW asset_ratings AS
     SELECT a.id asset_id, nullif(max(
       coalesce((SELECT max(r.content_rating) FROM library_roots r WHERE r.content_rating IS NOT NULL AND (
         EXISTS(SELECT 1 FROM files f WHERE f.asset_id=a.id AND f.library_root_id=r.id)
         OR substr(a.file_path,1,length(rtrim(r.absolute_path,'/'))+1)=rtrim(r.absolute_path,'/') || '/')), 0),
+      coalesce((SELECT max(x.content_rating) FROM effective_asset_topics e JOIN topics x ON x.id=e.topic_id WHERE e.asset_id=a.id AND x.content_rating IS NOT NULL), 0),
       coalesce(a.content_rating, (SELECT tr.level FROM title_ratings tr WHERE tr.title_id=a.title_id), 0)
     ), 0) level FROM assets a`],
   ];
@@ -655,7 +663,7 @@ export function assetWithTopics(row) {
   if (!row) return null;
   const topics = db.prepare("SELECT DISTINCT t.id,t.slug,t.name,t.avatar_url FROM topics t JOIN effective_asset_topics et ON et.topic_id=t.id WHERE et.asset_id=?").all(row.id);
   const moments = db.prepare(`SELECT s.start_ms,s.end_ms,a.note_markdown,(SELECT group_concat(t.name, ', ') FROM annotation_topics at JOIN topics t ON t.id=at.topic_id WHERE at.annotation_id=a.id) topic
-    FROM annotation_selectors s JOIN annotations a ON a.id=s.annotation_id WHERE a.asset_id=? AND a.motivation='clipping' AND s.selector_type='time-range' ORDER BY s.start_ms`).all(row.id);
+    FROM annotation_selectors s JOIN annotations a ON a.id=s.annotation_id WHERE a.asset_id=? AND a.motivation='clipping' AND s.selector_type='time-range' AND ${clipVisibleSql("a")} ORDER BY s.start_ms`).all(row.id);
   return { ...row, topics, moments, saved: Boolean(row.saved) };
 }
 

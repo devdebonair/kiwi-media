@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { db, assetVisibleSql } from "@kiwi/database";
+import { db, assetVisibleSql, isUnrestricted, topicVisibleSql } from "@kiwi/database";
 
 // Every channel loops its lineup forever from this instant, so "what's on" is the same on
 // every request and device without storing a schedule.
@@ -56,10 +56,14 @@ const combine = (byTopic, topicIds, match) => {
   return new Set([...smallest].filter(id => rest.every(set => set.has(id))));
 };
 
+// A profile only sees the tags it may see; a channel left with none of its tags is hidden from it.
 const customChannels = () => {
   const topics = db.prepare(`SELECT ct.channel_id, t.id, t.slug, t.name, t.avatar_url FROM guide_channel_topics ct
-    JOIN topics t ON t.id=ct.topic_id ORDER BY t.name`).all();
-  return db.prepare("SELECT * FROM guide_channels ORDER BY number").all().map(channel => ({
+    JOIN topics t ON t.id=ct.topic_id WHERE ${topicVisibleSql("t")} ORDER BY t.name`).all();
+  const hasTopics = new Set(db.prepare("SELECT DISTINCT channel_id FROM guide_channel_topics").all().map(row => row.channel_id));
+  const restricted = !isUnrestricted();
+  return db.prepare("SELECT * FROM guide_channels ORDER BY number").all()
+    .filter(channel => !restricted || !hasTopics.has(channel.id) || topics.some(topic => topic.channel_id === channel.id)).map(channel => ({
     key: `custom:${channel.id}`, id: channel.id, number: channel.number, name: channel.name, type: "custom",
     match: channel.match_mode, avatar_url: null, topics: topics.filter(topic => topic.channel_id === channel.id).map(({ channel_id, ...topic }) => topic),
   }));
@@ -174,6 +178,8 @@ export function registerGuide(app, { warmer } = {}) {
   app.post("/api/v1/guide/tune", async (req, reply) => {
     const key = typeof req.body?.channel === "string" ? req.body.channel : "";
     if (!key || key.length > 200) return reply.code(400).send({ error: "channel is required" });
+    // Only channels this profile can see are readied.
+    if (!guideChannels().channels.some(channel => channel.key === key)) return reply.code(404).send({ error: "Channel not found" });
     warmer?.tune(key);
     return reply.code(204).send();
   });

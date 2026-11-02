@@ -51,3 +51,19 @@ export const assetVisibleSql = (alias = "a", profile = currentProfile()) =>
   isUnrestricted(profile) ? "1=1" : limitSql(`(SELECT r.level FROM asset_ratings r WHERE r.asset_id=${alias}.id)`, profile);
 export const titleVisibleSql = (alias = "t", profile = currentProfile()) =>
   isUnrestricted(profile) ? "1=1" : limitSql(`(SELECT r.level FROM title_ratings r WHERE r.title_id=${alias}.id)`, profile);
+// A clip is hidden when one of its own tags is rated above the profile's limit (clip tags describe only that range,
+// so they don't rate the whole video).
+export const clipVisibleSql = (alias = "a", profile = currentProfile()) =>
+  isUnrestricted(profile) ? "1=1" : `NOT EXISTS(SELECT 1 FROM clip_topics cv JOIN topics cr ON cr.id=cv.topic_id WHERE cv.clip_id=${alias}.id AND cr.content_rating > ${Math.trunc(Number(profile.maxRating)) || 0})`;
+// A rated tag is shown when its rating is allowed. An unrated tag is shown only where it has something the profile
+// can see: a video, a movie or show, or a clip. So a tag used only on hidden content stays hidden.
+export const topicVisibleSql = (alias = "t", profile = currentProfile()) => {
+  if (isUnrestricted(profile)) return "1=1";
+  const max = Math.trunc(Number(profile.maxRating)) || 0;
+  return `(CASE WHEN ${alias}.content_rating IS NOT NULL THEN ${alias}.content_rating <= ${max} ELSE (
+    EXISTS(SELECT 1 FROM effective_asset_topics ve JOIN assets va ON va.id=ve.asset_id WHERE ve.topic_id=${alias}.id AND ${assetVisibleSql("va", profile)})
+    OR EXISTS(SELECT 1 FROM title_topics vt JOIN titles vx ON vx.id=vt.title_id WHERE vt.topic_id=${alias}.id AND ${titleVisibleSql("vx", profile)})
+    OR EXISTS(SELECT 1 FROM clip_topics vc JOIN annotations vn ON vn.id=vc.clip_id JOIN assets vca ON vca.id=vn.asset_id
+      WHERE vc.topic_id=${alias}.id AND ${assetVisibleSql("vca", profile)} AND ${clipVisibleSql("vn", profile)})
+  ) END)`;
+};

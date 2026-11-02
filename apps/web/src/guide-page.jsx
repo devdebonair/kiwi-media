@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { activeProfileId } from "./profiles.jsx";
 import { createPortal, flushSync } from "react-dom";
 import { ArrowCounterClockwise, ArrowSquareOut, Broadcast, CaretDown, CaretLeft, ClosedCaptioning, CornersIn, CornersOut, FilmSlate, MagnifyingGlass, MonitorPlay, PencilSimple, Play, Plus, SpeakerHigh, SpeakerSlash, Stack, Television, X } from "@phosphor-icons/react";
 import { InfiniteScroll } from "./infinite-scroll.jsx";
@@ -18,15 +19,16 @@ import { TheaterGuide } from "./guide-theater.jsx";
 
 const HOURS = 4, PAGE = 40;
 const filters = [["all", "All channels"], ["media", "Movies & shows"], ["genres", "Genres"], ["services", "Services"], ["custom", "My channels"], ["people", "People"], ["tags", "Tags"]];
-// The last channel watched on this device, so the guide turns back on where you left it.
-const LAST_CHANNEL_KEY = "kiwi.guide.channel.v1";
+// The last channel each profile watched on this device, so the guide turns back on where it left off. It is kept
+// per profile: a channel's name and picture can't carry over to a profile that isn't allowed to see it.
+const lastChannelKey = () => `kiwi.guide.channel.v2:${activeProfileId || "none"}`;
 const lastChannel = () => {
-  try { const value = JSON.parse(localStorage.getItem(LAST_CHANNEL_KEY)); return typeof value?.key === "string" ? value : null; } catch { return null; }
+  try { const value = JSON.parse(localStorage.getItem(lastChannelKey())); return typeof value?.key === "string" ? value : null; } catch { return null; }
 };
 export const rememberChannel = channel => {
   try {
-    if (channel) localStorage.setItem(LAST_CHANNEL_KEY, JSON.stringify({ key: channel.key, number: channel.number, name: channel.name, type: channel.type, avatar_url: channel.avatar_url, slug: channel.slug }));
-    else localStorage.removeItem(LAST_CHANNEL_KEY);
+    if (channel) localStorage.setItem(lastChannelKey(), JSON.stringify({ key: channel.key, number: channel.number, name: channel.name, type: channel.type, avatar_url: channel.avatar_url, slug: channel.slug }));
+    else localStorage.removeItem(lastChannelKey());
   } catch { /* The guide falls back to the top channel. */ }
 };
 

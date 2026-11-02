@@ -44,6 +44,11 @@ async function loadProfileTracks(profile) {
   });
 }
 
+// The profile this page runs as, for things remembered per profile in this browser (e.g. the last guide channel).
+export let activeProfileId = null;
+// Before profiles, the last guide channel was remembered once per browser; it could name another profile's channel.
+const LEGACY_KEYS = ["kiwi.guide.channel.v1"];
+
 const SessionContext = createContext({ profile: null, isAdmin: false, profileCount: 1, refresh: () => {} });
 export const useSession = () => useContext(SessionContext);
 
@@ -53,6 +58,8 @@ export function SessionProvider({ children }) {
   const load = () => request("/api/v1/session")
     .then(async value => {
       // Once per page: a profile switch reloads the page.
+      activeProfileId = value.profile.id;
+      try { for (const key of LEGACY_KEYS) localStorage.removeItem(key); } catch { /* No storage. */ }
       if (!tracksLoaded.current) { tracksLoaded.current = true; await loadProfileTracks(value.profile); }
       setState({ status: "ready", profile: value.profile, profileCount: value.profileCount });
     })

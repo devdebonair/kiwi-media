@@ -5,7 +5,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { basename, isAbsolute, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import mime from "mime-types";
-import { db, currentUserId, currentProfile, ensureWatchlist, assetVisibleSql, titleVisibleSql, ratingKey, ratingLevel, generatedDir, rebuildSearch, reindexAssetSearch, reindexTopicSearch, assetWithTopics, tagAssetWithTopic } from "@kiwi/database";
+import { db, currentUserId, currentProfile, ensureWatchlist, assetVisibleSql, clipVisibleSql, titleVisibleSql, topicVisibleSql, ratingKey, ratingLevel, generatedDir, rebuildSearch, reindexAssetSearch, reindexTopicSearch, assetWithTopics, tagAssetWithTopic } from "@kiwi/database";
 import { fileURLToPath } from "node:url";
 import { createPlaybackCache } from "./playback.js";
 import { parseRange } from "./range.js";
@@ -14,7 +14,7 @@ import { registerDownloads } from "./downloads.js";
 import { registerGuide } from "./guide.js";
 import { createGuideWarmer } from "./guide-warm.js";
 import { registerMedia } from "./media.js";
-import { registerProfiles, assetAllowed, titleAllowed } from "./profiles.js";
+import { registerProfiles, assetAllowed, titleAllowed, topicAllowed } from "./profiles.js";
 import { registerLists } from "./lists.js";
 import { clipById, listClips, registerClips } from "./clips.js";
 import { registerPlugin } from "@kiwi/downloads";
@@ -130,7 +130,7 @@ const searchHits = (query, kind = "all") => {
     }
     if (hit.entity_type === "topic" && (kind === "all" || kind === "topics")) {
       const row = db.prepare("SELECT * FROM topics WHERE id=?").get(hit.entity_id);
-      return row ? [{ entityType: "topic", ...row }] : [];
+      return row && topicAllowed(row.id) ? [{ entityType: "topic", ...row, content_rating: ratingKey(row.content_rating) }] : [];
     }
     return [];
   });
@@ -263,7 +263,7 @@ app.get("/api/v1/assets/:id/annotations", async req => db.prepare(`
     group_concat(DISTINCT t.name) topics
   FROM annotations a LEFT JOIN annotation_selectors s ON s.annotation_id=a.id
   LEFT JOIN annotation_topics at ON at.annotation_id=a.id LEFT JOIN topics t ON t.id=at.topic_id
-  WHERE a.asset_id=? GROUP BY a.id,s.id ORDER BY s.start_ms,a.created_at
+  WHERE a.asset_id=? AND ${clipVisibleSql("a")} GROUP BY a.id,s.id ORDER BY s.start_ms,a.created_at
 `).all(req.params.id));
 
 app.post("/api/v1/assets/:id/annotations", async (req, reply) => {
@@ -293,6 +293,8 @@ const resolveTopic = (body, timestamp, indexNew) => {
     return { code: 400, error: "Choose a tag or enter a name of 1–100 characters" };
   const topic = topicId ? db.prepare("SELECT * FROM topics WHERE id=?").get(topicId)
     : db.prepare("SELECT * FROM topics").all().find(row => row.name.toLowerCase() === name.toLowerCase());
+  // A tag this profile can't see can't be applied by it either (that would also rate the item by the tag).
+  if (topic && !topicAllowed(topic.id)) return topicId ? { code: 404, error: "Tag not found" } : { code: 400, error: "Choose a different tag name" };
   if (topic) return { topic };
   if (topicId) return { code: 404, error: "Tag not found" };
   const id = randomUUID();
@@ -330,7 +332,7 @@ const addTopic = folder => async (req, reply) => {
 };
 app.post("/api/v1/assets/:id/topics", addTopic(false));
 app.post("/api/v1/library/roots/:id/topics", addTopic(true));
-const topicRules = id => db.prepare("SELECT t.id,t.slug,t.name,t.avatar_url FROM topics t JOIN topic_rules r ON r.target_topic_id=t.id WHERE r.source_topic_id=? ORDER BY t.name").all(id);
+const topicRules = id => db.prepare(`SELECT t.id,t.slug,t.name,t.avatar_url FROM topics t JOIN topic_rules r ON r.target_topic_id=t.id WHERE r.source_topic_id=? AND ${topicVisibleSql("t")} ORDER BY t.name`).all(id);
 // Adds a standing rule: every item under the topic, now or later, also carries the tag.
 // Rule tags are derived through effective_asset_topics, so removing the rule removes them.
 app.post("/api/v1/topics/:id/topics", async (req, reply) => {
@@ -369,12 +371,12 @@ app.get("/api/v1/topics/:slug", async (req, reply) => {
     JOIN effective_asset_topics et ON et.topic_id=t.id
     JOIN effective_asset_topics shared ON shared.asset_id=et.asset_id AND shared.topic_id=?
     JOIN assets a ON a.id=et.asset_id
-    WHERE t.id != ? AND ${assetVisibleSql("a")} GROUP BY t.id ORDER BY item_count DESC LIMIT 8
+    WHERE t.id != ? AND ${assetVisibleSql("a")} AND ${topicVisibleSql("t")} GROUP BY t.id ORDER BY item_count DESC LIMIT 8
   `).all(topic.id, topic.id);
   const { item_count } = db.prepare(`SELECT count(*) item_count FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND a.title_id IS NULL AND ${assetVisibleSql("a")}`).get(topic.id);
   const titles = db.prepare(`SELECT t.* FROM titles t WHERE t.id IN (SELECT a.title_id FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND a.title_id IS NOT NULL AND ${assetVisibleSql("a")}) AND ${titleVisibleSql("t")}
     ORDER BY EXISTS(SELECT 1 FROM list_items li JOIN lists ls ON ls.id=li.list_id WHERE li.title_id=t.id AND ls.user_id=?) DESC, t.rating DESC LIMIT 60`).all(topic.id, userId()).map(title => ({ ref: title.id, type: title.type, title: title.title, year: title.year, rating: title.rating, isAnime: Boolean(title.is_anime), inLibrary: inMyList(title.id), poster: imageUrl(title.poster_path, "w342") }));
-  return { ...topic, item_count, assets, titles, clips: listClips({ topic: topic.id, limit: 48 }).filter(clip => assetAllowed(clip.assetId, currentProfile())), related, rules: topicRules(topic.id), providerLinks: tagMetadata(topic.id).links };
+  return { ...topic, content_rating: ratingKey(topic.content_rating), item_count, assets, titles, clips: listClips({ topic: topic.id, limit: 48 }).filter(clip => assetAllowed(clip.assetId, currentProfile())), related, rules: topicRules(topic.id), providerLinks: tagMetadata(topic.id).links };
 });
 
 app.post("/api/v1/topics/:id/follow", async req => {
@@ -384,7 +386,9 @@ app.post("/api/v1/topics/:id/follow", async req => {
   return { followed: !exists };
 });
 
-app.get("/api/v1/feeds", async () => db.prepare("SELECT * FROM feeds ORDER BY updated_at DESC").all().map(f => ({ ...f, query: JSON.parse(f.query_json) })));
+// A feed made from tags shows only when the profile can see at least one of them.
+const feedVisible = query => !query.topicIds?.length || query.topicIds.some(id => topicAllowed(id));
+app.get("/api/v1/feeds", async () => db.prepare("SELECT * FROM feeds ORDER BY updated_at DESC").all().map(f => ({ ...f, query: JSON.parse(f.query_json) })).filter(f => feedVisible(f.query)));
 
 app.get("/api/v1/collections", async () => db.prepare(`SELECT c.*,count(ci.asset_id) item_count FROM collections c LEFT JOIN collection_items ci ON ci.collection_id=c.id GROUP BY c.id ORDER BY c.updated_at DESC`).all());
 
@@ -406,6 +410,7 @@ app.get("/api/v1/feeds/:slug", async (req, reply) => {
   const feed = db.prepare("SELECT * FROM feeds WHERE slug=?").get(req.params.slug);
   if (!feed) return reply.code(404).send({ error: "Feed not found" });
   const query = JSON.parse(feed.query_json);
+  if (!feedVisible(query)) return reply.code(404).send({ error: "Feed not found" });
   const assets = query.topicIds?.length
     ? listAssets(`EXISTS(SELECT 1 FROM effective_asset_topics et WHERE et.asset_id=a.id AND et.topic_id IN (${query.topicIds.map(() => "?").join(",")}))`, query.topicIds)
     : query.text ? searchHits(query.text, "assets").filter(item => item.entityType === "asset") : listAssets();
@@ -504,6 +509,8 @@ const setRating = (table, label) => async (req, reply) => {
 };
 app.put("/api/v1/library/roots/:id/rating", setRating("library_roots", "Folder"));
 app.put("/api/v1/assets/:id/rating", setRating("assets", "Asset"));
+// A tag's rating is a minimum for everything carrying it, and hides the tag itself from profiles below it.
+app.put("/api/v1/topics/:id/rating", setRating("topics", "Tag"));
 
 app.post("/api/v1/library/roots", async (req, reply) => {
   const input = req.body?.path;
