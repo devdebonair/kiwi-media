@@ -12,6 +12,8 @@ Kiwi runs all the time on this machine as systemd **user** services, against the
 
 They are grouped under `kiwi.target`; the unit files live in `~/.config/systemd/user/`, not the repo.
 
+These user services are the **only** way Kiwi should run here. An old system-level unit, `/etc/systemd/system/kiwi.service`, ran `npm run dev` with `Restart=always`. It couldn't bind ports 3333/4173 next to the user services, so it crash-looped about every 10 seconds (nearly 200,000 restarts). Each restart ran the database migrations on the real `data/kiwi.db` with whatever code was on disk, so edits to `packages/database` hit real data within seconds of saving. It was disabled and deleted on 2026-11-01. Don't recreate it or add another system-level or `npm run dev` service. If migrations ever show up in the real DB (check the `app_state` markers) before a restart, look for a stray process with `ps -eo pid,ppid,lstart,args | grep -E "concurrently|--watch"`.
+
 **Don't start another copy to see a change. Rebuild and restart, then refresh http://localhost:4173:**
 
 ```sh
