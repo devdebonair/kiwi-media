@@ -17,9 +17,17 @@ import { registerMedia } from "./media.js";
 import { registerProfiles, assetAllowed, titleAllowed } from "./profiles.js";
 import { clipById, listClips, registerClips } from "./clips.js";
 import { registerPlugin } from "@kiwi/downloads";
-import { getMedia, getProvider, mediaDownloadPlugin, nextEpisodeAfter, previousEpisodeBefore, imageUrl } from "@kiwi/media";
+import { getMedia, getProvider, inMyList, mediaDownloadPlugin, nextEpisodeAfter, previousEpisodeBefore, imageUrl } from "@kiwi/media";
 
 const app = Fastify({ logger: true });
+// Buttons send actions like "save" or "sign out" as JSON requests with no body. Fastify's own parser
+// rejects an empty JSON body with a 400, so an empty body here simply means no body.
+app.removeContentTypeParser("application/json");
+app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, done) => {
+  if (body.trim() === "") return done(null, undefined);
+  try { done(null, JSON.parse(body)); }
+  catch (error) { error.statusCode = 400; done(error, undefined); }
+});
 // First, so its hooks cover every route: each request runs as the chosen profile.
 registerProfiles(app);
 const playbackCache = createPlaybackCache(resolve(generatedDir, "playback"), {
@@ -101,7 +109,7 @@ const searchHits = (query, kind = "all") => {
       titleHits.add(titleId);
       const title = db.prepare("SELECT * FROM titles WHERE id=?").get(titleId);
       if (!title || !titleAllowed(title.id, currentProfile()) || (kind === "movies" && title.type !== "movie") || (kind === "shows" && title.type !== "show")) return [];
-      return [{ entityType: "title", id: title.id, ref: title.id, type: title.type, title: title.title, year: title.year, overview: title.overview, isAnime: Boolean(title.is_anime), inLibrary: Boolean(title.in_library), poster: imageUrl(title.poster_path, "w342") }];
+      return [{ entityType: "title", id: title.id, ref: title.id, type: title.type, title: title.title, year: title.year, overview: title.overview, isAnime: Boolean(title.is_anime), inLibrary: inMyList(title.id), poster: imageUrl(title.poster_path, "w342") }];
     }
     if (hit.entity_type === "asset" && (kind === "all" || kind === "assets" || kind === "videos" || kind === "music" || kind === "photos" || kind === "articles")) {
       const row = db.prepare("SELECT a.*, EXISTS(SELECT 1 FROM saved_assets WHERE user_id=? AND asset_id=a.id) saved FROM assets a WHERE a.id=?").get(userId(), hit.entity_id);
@@ -171,11 +179,11 @@ app.get("/api/v1/assets/:id", async (req, reply) => {
   const detail = { ...enrichAsset(row), progress_ms: progress?.progress_ms ?? 0, completed: progress?.completed ?? 0 };
   // The watch page shows the series behind the player and a card for it under the video.
   if (detail.catalog) {
-    const title = db.prepare("SELECT backdrop_path, in_library, rating, genres_json, overview FROM titles WHERE id=?").get(detail.catalog.titleId);
+    const title = db.prepare("SELECT backdrop_path, rating, genres_json, overview FROM titles WHERE id=?").get(detail.catalog.titleId);
     const seasons = db.prepare("SELECT count(*) count FROM title_seasons WHERE title_id=? AND number>=1").get(detail.catalog.titleId).count;
     let genres = [];
     try { genres = JSON.parse(title.genres_json || "[]"); } catch { /* No genres. */ }
-    Object.assign(detail.catalog, { backdrop: imageUrl(title.backdrop_path, "w1280"), inLibrary: Boolean(title.in_library), rating: title.rating, genres, overview: title.overview, seasonCount: seasons });
+    Object.assign(detail.catalog, { backdrop: imageUrl(title.backdrop_path, "w1280"), inLibrary: inMyList(detail.catalog.titleId), rating: title.rating, genres, overview: title.overview, seasonCount: seasons });
   }
   if (detail.catalog && detail.catalog.type === "show") {
     const next = nextEpisodeAfter(row.id);
@@ -359,7 +367,7 @@ app.get("/api/v1/topics/:slug", async (req, reply) => {
   `).all(topic.id, topic.id);
   const { item_count } = db.prepare(`SELECT count(*) item_count FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND a.title_id IS NULL AND ${assetVisibleSql("a")}`).get(topic.id);
   const titles = db.prepare(`SELECT t.* FROM titles t WHERE t.id IN (SELECT a.title_id FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND a.title_id IS NOT NULL AND ${assetVisibleSql("a")}) AND ${titleVisibleSql("t")}
-    ORDER BY t.in_library DESC, t.rating DESC LIMIT 60`).all(topic.id).map(title => ({ ref: title.id, type: title.type, title: title.title, year: title.year, rating: title.rating, isAnime: Boolean(title.is_anime), inLibrary: Boolean(title.in_library), poster: imageUrl(title.poster_path, "w342") }));
+    ORDER BY EXISTS(SELECT 1 FROM title_lists l WHERE l.title_id=t.id AND l.user_id=?) DESC, t.rating DESC LIMIT 60`).all(topic.id, userId()).map(title => ({ ref: title.id, type: title.type, title: title.title, year: title.year, rating: title.rating, isAnime: Boolean(title.is_anime), inLibrary: inMyList(title.id), poster: imageUrl(title.poster_path, "w342") }));
   return { ...topic, item_count, assets, titles, clips: listClips({ topic: topic.id, limit: 48 }).filter(clip => assetAllowed(clip.assetId, currentProfile())), related, rules: topicRules(topic.id), providerLinks: tagMetadata(topic.id).links };
 });
 

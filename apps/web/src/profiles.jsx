@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Backspace, Check, Gear, LockSimple, LockSimpleOpen, PencilSimple, Plus, ShieldCheck, SpinnerGap, Trash, UsersThree, X } from "@phosphor-icons/react";
 import { PLAYLIST_KEY } from "./playlist-state.mjs";
 import { locateSetting } from "./settings-nav.jsx";
+import { TRACKS_KEY, setPreferenceStorage } from "./track-preferences.mjs";
 
 // Profiles: who is watching. The server decides what each profile may see; the browser only picks one.
 // Any API call answering 401 "profile_required" (see client-app's api helper) brings the picker back.
@@ -12,7 +13,7 @@ export const COLORS = ["#2f9e6b", "#3d7be0", "#d9534f", "#e8a33d", "#8e5bd8", "#
 const AVATARS = ["🦊", "🐼", "🐯", "🐸", "🐙", "🦄", "🐧", "🐻", "🦁", "🐨", "🚀", "⭐"];
 
 const request = async (path, options = {}) => {
-  const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
+  const response = await fetch(path, { ...(options.body !== undefined ? { headers: { "Content-Type": "application/json" } } : {}), ...options });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) { const error = new Error(body.error || `Request failed (${response.status})`); error.code = body.code; error.status = response.status; throw error; }
   return body;
@@ -24,13 +25,37 @@ const restart = () => {
   window.location.assign("/");
 };
 
+// Audio and subtitle picks per series follow the profile across devices. Reads come from memory; writes are
+// batched to the server. Choices this browser saved before profiles existed move to the owner once.
+async function loadProfileTracks(profile) {
+  let stored = (await request("/api/v1/preferences/tracks").catch(() => ({ value: null }))).value;
+  let legacy = null;
+  try { legacy = localStorage.getItem(TRACKS_KEY); } catch { /* No storage. */ }
+  const save = (value, keepalive = false) => fetch("/api/v1/preferences/tracks", { method: "PUT", keepalive, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value }) }).catch(() => {});
+  if (legacy && profile.isOwner) {
+    try { stored = { ...JSON.parse(legacy), ...(stored || {}) }; await save(stored); localStorage.removeItem(TRACKS_KEY); } catch { /* Keep the old copy. */ }
+  }
+  let blob = JSON.stringify(stored || {}), timer = null;
+  const flush = keepalive => { if (!timer) return; clearTimeout(timer); timer = null; save(JSON.parse(blob), keepalive); };
+  window.addEventListener("pagehide", () => flush(true));
+  setPreferenceStorage({
+    getItem: key => key === TRACKS_KEY ? blob : null,
+    setItem: (key, value) => { if (key !== TRACKS_KEY) return; blob = value; clearTimeout(timer); timer = setTimeout(() => flush(false), 500); },
+  });
+}
+
 const SessionContext = createContext({ profile: null, isAdmin: false, profileCount: 1, refresh: () => {} });
 export const useSession = () => useContext(SessionContext);
 
 export function SessionProvider({ children }) {
   const [state, setState] = useState({ status: "loading" });
+  const tracksLoaded = useRef(false);
   const load = () => request("/api/v1/session")
-    .then(value => setState({ status: "ready", profile: value.profile, profileCount: value.profileCount }))
+    .then(async value => {
+      // Once per page: a profile switch reloads the page.
+      if (!tracksLoaded.current) { tracksLoaded.current = true; await loadProfileTracks(value.profile); }
+      setState({ status: "ready", profile: value.profile, profileCount: value.profileCount });
+    })
     .catch(error => setState(error.status === 401 ? { status: "picking" } : { status: "error", message: error.message }));
   useEffect(() => {
     load();

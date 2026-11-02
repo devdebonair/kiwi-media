@@ -243,6 +243,18 @@ export function migrate() {
     CREATE INDEX IF NOT EXISTS subtitle_tracks_asset_idx ON subtitle_tracks(asset_id, source_key);
     -- Settings for catalogs, source ranking, playback, and downloads. Provider entries hold secrets.
     CREATE TABLE IF NOT EXISTS media_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+    -- Each profile's My list. titles.in_library is the household library: titles on anyone's list
+    -- (kept in step by syncHouseholdLibrary), which the worker keeps synced and the TV guide airs.
+    CREATE TABLE IF NOT EXISTS title_lists (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, title_id TEXT NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+      added_at TEXT NOT NULL, PRIMARY KEY(user_id, title_id)
+    );
+    CREATE INDEX IF NOT EXISTS title_lists_title_idx ON title_lists(title_id);
+    -- Small per-profile preferences that follow the profile across devices (e.g. audio and subtitle picks per series).
+    CREATE TABLE IF NOT EXISTS profile_preferences (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, key TEXT NOT NULL, value_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL, PRIMARY KEY(user_id, key)
+    );
     CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
       entity_id UNINDEXED, entity_type UNINDEXED, title, body, tags,
       tokenize='unicode61 remove_diacritics 2'
@@ -370,6 +382,15 @@ export function migrate() {
     }
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
+  // When My list became per profile, everyone kept the titles that were on the shared list.
+  if (!db.prepare("SELECT 1 FROM app_state WHERE key='title-lists-seeded'").get()) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec("INSERT OR IGNORE INTO title_lists (user_id,title_id,added_at) SELECT u.id, t.id, coalesce(t.library_added_at, t.created_at) FROM titles t, users u WHERE t.in_library=1");
+      db.prepare("INSERT INTO app_state VALUES ('title-lists-seeded', ?)").run(new Date().toISOString());
+      db.exec("COMMIT");
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
+  }
   // A title's rating is the admin's choice, else its certification. An asset's is the higher of its folder's
   // rating and its own (the admin's choice, else its title's). NULL is unrated.
   const ratingViews = [

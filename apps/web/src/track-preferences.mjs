@@ -1,12 +1,19 @@
 // Remembers the audio and subtitle language chosen for a series (or a single video), so every episode follows.
-const KEY = "kiwi.tracks.v1";
+// The choices belong to the profile: the app swaps in storage backed by the server (see profiles.jsx), and
+// this browser's localStorage is only the fallback before a profile is known.
+export const TRACKS_KEY = "kiwi.tracks.v1";
+const KEY = TRACKS_KEY;
 const LIMIT = 300;
 
-export function loadPreference(key, storage = globalThis.localStorage) {
+let active = null;
+export function setPreferenceStorage(storage) { active = storage; }
+const current = () => active || globalThis.localStorage;
+
+export function loadPreference(key, storage = current()) {
   try { return JSON.parse(storage.getItem(KEY) || "{}")[key] || null; } catch { return null; }
 }
 
-export function savePreference(key, patch, storage = globalThis.localStorage) {
+export function savePreference(key, patch, storage = current()) {
   try {
     const all = JSON.parse(storage.getItem(KEY) || "{}");
     all[key] = { ...(all[key] || {}), ...patch, at: Date.now() };

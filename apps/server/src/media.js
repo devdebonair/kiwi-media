@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { ConfigError, destinationFor, downloadBlocker } from "@kiwi/downloads";
 import {
   LANGUAGES, MEDIA_DOWNLOADER_ID, MEDIA_SCHEME, SourceError, assetSummary, cacheSummary, clearHttpCache, continueWatching, defaultRules, describeLocalTracks, describePrepared,
-  getDownloadSettings, getMedia, getPlayback, getProvider, getRules, getTitle, imageUrl, libraryTitles, nextUp, openTitle, providerDefinitions,
+  getDownloadSettings, getMedia, getPlayback, getProvider, getRules, getTitle, imageUrl, inMyList, libraryTitles, nextUp, openTitle, providerDefinitions,
   publicProvider, publicSeasons, publicTitle, resetRules, saveDownloadSettings, savePlayback, saveProvider, saveRules, setAnime, setLibrary, startRemux, createHlsSessions, ensureSeason, ensureAllSeasons,
 } from "@kiwi/media";
 
@@ -40,13 +40,13 @@ export function registerMedia(app, { resolveTopic }) {
   // --------------------------------------------------------------------------------------------
   // Catalog browsing (live from the provider, cached)
 
-  const lookup = db.prepare("SELECT id, in_library FROM titles WHERE type=? AND tmdb_id=?");
+  const lookup = db.prepare("SELECT id FROM titles WHERE type=? AND tmdb_id=?");
   const card = summary => {
     const local = lookup.get(summary.type, summary.tmdbId);
     return {
       ref: local?.id || `tmdb:${summary.type}:${summary.tmdbId}`, titleId: local?.id || null, type: summary.type, tmdbId: summary.tmdbId, title: summary.title, year: summary.year,
       rating: summary.rating, overview: summary.overview, poster: imageUrl(summary.posterPath, "w342"), backdrop: imageUrl(summary.backdropPath, "w780"),
-      isAnime: summary.isAnime, inLibrary: Boolean(local?.in_library),
+      isAnime: summary.isAnime, inLibrary: inMyList(local?.id),
     };
   };
   const cards = results => results.map(card);
@@ -154,7 +154,7 @@ export function registerMedia(app, { resolveTopic }) {
         items.push({
           ref: local?.id || `tmdb:${detail.type}:${detail.tmdbId}`, titleId: local?.id || null, type: detail.type, title: detail.title, year: detail.year, overview: detail.overview,
           rating: detail.rating, backdrop: imageUrl(detail.backdropPath || chosen[index].backdropPath, "w1280"), logo: imageUrl(detail.logoPath, "w500"), genres: bannerGenres(detail.genres, detail.isAnime), isAnime: detail.isAnime,
-          inLibrary: Boolean(local?.in_library), runtimeMin: detail.runtimeMin, certification: detail.certification, play: null,
+          inLibrary: inMyList(local?.id), runtimeMin: detail.runtimeMin, certification: detail.certification, play: null,
         });
       }
     }
@@ -417,6 +417,27 @@ export function registerMedia(app, { resolveTopic }) {
     const selected = db.prepare("SELECT id FROM playback_sources WHERE asset_id=? AND status='selected'").get(req.params.id);
     const asset = db.prepare("SELECT file_path FROM assets WHERE id=?").get(req.params.id);
     return { subtitles: media().subtitles.tracks(req.params.id, asset?.file_path ? "local" : selected?.id) };
+  }));
+
+  // --------------------------------------------------------------------------------------------
+  // Per-profile preferences that follow the profile across devices. Only known keys are stored.
+
+  const PREFERENCE_KEYS = new Set(["tracks"]);
+  const PREFERENCE_LIMIT = 64 * 1024;
+  app.get("/api/v1/preferences/:key", handle(async (req, reply) => {
+    if (!PREFERENCE_KEYS.has(req.params.key)) return reply.code(404).send({ error: "Unknown preference" });
+    const row = db.prepare("SELECT value_json FROM profile_preferences WHERE user_id=? AND key=?").get(userId(), req.params.key);
+    return { value: row ? parse(row.value_json, null) : null };
+  }));
+  app.put("/api/v1/preferences/:key", handle(async (req, reply) => {
+    if (!PREFERENCE_KEYS.has(req.params.key)) return reply.code(404).send({ error: "Unknown preference" });
+    const value = req.body?.value;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return reply.code(400).send({ error: "value must be an object" });
+    const json = JSON.stringify(value);
+    if (json.length > PREFERENCE_LIMIT) return reply.code(413).send({ error: "That preference is too large" });
+    db.prepare(`INSERT INTO profile_preferences (user_id,key,value_json,updated_at) VALUES (?,?,?,?)
+      ON CONFLICT(user_id,key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at`).run(userId(), req.params.key, json, now());
+    return { ok: true };
   }));
 
   // --------------------------------------------------------------------------------------------

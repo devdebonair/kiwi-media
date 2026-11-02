@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { getMedia, syncHouseholdLibrary } from "@kiwi/media";
 import { db, profileContext, currentProfile, ratingKey, ratingLevel, levelAllowed, MAX_LEVEL, RATINGS } from "@kiwi/database";
 
 // Netflix-style profiles. A profile is a row in users; choosing one sets a signed cookie naming it.
@@ -260,15 +261,18 @@ export function registerProfiles(app) {
     const user = row(req.params.id);
     if (!user) return reply.code(404).send({ error: "Profile not found" });
     if (user.id === OWNER_ID) return reply.code(409).send({ error: "The owner profile can't be removed." });
+    const listed = db.prepare("SELECT title_id FROM title_lists WHERE user_id=?").all(user.id).map(entry => entry.title_id);
     db.exec("BEGIN IMMEDIATE");
     try {
-      for (const table of ["consumption_state", "asset_views", "asset_likes", "saved_assets", "topic_follows", "feed_follows", "user_settings"]) db.prepare(`DELETE FROM ${table} WHERE user_id=?`).run(user.id);
+      for (const table of ["consumption_state", "asset_views", "asset_likes", "saved_assets", "topic_follows", "feed_follows", "user_settings", "title_lists", "profile_preferences"]) db.prepare(`DELETE FROM ${table} WHERE user_id=?`).run(user.id);
       // Feeds and collections stay with the household.
       db.prepare("UPDATE feeds SET owner_id=? WHERE owner_id=?").run(OWNER_ID, user.id);
       db.prepare("UPDATE collections SET owner_id=? WHERE owner_id=?").run(OWNER_ID, user.id);
       db.prepare("DELETE FROM users WHERE id=?").run(user.id);
       db.exec("COMMIT");
     } catch (error) { db.exec("ROLLBACK"); throw error; }
+    // Titles only this profile had listed leave the household library.
+    for (const titleId of listed) syncHouseholdLibrary(titleId, { images: getMedia().images });
     if (req.profile.id === user.id) clearCookie(reply);
     return { ok: true };
   });

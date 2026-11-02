@@ -129,6 +129,10 @@ test('an NSFW folder and certifications limit what a member sees everywhere', as
     assert.equal((await kid(url)).statusCode, 404, url);
   assert.equal((await kid('/api/v1/assets/kids-video')).statusCode, 200);
   assert.equal((await kid('/api/v1/titles/title-pg')).statusCode, 200);
+  const list = (run, id, inLibrary = true) => run({ method: 'PUT', url: `/api/v1/titles/${id}/library`, payload: { inLibrary } });
+  for (const id of ['title-r', 'title-pg', 'title-unrated']) assert.equal((await list(owner, id)).statusCode, 200);
+  assert.equal((await list(kid, 'title-pg')).statusCode, 200);
+  assert.equal((await list(kid, 'title-r')).statusCode, 404, 'a hidden title cannot be listed');
   assert.deepEqual((await kid('/api/v1/titles?type=movie')).json().map(title => title.id), ['title-pg']);
   assert.equal((await owner('/api/v1/titles?type=movie')).json().length, 3);
 
@@ -153,9 +157,36 @@ test('allowing unrated content and raising the limit widen what a member sees', 
   assert.equal(updated.statusCode, 200);
   const ids = (await kid('/api/v1/assets?limit=200')).json().map(asset => asset.id);
   assert.ok(ids.includes('kids-video') && !ids.includes('adult-video') && ids.length > 1);
+  for (const id of ['title-r', 'title-unrated']) assert.equal((await kid({ method: 'PUT', url: `/api/v1/titles/${id}/library`, payload: { inLibrary: true } })).statusCode, 200);
   assert.equal((await kid('/api/v1/titles?type=movie')).json().length, 3);
   // Changing a member's limits doesn't sign them out.
   assert.equal((await kid('/api/v1/session')).statusCode, 200);
+});
+
+test('each profile has its own My list; the household library is everything on anyone\'s list', async () => {
+  const owner = as(ownerCookie), kid = as(kidCookie);
+  const household = id => db.prepare('SELECT in_library FROM titles WHERE id=?').get(id).in_library;
+  const mine = async run => (await run('/api/v1/titles?type=movie')).json().map(title => title.id).sort();
+  assert.equal((await owner({ method: 'PUT', url: '/api/v1/titles/title-pg/library', payload: { inLibrary: false } })).statusCode, 200);
+  assert.deepEqual(await mine(owner), ['title-r', 'title-unrated']);
+  assert.ok((await mine(kid)).includes('title-pg'), 'removing it from one list leaves the other');
+  assert.equal((await owner('/api/v1/titles/title-pg')).json().inLibrary, false);
+  assert.equal((await kid('/api/v1/titles/title-pg')).json().inLibrary, true);
+  assert.equal(household('title-pg'), 1);
+  await kid({ method: 'PUT', url: '/api/v1/titles/title-pg/library', payload: { inLibrary: false } });
+  assert.equal(household('title-pg'), 0, 'off every list, it leaves the household library');
+  await kid({ method: 'PUT', url: '/api/v1/titles/title-pg/library', payload: { inLibrary: true } });
+  assert.equal(household('title-pg'), 1);
+});
+
+test('track choices are stored per profile', async () => {
+  const owner = as(ownerCookie), kid = as(kidCookie);
+  assert.deepEqual((await kid('/api/v1/preferences/tracks')).json(), { value: null });
+  assert.equal((await kid({ method: 'PUT', url: '/api/v1/preferences/tracks', payload: { value: { 'title:a': { audio: 'jpn' } } } })).statusCode, 200);
+  assert.deepEqual((await kid('/api/v1/preferences/tracks')).json().value, { 'title:a': { audio: 'jpn' } });
+  assert.equal((await owner('/api/v1/preferences/tracks')).json().value, null);
+  assert.equal((await kid({ method: 'PUT', url: '/api/v1/preferences/tracks', payload: { value: [1] } })).statusCode, 400);
+  assert.equal((await kid({ method: 'PUT', url: '/api/v1/preferences/other', payload: { value: {} } })).statusCode, 404);
 });
 
 test('the guide only airs what the profile may watch', async () => {
@@ -169,6 +200,18 @@ test('the guide only airs what the profile may watch', async () => {
   assert.ok(ownerPrograms.size >= kidPrograms.size);
 });
 
+test('switching profiles: signing out clears the cookie, even when the browser sends an empty JSON body', async () => {
+  const kid = await anonymous({ method: 'POST', url: `/api/v1/profiles/${kidId}/select`, headers: { 'content-type': 'application/json' }, payload: '' });
+  assert.equal(kid.statusCode, 200);
+  const signedOut = await app.inject({ method: 'POST', url: '/api/v1/session/sign-out', headers: { cookie: cookieOf(kid), 'content-type': 'application/json' } });
+  assert.equal(signedOut.statusCode, 200);
+  assert.match(signedOut.headers['set-cookie'], /kiwi_profile=;.*Max-Age=0/);
+  // Body-less actions from buttons (save, follow, delete) work too; malformed JSON is still refused.
+  const save = await app.inject({ method: 'POST', url: '/api/v1/assets/kids-video/save', headers: { cookie: ownerCookie, 'content-type': 'application/json' } });
+  assert.equal(save.statusCode, 200);
+  assert.equal((await app.inject({ method: 'POST', url: '/api/v1/assets/kids-video/save', headers: { cookie: ownerCookie, 'content-type': 'application/json' }, payload: '{nope' })).statusCode, 400);
+});
+
 test('changing a PIN signs out other devices, and the owner profile stays', async () => {
   const owner = as(ownerCookie);
   const other = await anonymous({ method: 'POST', url: `/api/v1/profiles/${kidId}/select` });
@@ -179,4 +222,7 @@ test('changing a PIN signs out other devices, and the owner profile stays', asyn
   assert.equal((await owner({ method: 'PATCH', url: '/api/v1/profiles/user-local', payload: { role: 'member' } })).statusCode, 409);
   assert.equal((await owner({ method: 'DELETE', url: `/api/v1/profiles/${kidId}` })).statusCode, 200);
   assert.equal(db.prepare('SELECT count(*) n FROM consumption_state WHERE user_id=?').get(kidId).n, 0);
+  assert.equal(db.prepare('SELECT count(*) n FROM title_lists WHERE user_id=?').get(kidId).n, 0);
+  // title-pg was only on the deleted profile's list.
+  assert.equal(db.prepare('SELECT in_library FROM titles WHERE id=?').get('title-pg').in_library, 0);
 });

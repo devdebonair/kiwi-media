@@ -73,7 +73,7 @@ Tag a time range of any video to make a *virtual clip* — nothing is cut or cop
 
 ## Profiles and content ratings
 
-Kiwi has Netflix-style profiles. Each profile keeps its own history, progress, likes, saved items, and follows. Tags, guide channels, and the library are shared. While there is a single profile without a PIN, Kiwi uses it automatically and you never see a picker. Once there is more than one profile, every browser starts at **Who's watching?**, and switching is in the avatar menu at the top right.
+Kiwi has Netflix-style profiles. Each profile keeps its own My list, Continue watching, history, progress, likes, saved items, follows, and the audio and subtitle language picked for each series (these follow the profile to any device). Tags, clips, feeds, guide channels, downloads, and settings are shared, and view and like totals count the whole household. The TV Guide airs titles on anyone's list, limited by each profile's rating. While there is a single profile without a PIN, Kiwi uses it automatically and you never see a picker. Once there is more than one profile, every browser starts at **Who's watching?**, and switching is in the avatar menu at the top right.
 
 **PINs.** Any profile can be locked with a 4-digit PIN from the avatar menu. Admin profiles must have one before you can add a second profile, so nobody else can open them. Five wrong tries lock a profile for five minutes. Changing a PIN signs that profile out on other devices.
 

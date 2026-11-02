@@ -191,18 +191,36 @@ export async function openTitle(type, tmdbId, tmdb, { refresh = false } = {}) {
   catch (error) { if (existing) return existing; throw error; }
 }
 
+// Whether a title is on the current profile's My list.
+export const inMyList = (titleId, user = userId()) => Boolean(titleId && db.prepare("SELECT 1 FROM title_lists WHERE user_id=? AND title_id=?").get(user, titleId));
+
+// The household library is every title on anyone's list: those stay synced by the worker, keep their
+// artwork offline, air on the TV guide, and are never pruned. Call after a list changes.
+export function syncHouseholdLibrary(titleId, { images } = {}) {
+  const title = getTitle(titleId);
+  if (!title) return null;
+  const first = db.prepare("SELECT min(added_at) at FROM title_lists WHERE title_id=?").get(titleId).at;
+  if (first && !title.in_library) {
+    db.prepare("UPDATE titles SET in_library=1,library_added_at=?,updated_at=? WHERE id=?").run(first, now(), titleId);
+    images?.prefetch(titleArtwork(getTitle(titleId)), { pin: true }).catch(() => {});
+  } else if (!first && title.in_library) {
+    db.prepare("UPDATE titles SET in_library=0,library_added_at=NULL,updated_at=? WHERE id=?").run(now(), titleId);
+    images?.unpin(titleArtwork(title));
+  }
+  return getTitle(titleId);
+}
+
+// Adds a title to (or removes it from) the current profile's My list.
 export async function setLibrary(titleId, inLibrary, { tmdb, images } = {}) {
   const title = getTitle(titleId);
   if (!title) return null;
   if (inLibrary) {
     if (title.type === "show" && tmdb) await ensureAllSeasons(titleId, tmdb);
-    db.prepare("UPDATE titles SET in_library=1,library_added_at=coalesce(library_added_at,?),updated_at=? WHERE id=?").run(now(), now(), titleId);
-    images?.prefetch(titleArtwork(getTitle(titleId)), { pin: true }).catch(() => {});
+    db.prepare("INSERT OR IGNORE INTO title_lists (user_id,title_id,added_at) VALUES (?,?,?)").run(userId(), titleId, now());
   } else {
-    db.prepare("UPDATE titles SET in_library=0,library_added_at=NULL,updated_at=? WHERE id=?").run(now(), titleId);
-    images?.unpin(titleArtwork(title));
+    db.prepare("DELETE FROM title_lists WHERE user_id=? AND title_id=?").run(userId(), titleId);
   }
-  return getTitle(titleId);
+  return syncHouseholdLibrary(titleId, { images });
 }
 
 export function setAnime(titleId, isAnime) {
@@ -229,7 +247,7 @@ export function publicTitle(row, { withTopics = true } = {}) {
     tagline: row.tagline, status: row.status, runtimeMin: row.runtime_min, rating: row.rating, certification: row.certification,
     genres: parse(row.genres_json, []), services: parse(row.services_json, []).map(service => ({ name: service.name, logo: imageUrl(service.logo, "w92") })),
     poster: imageUrl(row.poster_path, "w342"), posterLarge: imageUrl(row.poster_path, "w500"), backdrop: imageUrl(row.backdrop_path, "w1280"), backdropSmall: imageUrl(row.backdrop_path, "w780"),
-    logo: imageUrl(row.logo_path, "w500"), cast: parse(row.metadata_json, {}).cast?.map(person => ({ ...person, profile: imageUrl(person.profile, "w185") })) || [], inLibrary: Boolean(row.in_library), tmdbId: row.tmdb_id, imdbId: row.imdb_id, originalLanguage: row.original_language,
+    logo: imageUrl(row.logo_path, "w500"), cast: parse(row.metadata_json, {}).cast?.map(person => ({ ...person, profile: imageUrl(person.profile, "w185") })) || [], inLibrary: inMyList(row.id), tmdbId: row.tmdb_id, imdbId: row.imdb_id, originalLanguage: row.original_language,
     firstAirDate: row.first_air_date, lastAirDate: row.last_air_date, ...(topics ? { topics } : {}),
     contentRating: ratingKey(row.content_rating), effectiveRating: ratingKey(db.prepare("SELECT level FROM title_ratings WHERE title_id=?").get(row.id)?.level ?? null),
   };
@@ -304,12 +322,13 @@ export function assetSummary(row, progress) {
 }
 
 export function libraryTitles({ type, anime, sort = "added", limit = 60, offset = 0, q } = {}) {
-  const filters = ["in_library=1", titleVisibleSql("titles")], params = [];
-  if (type) { filters.push("type=?"); params.push(type); }
-  if (anime !== undefined) { filters.push("is_anime=?"); params.push(Number(anime)); }
-  if (q) { filters.push("lower(title) LIKE ?"); params.push(`%${q.toLowerCase()}%`); }
-  const order = { added: "library_added_at DESC", title: "title COLLATE NOCASE", year: "year DESC, title", rating: "rating DESC" }[sort] || "library_added_at DESC";
-  return db.prepare(`SELECT * FROM titles WHERE ${filters.join(" AND ")} ORDER BY ${order}, id LIMIT ? OFFSET ?`).all(...params, limit, offset);
+  // My list: the current profile's titles.
+  const filters = ["l.user_id=?", titleVisibleSql("titles")], params = [userId()];
+  if (type) { filters.push("titles.type=?"); params.push(type); }
+  if (anime !== undefined) { filters.push("titles.is_anime=?"); params.push(Number(anime)); }
+  if (q) { filters.push("lower(titles.title) LIKE ?"); params.push(`%${q.toLowerCase()}%`); }
+  const order = { added: "l.added_at DESC", title: "titles.title COLLATE NOCASE", year: "titles.year DESC, titles.title", rating: "titles.rating DESC" }[sort] || "l.added_at DESC";
+  return db.prepare(`SELECT titles.* FROM titles JOIN title_lists l ON l.title_id=titles.id WHERE ${filters.join(" AND ")} ORDER BY ${order}, titles.id LIMIT ? OFFSET ?`).all(...params, limit, offset);
 }
 
 // Removes catalog entries that were only browsed: not in the library, never watched, tagged, or liked.
