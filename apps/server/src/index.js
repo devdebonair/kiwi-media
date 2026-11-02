@@ -5,7 +5,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { basename, isAbsolute, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import mime from "mime-types";
-import { db, generatedDir, rebuildSearch, reindexAssetSearch, reindexTopicSearch, assetWithTopics, tagAssetWithTopic } from "@kiwi/database";
+import { db, currentUserId, currentProfile, assetVisibleSql, titleVisibleSql, ratingKey, ratingLevel, generatedDir, rebuildSearch, reindexAssetSearch, reindexTopicSearch, assetWithTopics, tagAssetWithTopic } from "@kiwi/database";
 import { fileURLToPath } from "node:url";
 import { createPlaybackCache } from "./playback.js";
 import { parseRange } from "./range.js";
@@ -14,17 +14,20 @@ import { registerDownloads } from "./downloads.js";
 import { registerGuide } from "./guide.js";
 import { createGuideWarmer } from "./guide-warm.js";
 import { registerMedia } from "./media.js";
+import { registerProfiles, assetAllowed, titleAllowed } from "./profiles.js";
 import { clipById, listClips, registerClips } from "./clips.js";
 import { registerPlugin } from "@kiwi/downloads";
 import { getMedia, getProvider, mediaDownloadPlugin, nextEpisodeAfter, previousEpisodeBefore, imageUrl } from "@kiwi/media";
 
 const app = Fastify({ logger: true });
+// First, so its hooks cover every route: each request runs as the chosen profile.
+registerProfiles(app);
 const playbackCache = createPlaybackCache(resolve(generatedDir, "playback"), {
   onError: error => app.log.error({ err: error }, "Video compatibility conversion failed"),
 });
 const host = process.env.KIWI_HOST || "0.0.0.0";
 const port = Number(process.env.KIWI_API_PORT || 3333);
-const userId = "user-local";
+const userId = currentUserId;
 const serverDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const workspaceRoot = resolve(serverDir, "../../..");
 const webPublic = resolve(workspaceRoot, "apps/web/public/assets");
@@ -48,7 +51,7 @@ registerClips(app, { resolveTopic: (...args) => resolveTopic(...args) });
 const engagement = id => ({
   view_count: db.prepare("SELECT count(*) count FROM asset_views WHERE asset_id=?").get(id).count,
   like_count: db.prepare("SELECT coalesce(sum(count),0) count FROM asset_likes WHERE asset_id=?").get(id).count,
-  my_likes: db.prepare("SELECT count FROM asset_likes WHERE asset_id=? AND user_id=?").get(id,userId)?.count || 0,
+  my_likes: db.prepare("SELECT count FROM asset_likes WHERE asset_id=? AND user_id=?").get(id,userId())?.count || 0,
 });
 // Movies and episodes from the catalog carry their title, so lists can say "Show · S1E2" and link to the series.
 const catalogInfo = row => {
@@ -57,11 +60,16 @@ const catalogInfo = row => {
   if (!title) return {};
   return { catalog: { titleId: title.id, type: title.type, title: title.title, isAnime: Boolean(title.is_anime), year: title.year, poster: imageUrl(title.poster_path, "w185"), season: row.season_number, episode: row.episode_number } };
 };
-const enrichAsset = row => ({ ...assetWithTopics(row), ...engagement(row.id), ...catalogInfo(row) });
+const ratings = id => {
+  const own = db.prepare("SELECT content_rating FROM assets WHERE id=?").get(id)?.content_rating ?? null;
+  const effective = db.prepare("SELECT level FROM asset_ratings WHERE asset_id=?").get(id)?.level ?? null;
+  return { content_rating: ratingKey(own), effective_rating: ratingKey(effective) };
+};
+const enrichAsset = row => ({ ...assetWithTopics(row), ...engagement(row.id), ...catalogInfo(row), ...ratings(row.id) });
 const listAssets = (where = "1=1", params = [], limit = 60, offset = 0, orderBy = "a.added_at DESC,a.id DESC") => db.prepare(`
   SELECT a.*, EXISTS(SELECT 1 FROM saved_assets sa WHERE sa.asset_id=a.id AND sa.user_id=?) saved
-  FROM assets a WHERE a.title_id IS NULL AND (${where}) ORDER BY ${orderBy} LIMIT ? OFFSET ?
-`).all(userId, ...params, limit, offset).map(enrichAsset);
+  FROM assets a WHERE a.title_id IS NULL AND (${where}) AND ${assetVisibleSql("a")} ORDER BY ${orderBy} LIMIT ? OFFSET ?
+`).all(userId(), ...params, limit, offset).map(enrichAsset);
 
 const searchHits = (query, kind = "all") => {
   const terms = query.split(/\s+/).filter(Boolean).map(term => `"${term.replaceAll('"', '')}"*`);
@@ -92,19 +100,19 @@ const searchHits = (query, kind = "all") => {
       if (titleHits.has(titleId)) return [];
       titleHits.add(titleId);
       const title = db.prepare("SELECT * FROM titles WHERE id=?").get(titleId);
-      if (!title || (kind === "movies" && title.type !== "movie") || (kind === "shows" && title.type !== "show")) return [];
+      if (!title || !titleAllowed(title.id, currentProfile()) || (kind === "movies" && title.type !== "movie") || (kind === "shows" && title.type !== "show")) return [];
       return [{ entityType: "title", id: title.id, ref: title.id, type: title.type, title: title.title, year: title.year, overview: title.overview, isAnime: Boolean(title.is_anime), inLibrary: Boolean(title.in_library), poster: imageUrl(title.poster_path, "w342") }];
     }
     if (hit.entity_type === "asset" && (kind === "all" || kind === "assets" || kind === "videos" || kind === "music" || kind === "photos" || kind === "articles")) {
-      const row = db.prepare("SELECT a.*, EXISTS(SELECT 1 FROM saved_assets WHERE user_id=? AND asset_id=a.id) saved FROM assets a WHERE a.id=?").get(userId, hit.entity_id);
-      if (!row) return [];
+      const row = db.prepare("SELECT a.*, EXISTS(SELECT 1 FROM saved_assets WHERE user_id=? AND asset_id=a.id) saved FROM assets a WHERE a.id=?").get(userId(), hit.entity_id);
+      if (!row || !assetAllowed(row.id, currentProfile())) return [];
       const map = { videos: "video", music: "audio", photos: "image", articles: "article" };
       if (map[kind] && row.kind !== map[kind]) return [];
       return [{ entityType: "asset", ...enrichAsset(row) }];
     }
     if (hit.entity_type === "clip" && (kind === "all" || kind === "clips")) {
       const clip = clipById(hit.entity_id);
-      return clip ? [{ entityType: "clip", ...clip }] : [];
+      return clip && assetAllowed(clip.assetId, currentProfile()) ? [{ entityType: "clip", ...clip }] : [];
     }
     if (hit.entity_type === "topic" && (kind === "all" || kind === "topics")) {
       const row = db.prepare("SELECT * FROM topics WHERE id=?").get(hit.entity_id);
@@ -128,12 +136,12 @@ app.get("/api/v1/assets", async (req, reply) => {
   return listAssets(filters.join(" AND ") || "1=1", params, Number(limit), Number(offset), orderBy);
 });
 
-const shortsLimit = () => db.prepare("SELECT shorts_max_seconds FROM user_settings WHERE user_id=?").get(userId)?.shorts_max_seconds ?? 90;
+const shortsLimit = () => db.prepare("SELECT shorts_max_seconds FROM user_settings WHERE user_id=?").get(userId())?.shorts_max_seconds ?? 90;
 app.get("/api/v1/settings", async () => ({ shortsMaxSeconds: shortsLimit() }));
 app.put("/api/v1/settings", async (req, reply) => {
   const value = req.body?.shortsMaxSeconds;
   if (!Number.isSafeInteger(value) || value < 1 || value > 3600) return reply.code(400).send({ error: "Duration must be a whole number between 1 and 3600 seconds" });
-  db.prepare("INSERT INTO user_settings VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET shorts_max_seconds=excluded.shorts_max_seconds").run(userId,value);
+  db.prepare("INSERT INTO user_settings VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET shorts_max_seconds=excluded.shorts_max_seconds").run(userId(),value);
   return { shortsMaxSeconds: value };
 });
 app.get("/api/v1/shorts", async (req, reply) => {
@@ -145,21 +153,21 @@ app.post("/api/v1/assets/:id/views", async (req, reply) => {
   if (!db.prepare("SELECT 1 FROM assets WHERE id=?").get(req.params.id)) return reply.code(404).send({ error: "Asset not found" });
   const session = req.body?.sessionId;
   if (typeof session !== "string" || !/^[a-zA-Z0-9-]{16,80}$/.test(session)) return reply.code(400).send({ error: "A valid sessionId is required" });
-  db.prepare("INSERT OR IGNORE INTO asset_views VALUES (?,?,?,?)").run(userId,req.params.id,session,new Date().toISOString());
+  db.prepare("INSERT OR IGNORE INTO asset_views VALUES (?,?,?,?)").run(userId(),req.params.id,session,new Date().toISOString());
   return engagement(req.params.id);
 });
 app.put("/api/v1/assets/:id/likes", async (req, reply) => {
   if (!db.prepare("SELECT 1 FROM assets WHERE id=?").get(req.params.id)) return reply.code(404).send({ error: "Asset not found" });
   const count = req.body?.count;
   if (!Number.isSafeInteger(count) || count < 0 || count > 5) return reply.code(400).send({ error: "Likes must be between 0 and 5" });
-  db.prepare("INSERT INTO asset_likes VALUES (?,?,?) ON CONFLICT(user_id,asset_id) DO UPDATE SET count=excluded.count").run(userId,req.params.id,count);
+  db.prepare("INSERT INTO asset_likes VALUES (?,?,?) ON CONFLICT(user_id,asset_id) DO UPDATE SET count=excluded.count").run(userId(),req.params.id,count);
   return engagement(req.params.id);
 });
 
 app.get("/api/v1/assets/:id", async (req, reply) => {
-  const row = db.prepare("SELECT a.*, EXISTS(SELECT 1 FROM saved_assets WHERE user_id=? AND asset_id=a.id) saved FROM assets a WHERE a.id=?").get(userId, req.params.id);
+  const row = db.prepare("SELECT a.*, EXISTS(SELECT 1 FROM saved_assets WHERE user_id=? AND asset_id=a.id) saved FROM assets a WHERE a.id=?").get(userId(), req.params.id);
   if (!row) return reply.code(404).send({ error: "Asset not found" });
-  const progress = db.prepare("SELECT progress_ms, completed FROM consumption_state WHERE user_id=? AND asset_id=?").get(userId, row.id);
+  const progress = db.prepare("SELECT progress_ms, completed FROM consumption_state WHERE user_id=? AND asset_id=?").get(userId(), row.id);
   const detail = { ...enrichAsset(row), progress_ms: progress?.progress_ms ?? 0, completed: progress?.completed ?? 0 };
   // The watch page shows the series behind the player and a card for it under the video.
   if (detail.catalog) {
@@ -227,11 +235,11 @@ app.get("/api/v1/search", async req => {
 app.get("/api/v1/topics", async () => db.prepare(`
   SELECT t.id, t.slug, t.name, t.summary, t.avatar_url, t.topic_type,
     count(DISTINCT a.id) item_count,
-    (SELECT count(DISTINCT x.title_id) FROM effective_asset_topics e JOIN assets x ON x.id=e.asset_id WHERE e.topic_id=t.id AND x.title_id IS NOT NULL) title_count,
+    (SELECT count(DISTINCT x.title_id) FROM effective_asset_topics e JOIN assets x ON x.id=e.asset_id WHERE e.topic_id=t.id AND x.title_id IS NOT NULL AND ${assetVisibleSql("x")}) title_count,
     EXISTS(SELECT 1 FROM topic_follows f WHERE f.topic_id=t.id AND f.user_id=?) followed
-  FROM topics t LEFT JOIN effective_asset_topics et ON et.topic_id=t.id LEFT JOIN assets a ON a.id=et.asset_id AND a.title_id IS NULL
+  FROM topics t LEFT JOIN effective_asset_topics et ON et.topic_id=t.id LEFT JOIN assets a ON a.id=et.asset_id AND a.title_id IS NULL AND ${assetVisibleSql("a")}
   GROUP BY t.id HAVING item_count>0 OR title_count>0 ORDER BY item_count+title_count DESC
-`).all(userId));
+`).all(userId()));
 
 app.get("/api/v1/libraries", async () => db.prepare("SELECT id,name,absolute_path,read_only,created_at FROM library_roots ORDER BY name").all());
 
@@ -339,25 +347,26 @@ app.delete("/api/v1/library/roots/:id/topics/:topicId", async (req, reply) => {
 });
 
 app.get("/api/v1/topics/:slug", async (req, reply) => {
-  const topic = db.prepare(`SELECT t.*, EXISTS(SELECT 1 FROM topic_follows WHERE user_id=? AND topic_id=t.id) followed FROM topics t WHERE t.slug=?`).get(userId, req.params.slug);
+  const topic = db.prepare(`SELECT t.*, EXISTS(SELECT 1 FROM topic_follows WHERE user_id=? AND topic_id=t.id) followed FROM topics t WHERE t.slug=?`).get(userId(), req.params.slug);
   if (!topic) return reply.code(404).send({ error: "Topic not found" });
   const assets = listAssets("EXISTS(SELECT 1 FROM effective_asset_topics et WHERE et.asset_id=a.id AND et.topic_id=?)", [topic.id]);
   const related = db.prepare(`
     SELECT t.*, count(DISTINCT shared.asset_id) item_count FROM topics t
     JOIN effective_asset_topics et ON et.topic_id=t.id
     JOIN effective_asset_topics shared ON shared.asset_id=et.asset_id AND shared.topic_id=?
-    WHERE t.id != ? GROUP BY t.id ORDER BY item_count DESC LIMIT 8
+    JOIN assets a ON a.id=et.asset_id
+    WHERE t.id != ? AND ${assetVisibleSql("a")} GROUP BY t.id ORDER BY item_count DESC LIMIT 8
   `).all(topic.id, topic.id);
-  const { item_count } = db.prepare("SELECT count(*) item_count FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND a.title_id IS NULL").get(topic.id);
-  const titles = db.prepare(`SELECT t.* FROM titles t WHERE t.id IN (SELECT a.title_id FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND a.title_id IS NOT NULL)
+  const { item_count } = db.prepare(`SELECT count(*) item_count FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND a.title_id IS NULL AND ${assetVisibleSql("a")}`).get(topic.id);
+  const titles = db.prepare(`SELECT t.* FROM titles t WHERE t.id IN (SELECT a.title_id FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND a.title_id IS NOT NULL AND ${assetVisibleSql("a")}) AND ${titleVisibleSql("t")}
     ORDER BY t.in_library DESC, t.rating DESC LIMIT 60`).all(topic.id).map(title => ({ ref: title.id, type: title.type, title: title.title, year: title.year, rating: title.rating, isAnime: Boolean(title.is_anime), inLibrary: Boolean(title.in_library), poster: imageUrl(title.poster_path, "w342") }));
-  return { ...topic, item_count, assets, titles, clips: listClips({ topic: topic.id, limit: 48 }), related, rules: topicRules(topic.id), providerLinks: tagMetadata(topic.id).links };
+  return { ...topic, item_count, assets, titles, clips: listClips({ topic: topic.id, limit: 48 }).filter(clip => assetAllowed(clip.assetId, currentProfile())), related, rules: topicRules(topic.id), providerLinks: tagMetadata(topic.id).links };
 });
 
 app.post("/api/v1/topics/:id/follow", async req => {
-  const exists = db.prepare("SELECT 1 FROM topic_follows WHERE user_id=? AND topic_id=?").get(userId, req.params.id);
-  if (exists) db.prepare("DELETE FROM topic_follows WHERE user_id=? AND topic_id=?").run(userId, req.params.id);
-  else db.prepare("INSERT INTO topic_follows VALUES (?,?,?)").run(userId, req.params.id, new Date().toISOString());
+  const exists = db.prepare("SELECT 1 FROM topic_follows WHERE user_id=? AND topic_id=?").get(userId(), req.params.id);
+  if (exists) db.prepare("DELETE FROM topic_follows WHERE user_id=? AND topic_id=?").run(userId(), req.params.id);
+  else db.prepare("INSERT INTO topic_follows VALUES (?,?,?)").run(userId(), req.params.id, new Date().toISOString());
   return { followed: !exists };
 });
 
@@ -368,7 +377,7 @@ app.get("/api/v1/collections", async () => db.prepare(`SELECT c.*,count(ci.asset
 app.post("/api/v1/collections", async (req, reply) => {
   const name = String(req.body?.name || "").trim(); if (!name) return reply.code(400).send({ error: "A collection name is required" });
   const id=randomUUID(),timestamp=new Date().toISOString(),slug=`${name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")}-${Date.now().toString(36)}`;
-  db.prepare("INSERT INTO collections VALUES (?,?,?,?,?,?,?,?)").run(id,userId,slug,name,req.body?.description||"",req.body?.visibility||"private",timestamp,timestamp);
+  db.prepare("INSERT INTO collections VALUES (?,?,?,?,?,?,?,?)").run(id,userId(),slug,name,req.body?.description||"",req.body?.visibility||"private",timestamp,timestamp);
   return reply.code(201).send({id,slug,name});
 });
 
@@ -397,14 +406,14 @@ app.post("/api/v1/feeds", async (req, reply) => {
   let slug = slugBase;
   if (db.prepare("SELECT 1 FROM feeds WHERE slug=?").get(slug)) slug = `${slugBase}-${Date.now().toString(36)}`;
   const id = randomUUID(), timestamp = new Date().toISOString();
-  db.prepare("INSERT INTO feeds (id,owner_id,slug,name,description,query_json,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)").run(id, userId, slug, name, req.body?.description || "", JSON.stringify(query), "private", timestamp, timestamp);
+  db.prepare("INSERT INTO feeds (id,owner_id,slug,name,description,query_json,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)").run(id, userId(), slug, name, req.body?.description || "", JSON.stringify(query), "private", timestamp, timestamp);
   return reply.code(201).send({ id, slug, name, query });
 });
 
 app.post("/api/v1/assets/:id/save", async req => {
-  const exists = db.prepare("SELECT 1 FROM saved_assets WHERE user_id=? AND asset_id=?").get(userId, req.params.id);
-  if (exists) db.prepare("DELETE FROM saved_assets WHERE user_id=? AND asset_id=?").run(userId, req.params.id);
-  else db.prepare("INSERT INTO saved_assets VALUES (?,?,?)").run(userId, req.params.id, new Date().toISOString());
+  const exists = db.prepare("SELECT 1 FROM saved_assets WHERE user_id=? AND asset_id=?").get(userId(), req.params.id);
+  if (exists) db.prepare("DELETE FROM saved_assets WHERE user_id=? AND asset_id=?").run(userId(), req.params.id);
+  else db.prepare("INSERT INTO saved_assets VALUES (?,?,?)").run(userId(), req.params.id, new Date().toISOString());
   return { saved: !exists };
 });
 
@@ -419,12 +428,12 @@ app.get("/api/v1/history", async (req, reply) => {
   return db.prepare(`SELECT a.*, cs.last_viewed_at, cs.progress_ms, cs.completed,
     EXISTS(SELECT 1 FROM saved_assets sa WHERE sa.asset_id=a.id AND sa.user_id=cs.user_id) saved
     FROM consumption_state cs JOIN assets a ON a.id=cs.asset_id
-    WHERE cs.user_id=? AND cs.last_viewed_at IS NOT NULL${scope}
+    WHERE cs.user_id=? AND cs.last_viewed_at IS NOT NULL${scope} AND ${assetVisibleSql("a")}
     ORDER BY cs.last_viewed_at DESC, a.id DESC LIMIT ? OFFSET ?
-  `).all(userId, Number(limit), Number(offset)).map(enrichAsset);
+  `).all(userId(), Number(limit), Number(offset)).map(enrichAsset);
 });
 
-const likedVideos = "FROM asset_likes l JOIN assets a ON a.id=l.asset_id WHERE l.user_id=? AND l.count>0 AND a.kind='video'";
+const likedVideos = () => `FROM asset_likes l JOIN assets a ON a.id=l.asset_id WHERE l.user_id=? AND l.count>0 AND a.kind='video' AND ${assetVisibleSql("a")}`;
 app.get("/api/v1/liked", async (req, reply) => {
   const { likes, topic, limit = 60, offset = 0 } = req.query;
   if (!Number.isSafeInteger(Number(limit)) || Number(limit) < 1 || Number(limit) > 200 || !Number.isSafeInteger(Number(offset)) || Number(offset) < 0) return reply.code(400).send({ error: "limit must be 1–200 and offset must be a nonnegative integer" });
@@ -436,18 +445,18 @@ app.get("/api/v1/liked", async (req, reply) => {
   if (likes) { filters.push("l.count=?"); params.push(Number(likes)); }
   if (topic) { filters.push("EXISTS(SELECT 1 FROM effective_asset_topics et JOIN topics t ON t.id=et.topic_id WHERE et.asset_id=a.id AND (t.slug=? OR t.id=?))"); params.push(topic, topic); }
   return db.prepare(`SELECT a.*, EXISTS(SELECT 1 FROM saved_assets sa WHERE sa.asset_id=a.id AND sa.user_id=l.user_id) saved
-    ${likedVideos}${filters.map(filter => ` AND ${filter}`).join("")}
+    ${likedVideos()}${filters.map(filter => ` AND ${filter}`).join("")}
     ORDER BY l.count DESC, a.added_at DESC, a.id DESC LIMIT ? OFFSET ?
-  `).all(userId, ...params, Number(limit), Number(offset)).map(enrichAsset);
+  `).all(userId(), ...params, Number(limit), Number(offset)).map(enrichAsset);
 });
 // Filter pills: how many liked videos sit at each like level, and the topics most common among them.
 // Topics that tag every liked video would not narrow anything down, so they are left out.
 app.get("/api/v1/liked/filters", async () => ({
-  levels: db.prepare(`SELECT l.count likes, count(*) item_count ${likedVideos} GROUP BY l.count ORDER BY l.count DESC`).all(userId),
+  levels: db.prepare(`SELECT l.count likes, count(*) item_count ${likedVideos()} GROUP BY l.count ORDER BY l.count DESC`).all(userId()),
   topics: db.prepare(`SELECT t.id, t.slug, t.name, t.avatar_url, count(DISTINCT a.id) item_count
     FROM asset_likes l JOIN assets a ON a.id=l.asset_id JOIN effective_asset_topics et ON et.asset_id=a.id JOIN topics t ON t.id=et.topic_id
-    WHERE l.user_id=? AND l.count>0 AND a.kind='video' GROUP BY t.id
-    HAVING item_count < (SELECT count(*) ${likedVideos}) ORDER BY item_count DESC, t.name LIMIT 12`).all(userId, userId),
+    WHERE l.user_id=? AND l.count>0 AND a.kind='video' AND ${assetVisibleSql("a")} GROUP BY t.id
+    HAVING item_count < (SELECT count(*) ${likedVideos()}) ORDER BY item_count DESC, t.name LIMIT 12`).all(userId(), userId()),
 }));
 
 app.put("/api/v1/assets/:id/progress", async (req, reply) => {
@@ -455,11 +464,23 @@ app.put("/api/v1/assets/:id/progress", async (req, reply) => {
   const progress = Number(req.body?.progressMs ?? 0);
   if (!Number.isSafeInteger(progress) || progress < 0) return reply.code(400).send({ error: "progressMs must be a nonnegative integer" });
   db.prepare(`INSERT INTO consumption_state (user_id,asset_id,progress_ms,completed,last_viewed_at,view_count) VALUES (?,?,?,?,?,0)
-    ON CONFLICT(user_id,asset_id) DO UPDATE SET progress_ms=excluded.progress_ms,completed=excluded.completed,last_viewed_at=excluded.last_viewed_at`).run(userId, req.params.id, progress, req.body?.completed ? 1 : 0, new Date().toISOString());
+    ON CONFLICT(user_id,asset_id) DO UPDATE SET progress_ms=excluded.progress_ms,completed=excluded.completed,last_viewed_at=excluded.last_viewed_at`).run(userId(), req.params.id, progress, req.body?.completed ? 1 : 0, new Date().toISOString());
   return { ok: true };
 });
 
-app.get("/api/v1/library/roots", async () => db.prepare("SELECT * FROM library_roots ORDER BY created_at,id").all().map(root => ({ ...root, topics: folderTopics(root.id) })));
+app.get("/api/v1/library/roots", async () => db.prepare("SELECT * FROM library_roots ORDER BY created_at,id").all().map(root => ({ ...root, content_rating: ratingKey(root.content_rating), topics: folderTopics(root.id) })));
+
+// Content ratings (admin only). A folder's rating is a floor for everything in it, including future imports;
+// an asset's own rating replaces its certification. null clears the rating (unrated).
+const setRating = (table, label) => async (req, reply) => {
+  const level = ratingLevel(req.body?.rating);
+  if (level === undefined) return reply.code(400).send({ error: "rating must be a rating level or null" });
+  const result = db.prepare(`UPDATE ${table} SET content_rating=? WHERE id=?`).run(level, req.params.id);
+  if (!result.changes) return reply.code(404).send({ error: `${label} not found` });
+  return { id: req.params.id, content_rating: ratingKey(level), ...(table === "assets" ? ratings(req.params.id) : {}) };
+};
+app.put("/api/v1/library/roots/:id/rating", setRating("library_roots", "Folder"));
+app.put("/api/v1/assets/:id/rating", setRating("assets", "Asset"));
 
 app.post("/api/v1/library/roots", async (req, reply) => {
   const input = req.body?.path;

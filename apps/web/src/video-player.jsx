@@ -9,6 +9,7 @@ import { applyPreference, loadPreference, savePreference } from './track-prefere
 import { bufferedEndOf, createTimelineMedia, planSeek } from './timeline-media.mjs';
 import { detectEnvironment, planPlayback, remuxUrl } from './playback-plan.mjs';
 import { ClipEditor, ClipTimeline } from './clips.jsx';
+import { useSession } from './profiles.jsx';
 
 const time = seconds => {
   const value = Math.max(0, Math.floor(seconds || 0)), h = Math.floor(value / 3600), m = Math.floor(value % 3600 / 60), s = value % 60;
@@ -16,6 +17,8 @@ const time = seconds => {
 };
 
 export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded, onMinimize, onPlay, onPrevious, onNext, onToggleTheater, theater = false, autoPlay = true, onMediaChange, clipTools }) {
+  // Switching sources is an admin action.
+  const { isAdmin } = useSession();
   const catalog = Boolean(asset.catalog);
   const original = `/api/v1/assets/${asset.id}/file`;
   const prefKey = catalog ? `title:${asset.catalog.titleId}` : `asset:${asset.id}`;
@@ -348,7 +351,7 @@ export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded,
         {(subtitleTracks.length > 0 || info?.onlineSubtitles) && <span className={subtitleId ? 'is-on' : ''}>{menuButton('subtitles', 'Subtitles', ClosedCaptioning)}</span>}
         {clipTools && <button aria-label={clipTools.draft ? 'Close the clip editor' : 'Make a clip (I / O)'} title={clipTools.draft ? 'Close the clip editor' : 'Make a clip — or press I and O'} aria-pressed={Boolean(clipTools.draft)} className={clipTools.draft ? 'is-open' : ''} disabled={!ready || !total} onClick={() => clipTools.draft ? clipTools.cancel() : startClip(false)}><Scissors /></button>}
         {audioTracks.length > 1 && menuButton('audio', 'Audio track', Translate)}
-        {catalog && info?.source && menuButton('source', 'Source', GearSix)}
+        {catalog && isAdmin && info?.source && menuButton('source', 'Source', GearSix)}
         <select aria-label="Playback speed" value={rate} onChange={event => { const value = Number(event.target.value); setRate(value); if (video.current) video.current.playbackRate = value; }}>{[0.5, 0.75, 1, 1.25, 1.5, 2].map(value => <option key={value} value={value}>{value}×</option>)}</select>
         {!catalog && <a href={original} download aria-label="Download original" title="Download original"><DownloadSimple /></a>}
         {onMinimize && <button aria-label="Minimize player" title="Minimize player" onClick={onMinimize}><PictureInPicture /></button>}

@@ -3,6 +3,9 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { MAX_LEVEL, certificationSql } from "./ratings.js";
+
+export * from "./ratings.js";
 
 const packageDir = dirname(fileURLToPath(import.meta.url));
 export const dataDir = resolve(process.env.KIWI_DATA_DIR || resolve(packageDir, "../../../data"));
@@ -349,8 +352,42 @@ export function migrate() {
     if (!db.prepare("PRAGMA table_info(downloads)").all().some(column => column.name === "target_asset_id")) {
       db.exec("ALTER TABLE downloads ADD COLUMN target_asset_id TEXT");
     }
+    // Profiles are rows in users. The owner (user-local) is always an admin; others may be limited to a rating.
+    const userColumns = db.prepare("PRAGMA table_info(users)").all().map(column => column.name);
+    for (const [name, definition] of [
+      ["avatar", "TEXT"], ["color", "TEXT"], ["role", "TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('admin','member'))"],
+      ["max_rating", `INTEGER NOT NULL DEFAULT ${MAX_LEVEL} CHECK(max_rating BETWEEN 1 AND ${MAX_LEVEL})`],
+      ["allow_unrated", "INTEGER NOT NULL DEFAULT 1 CHECK(allow_unrated IN (0,1))"], ["pin_hash", "TEXT"],
+      // Bumped when a PIN or role changes, so cookies issued before the change stop working.
+      ["session_version", "INTEGER NOT NULL DEFAULT 0"], ["position", "INTEGER NOT NULL DEFAULT 0"],
+    ]) if (!userColumns.includes(name)) db.exec(`ALTER TABLE users ADD COLUMN ${name} ${definition}`);
+    db.prepare("INSERT OR IGNORE INTO users (id,display_name,created_at) VALUES ('user-local','Me',?)").run(new Date().toISOString());
+    db.exec("UPDATE users SET role='admin' WHERE id='user-local' AND role!='admin'");
+    // Content ratings: an explicit rating on a folder (a floor for everything in it), a title, or an asset.
+    const rated = `INTEGER CHECK(content_rating BETWEEN 1 AND ${MAX_LEVEL})`;
+    for (const table of ["library_roots", "titles", "assets"]) {
+      if (!db.prepare(`PRAGMA table_info(${table})`).all().some(column => column.name === "content_rating")) db.exec(`ALTER TABLE ${table} ADD COLUMN content_rating ${rated}`);
+    }
     db.exec("COMMIT");
   } catch (error) { db.exec("ROLLBACK"); throw error; }
+  // A title's rating is the admin's choice, else its certification. An asset's is the higher of its folder's
+  // rating and its own (the admin's choice, else its title's). NULL is unrated.
+  const ratingViews = [
+    ["title_ratings", `CREATE VIEW title_ratings AS
+    SELECT t.id title_id, coalesce(t.content_rating, ${certificationSql("t.certification")}) level FROM titles t`],
+    ["asset_ratings", `CREATE VIEW asset_ratings AS
+    SELECT a.id asset_id, nullif(max(
+      coalesce((SELECT max(r.content_rating) FROM library_roots r WHERE r.content_rating IS NOT NULL AND (
+        EXISTS(SELECT 1 FROM files f WHERE f.asset_id=a.id AND f.library_root_id=r.id)
+        OR substr(a.file_path,1,length(rtrim(r.absolute_path,'/'))+1)=rtrim(r.absolute_path,'/') || '/')), 0),
+      coalesce(a.content_rating, (SELECT tr.level FROM title_ratings tr WHERE tr.title_id=a.title_id), 0)
+    ), 0) level FROM assets a`],
+  ];
+  for (const [name, sql] of ratingViews) {
+    if (db.prepare("SELECT sql FROM sqlite_master WHERE type='view' AND name=?").get(name)?.sql === sql) continue;
+    db.exec(`DROP VIEW IF EXISTS ${name}`);
+    db.exec(sql);
+  }
 }
 
 const now = () => new Date().toISOString();
@@ -359,7 +396,7 @@ export function seed() {
   const count = db.prepare("SELECT count(*) count FROM assets").get().count;
   if (count) return;
   const userId = "user-local";
-  db.prepare("INSERT OR IGNORE INTO users VALUES (?, ?, ?)").run(userId, "Alex", now());
+  db.prepare("INSERT OR IGNORE INTO users (id,display_name,created_at) VALUES (?, ?, ?)").run(userId, "Alex", now());
   const topics = [
     ["topic-nyc", "new-york-city", "New York City", "The city that never sleeps. Five boroughs, endless stories.", "/assets/media/city.png", "/assets/media/city.png", "place"],
     ["topic-jazz", "jazz", "Jazz", "Improvisation, rhythm, and a century of recorded performance.", "/assets/media/jazz.png", "/assets/media/jazz.png", "genre"],

@@ -10,11 +10,13 @@ import { BookmarkSimple, Check, CheckCircle, DownloadSimple, ArrowsOutSimple, Pl
 import { LikeButton, ViewCount, usePlaybackTracking } from "./engagement.jsx";
 import { resumeSeconds } from "./playback-progress.mjs";
 import { ClipList, useClips } from "./clips.jsx";
+import { RatingSelect, useSession } from "./profiles.jsx";
 
 // Matches the `max-width: 860px` block in modern.css where the watch layout collapses to one column.
 const STACKED_WATCH_QUERY = "(max-width: 860px)";
 
 export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, formatDuration, mini = false, suspended = false }) {
+  const { isAdmin } = useSession();
   const playlist = usePlaylist();
   const [initialSeconds, setInitialSeconds] = useState(0);
   const [asset, setAsset] = useState(null);
@@ -167,7 +169,9 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
           {catalog && <p className="watch-kicker">{[catalog.type === "show" && catalog.season != null ? `Season ${catalog.season} · Episode ${catalog.episode}` : catalog.type === "movie" ? "Movie" : null, airDate].filter(Boolean).join(" · ")}</p>}
           <h1>{asset.title}</h1>
           <div className="watch-toolbar"><ViewCount count={asset.view_count} /><div className="watch-actions"><LikeButton asset={asset} api={api} onChange={values => setAsset(current => ({ ...current, ...values }))} /><button className={asset.saved ? "primary-button" : "outline-button"} disabled={saving} onClick={save}><BookmarkSimple weight={asset.saved ? "fill" : "regular"} />{asset.saved ? "Saved" : "Save"}</button>
-            {catalog && !mini && (asset.file_path ? <span className="download-state" title="Saved in your library folder"><CheckCircle weight="fill" size={18} /> Downloaded</span> : <button className="outline-button" onClick={async () => { try { const result = await api(`/api/v1/assets/${asset.id}/download`, { method: "POST" }); setSaveNote(result.queued.length ? "Download started" : result.skipped[0]?.reason === "already queued" ? "Already downloading" : "Already saved"); } catch (e) { setSaveNote(e.message); } }}><DownloadSimple />Download</button>)}</div></div>
+            {catalog && !mini && isAdmin && (asset.file_path ? <span className="download-state" title="Saved in your library folder"><CheckCircle weight="fill" size={18} /> Downloaded</span> : <button className="outline-button" onClick={async () => { try { const result = await api(`/api/v1/assets/${asset.id}/download`, { method: "POST" }); setSaveNote(result.queued.length ? "Download started" : result.skipped[0]?.reason === "already queued" ? "Already downloading" : "Already saved"); } catch (e) { setSaveNote(e.message); } }}><DownloadSimple />Download</button>)}</div></div>
+          {isAdmin && !catalog && !mini && <RatingSelect id={`asset-rating-${asset.id}`} label={asset.effective_rating && asset.effective_rating !== asset.content_rating ? "Content rating (its folder sets a minimum)" : "Content rating"} value={asset.content_rating}
+            onChange={async rating => { const value = await api(`/api/v1/assets/${asset.id}/rating`, { method: "PUT", body: JSON.stringify({ rating }) }); setAsset(current => current?.id === asset.id ? { ...current, ...value } : current); }} />}
           {saveNote && <p className="download-note" role="status">{saveNote} · <AppLink href="/downloads" navigate={navigate}>Open downloads</AppLink></p>}
           {error && <p role="alert">{error}</p>}
         </section>

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { db } from "@kiwi/database";
+import { db, assetVisibleSql } from "@kiwi/database";
 
 // Every channel loops its lineup forever from this instant, so "what's on" is the same on
 // every request and device without storing a schedule.
@@ -37,12 +37,14 @@ const memberships = () => {
     else (row.title_type === "movie" ? classes.movies : classes.shows).add(row.id);
   };
   const columns = "a.id, a.duration_ms, a.title_id, a.season_number, a.episode_number, t.type title_type, t.is_anime";
-  for (const row of db.prepare(`SELECT et.topic_id, ${columns} FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id LEFT JOIN titles t ON t.id=a.title_id WHERE ${playable}`).all()) {
+  // Each profile's guide only airs what it may watch.
+  const allowed = `${playable} AND ${assetVisibleSql("a")}`;
+  for (const row of db.prepare(`SELECT et.topic_id, ${columns} FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id LEFT JOIN titles t ON t.id=a.title_id WHERE ${allowed}`).all()) {
     if (!byTopic.has(row.topic_id)) byTopic.set(row.topic_id, new Set());
     byTopic.get(row.topic_id).add(row.id);
     note(row);
   }
-  for (const row of db.prepare(`SELECT ${columns} FROM assets a LEFT JOIN titles t ON t.id=a.title_id WHERE ${playable}`).all()) note(row);
+  for (const row of db.prepare(`SELECT ${columns} FROM assets a LEFT JOIN titles t ON t.id=a.title_id WHERE ${allowed}`).all()) note(row);
   return { byTopic, info, classes };
 };
 

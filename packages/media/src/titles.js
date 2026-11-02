@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { db, ensureTopic, reindexTitleSearch } from "@kiwi/database";
+import { db, currentUserId, assetVisibleSql, ratingKey, titleVisibleSql, ensureTopic, reindexTitleSearch } from "@kiwi/database";
 import { imageUrl } from "./images.js";
 import { iso3 } from "./tmdb.js";
 
 const now = () => new Date().toISOString();
 const pad = value => String(value).padStart(2, "0");
 const parse = (value, fallback) => { try { return JSON.parse(value) ?? fallback; } catch { return fallback; } };
-const userId = "user-local";
+const userId = currentUserId;
 
 export const movieAssetId = titleId => `${titleId}-movie`;
 export const episodeAssetId = (titleId, season, episode) => `${titleId}-s${pad(season)}e${pad(episode)}`;
@@ -231,13 +231,14 @@ export function publicTitle(row, { withTopics = true } = {}) {
     poster: imageUrl(row.poster_path, "w342"), posterLarge: imageUrl(row.poster_path, "w500"), backdrop: imageUrl(row.backdrop_path, "w1280"), backdropSmall: imageUrl(row.backdrop_path, "w780"),
     logo: imageUrl(row.logo_path, "w500"), cast: parse(row.metadata_json, {}).cast?.map(person => ({ ...person, profile: imageUrl(person.profile, "w185") })) || [], inLibrary: Boolean(row.in_library), tmdbId: row.tmdb_id, imdbId: row.imdb_id, originalLanguage: row.original_language,
     firstAirDate: row.first_air_date, lastAirDate: row.last_air_date, ...(topics ? { topics } : {}),
+    contentRating: ratingKey(row.content_rating), effectiveRating: ratingKey(db.prepare("SELECT level FROM title_ratings WHERE title_id=?").get(row.id)?.level ?? null),
   };
 }
 
 export const publicSeasons = titleId => db.prepare("SELECT number,name,overview,poster_path,air_date,episode_count FROM title_seasons WHERE title_id=? ORDER BY (number=0), number").all(titleId)
   .map(season => ({ number: season.number, name: season.name, overview: season.overview, poster: imageUrl(season.poster_path, "w185"), airDate: season.air_date, episodeCount: season.episode_count }));
 
-const progressFor = id => db.prepare("SELECT progress_ms, completed, last_viewed_at FROM consumption_state WHERE user_id=? AND asset_id=?").get(userId, id);
+const progressFor = id => db.prepare("SELECT progress_ms, completed, last_viewed_at FROM consumption_state WHERE user_id=? AND asset_id=?").get(userId(), id);
 
 // The next thing to play for a title: the unfinished episode you were in, else the first unwatched aired episode.
 export function nextUp(titleId) {
@@ -250,7 +251,7 @@ export function nextUp(titleId) {
   }
   const episodes = db.prepare(`SELECT a.*, cs.progress_ms, cs.completed, cs.last_viewed_at FROM assets a
     LEFT JOIN consumption_state cs ON cs.asset_id=a.id AND cs.user_id=?
-    WHERE a.title_id=? AND a.season_number>=1 AND a.availability!='unaired' ORDER BY a.season_number, a.episode_number`).all(userId, titleId);
+    WHERE a.title_id=? AND a.season_number>=1 AND a.availability!='unaired' ORDER BY a.season_number, a.episode_number`).all(userId(), titleId);
   if (!episodes.length) return null;
   const recent = episodes.filter(episode => episode.last_viewed_at).sort((a, b) => b.last_viewed_at.localeCompare(a.last_viewed_at))[0];
   if (recent && !isWatched(recent, recent.duration_ms) && recent.progress_ms > 0) return { asset: recent, progress: recent, resume: true, watched: false };
@@ -276,8 +277,9 @@ export function previousEpisodeBefore(assetId) {
 
 // "Continue watching": one entry per title, most recently watched first.
 export function continueWatching({ limit = 20, anime, type } = {}) {
-  const rows = db.prepare(`SELECT a.title_id, cs.last_viewed_at FROM consumption_state cs JOIN assets a ON a.id=cs.asset_id
-    WHERE cs.user_id=? AND a.title_id IS NOT NULL AND cs.last_viewed_at IS NOT NULL ORDER BY cs.last_viewed_at DESC LIMIT 400`).all(userId);
+  const rows = db.prepare(`SELECT a.title_id, cs.last_viewed_at FROM consumption_state cs JOIN assets a ON a.id=cs.asset_id JOIN titles t ON t.id=a.title_id
+    WHERE cs.user_id=? AND a.title_id IS NOT NULL AND cs.last_viewed_at IS NOT NULL AND ${assetVisibleSql("a")}
+      AND ${titleVisibleSql("t")} ORDER BY cs.last_viewed_at DESC LIMIT 400`).all(userId());
   const seen = new Set(), entries = [];
   for (const row of rows) {
     if (seen.has(row.title_id)) continue;
@@ -302,7 +304,7 @@ export function assetSummary(row, progress) {
 }
 
 export function libraryTitles({ type, anime, sort = "added", limit = 60, offset = 0, q } = {}) {
-  const filters = ["in_library=1"], params = [];
+  const filters = ["in_library=1", titleVisibleSql("titles")], params = [];
   if (type) { filters.push("type=?"); params.push(type); }
   if (anime !== undefined) { filters.push("is_anime=?"); params.push(Number(anime)); }
   if (q) { filters.push("lower(title) LIKE ?"); params.push(`%${q.toLowerCase()}%`); }

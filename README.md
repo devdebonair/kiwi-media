@@ -9,6 +9,7 @@ Kiwi is a self-hosted media library centered on topics, precise moments, and sav
 - Attach topics and notes to whole assets or precise moments and regions
 - Direct-play local video and audio with HTTP range requests
 - Track views and watch history, and give each item up to five likes
+- Netflix-style profiles with optional PINs, and one content-rating ladder (up to NSFW) that admins set per folder, title, or video to limit what each profile sees
 - Browse a vertical Shorts feed with a saved duration limit
 - Scan read-only filesystem libraries with a persistent background worker
 - Download web media into library folders with yt-dlp, debrid services, custom APIs, or plugins, optionally through reusable VPN profiles
@@ -69,6 +70,18 @@ Known limits: seeking in a repackaged stream lands on the nearest keyframe befor
 ## Clips
 
 Tag a time range of any video to make a *virtual clip* — nothing is cut or copied. In the player, press the scissors button (or **I** and **O** at the playhead), drag the green edges on the seek bar or nudge the in and out points, add tags and an optional name, and save. Saved clips show as amber marks on the seek bar and in a list under the video; playing one stops at its end. Clip tags describe that range only, so they never add the tag to the whole video. Search finds clips by name, by their tags (including tags implied by topic rules), and by the video they come from, with a **Clips** tab and clip suggestions in the header search; topic pages list them under **Clips**, and `GET /api/v1/clips?topic=<slug>` returns them (newest first, including tags implied by topic rules) for a future clips feed in Shorts.
+
+## Profiles and content ratings
+
+Kiwi has Netflix-style profiles. Each profile keeps its own history, progress, likes, saved items, and follows. Tags, guide channels, and the library are shared. While there is a single profile without a PIN, Kiwi uses it automatically and you never see a picker. Once there is more than one profile, every browser starts at **Who's watching?**, and switching is in the avatar menu at the top right.
+
+**PINs.** Any profile can be locked with a 4-digit PIN from the avatar menu. Admin profiles must have one before you can add a second profile, so nobody else can open them. Five wrong tries lock a profile for five minutes. Changing a PIN signs that profile out on other devices.
+
+**Admins and members.** The original profile is the owner and is always an admin. Admins see everything and are the only ones who can open Settings and Downloads, rate content, download, or switch a stream's source. Members can still tag. Manage profiles in Settings → Profiles.
+
+**One rating ladder.** Kids (G, TV-Y, TV-G) · Older kids (PG, TV-Y7, TV-PG) · Teens (PG-13, TV-14) · Mature (R, NC-17, TV-MA) · NSFW. NSFW is just the top rung, not a separate flag. Movies and shows take their rating from their US certification. An admin can override it on the title page, rate a home video on its watch page, or rate a whole library folder in Settings. A folder's rating is a minimum for everything in it, including future imports, so a folder rated NSFW stays hidden from every profile limited below NSFW. Anything with no certification and no rating is **unrated**.
+
+Each member profile has a maximum rating and a **Show unrated content** switch. The server enforces both everywhere: grids, search, topics, Shorts, the TV Guide, history, catalog browsing (titles TMDB hasn't certified count as unrated), and every file, stream, and subtitle URL. Hidden items answer 404.
 
 ## Run locally
 

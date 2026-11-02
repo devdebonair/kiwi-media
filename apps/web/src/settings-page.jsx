@@ -6,6 +6,7 @@ import { AddTag } from "./add-tag";
 import { TopicLabel } from "./topic-label";
 import { DownloadSettings } from "./download-settings";
 import { StreamingSettings } from "./streaming-settings";
+import { ProfilesSettings, RatingSelect } from "./profiles";
 
 export function SettingsPage({ api }) {
   const [roots, setRoots] = useState(null), [jobs, setJobs] = useState([]);
@@ -25,7 +26,8 @@ export function SettingsPage({ api }) {
     finally { setBusy(false); }
   };
   return <div className="content settings-page narrow">
-    <div className="section-heading"><div><span className="eyebrow">Server</span><h1>Settings</h1><p>Manage library ingestion, downloaders, VPN routing, and server status.</p></div></div>
+    <div className="section-heading"><div><span className="eyebrow">Server</span><h1>Settings</h1><p>Manage profiles, library ingestion, downloaders, VPN routing, and server status.</p></div></div>
+    <ProfilesSettings api={api} />
     <section className="settings-card">
       <div><h2>Media libraries</h2><p>Connected folders are saved in your library. Originals are never modified.</p></div>
       <button className="primary-button" disabled={busy || !roots?.some(root => root.enabled)} onClick={() => perform(async () => {
@@ -40,7 +42,7 @@ export function SettingsPage({ api }) {
               <AddTag asset={root} api={api} endpoint={`/api/v1/library/roots/${root.id}/topics`} onChange={topics => setRoots(current => current.map(folder => folder.id === root.id ? { ...folder, topics } : folder))}/>
             </div>
           </div>
-          <div className="library-folder-actions"><button className="outline-button" disabled={busy} aria-label={`${root.read_only ? "Allow" : "Block"} downloads into ${root.absolute_path}`} onClick={() => perform(() => api(`/api/v1/library/roots/${root.id}`, { method: "PATCH", body: JSON.stringify({ readOnly: !root.read_only }) }))}>{root.read_only ? "Allow downloads" : "Make read-only"}</button>
+          <div className="library-folder-actions"><RatingSelect id={`rating-${root.id}`} label="Rating for everything in this folder" value={root.content_rating} onChange={rating => perform(() => api(`/api/v1/library/roots/${root.id}/rating`, { method: "PUT", body: JSON.stringify({ rating }) }))} unratedLabel="Not rated (use each item's rating)" /><button className="outline-button" disabled={busy} aria-label={`${root.read_only ? "Allow" : "Block"} downloads into ${root.absolute_path}`} onClick={() => perform(() => api(`/api/v1/library/roots/${root.id}`, { method: "PATCH", body: JSON.stringify({ readOnly: !root.read_only }) }))}>{root.read_only ? "Allow downloads" : "Make read-only"}</button>
           <button className="outline-button" disabled={busy} aria-label={`${root.enabled ? "Pause" : "Enable"} scanning for ${root.absolute_path}`} onClick={() => perform(() => api(`/api/v1/library/roots/${root.id}`, { method: "PATCH", body: JSON.stringify({ enabled: !root.enabled }) }))}>{root.enabled ? "Pause scanning" : "Enable scanning"}</button></div>
         </div>)}
       </div>
@@ -51,6 +53,7 @@ export function SettingsPage({ api }) {
         <div><input id="library-folder-path" value={path} onChange={event => setPath(event.target.value)} placeholder="/mnt/media/videos" required disabled={busy} /><button className="primary-button" disabled={busy || !path}><Plus /> Add folder</button></div>
       </form>
       <p>Folder tags apply to all imported content, including subfolders and future imports.</p>
+      <p>A folder rating is a minimum for everything in it: rate a folder NSFW and nothing inside shows on profiles limited below NSFW, even if an item has a lower rating.</p>
       <p>Read-only folders can't be chosen as download destinations. Kiwi never modifies existing files either way.</p>
       <p>Pausing excludes a folder from future scans. Jobs already queued continue, and imported media stays in your library.</p>
       {message && <div className="notice" role="status">{message}</div>}

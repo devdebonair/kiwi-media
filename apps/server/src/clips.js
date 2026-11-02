@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { db, reindexClipSearch } from "@kiwi/database";
+import { db, assetVisibleSql, reindexClipSearch } from "@kiwi/database";
 
 // Clips are tags on a time range of a video: "virtual clips" that can later be browsed as a feed without
 // cutting any files. Each is an annotation (motivation 'clipping') with one time-range selector, an optional
@@ -142,7 +142,7 @@ export function listClips({ topic, asset, id, limit = 40, offset = 0 } = {}) {
       v.title asset_title, v.thumbnail_url, v.duration_ms, v.kind, v.title_id
     FROM annotations a JOIN annotation_selectors s ON s.annotation_id=a.id AND s.selector_type='time-range'
     JOIN assets v ON v.id=a.asset_id
-    WHERE a.motivation='clipping'${filters.map(filter => ` AND ${filter}`).join("")}
+    WHERE a.motivation='clipping' AND ${assetVisibleSql("v")}${filters.map(filter => ` AND ${filter}`).join("")}
     ORDER BY a.created_at DESC, a.id LIMIT ? OFFSET ?`).all(...params, limit, offset);
   return rows.map(row => ({ ...present(row), asset: { id: row.asset_id, title: row.asset_title, thumbnail_url: row.thumbnail_url, duration_ms: row.duration_ms, kind: row.kind, catalog: Boolean(row.title_id) } }));
 }

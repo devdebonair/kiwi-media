@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import mime from "mime-types";
-import { db, generatedDir, reindexTitleSearch } from "@kiwi/database";
+import { db, currentUserId, certificationLevel, currentProfile, isUnrestricted, assetVisibleSql, levelAllowed, ratingKey, ratingLevel, generatedDir, reindexTitleSearch } from "@kiwi/database";
+import { titleAllowed } from "./profiles.js";
 import { join } from "node:path";
 import { ConfigError, destinationFor, downloadBlocker } from "@kiwi/downloads";
 import {
@@ -11,7 +12,7 @@ import {
   publicProvider, publicSeasons, publicTitle, resetRules, saveDownloadSettings, savePlayback, saveProvider, saveRules, setAnime, setLibrary, startRemux, createHlsSessions, ensureSeason, ensureAllSeasons,
 } from "@kiwi/media";
 
-const userId = "user-local";
+const userId = currentUserId;
 const now = () => new Date().toISOString();
 const parse = (value, fallback) => { try { return JSON.parse(value) ?? fallback; } catch { return fallback; } };
 
@@ -51,6 +52,19 @@ export function registerMedia(app, { resolveTopic }) {
   const cards = results => results.map(card);
   const only = (kind, results) => kind === "anime" ? results.filter(item => item.isAnime) : results.filter(item => !item.isAnime);
 
+  // Restricted profiles only see catalog titles whose rating they may watch. Titles already known locally use
+  // their stored rating; others are looked up (TMDB details are cached for hours).
+  const allowedCard = async item => {
+    if (item.titleId) return titleAllowed(item.titleId);
+    const detail = await media().tmdb.details(item.type, item.tmdbId).catch(() => null);
+    return levelAllowed(certificationLevel(detail?.certification));
+  };
+  const visible = async items => {
+    if (isUnrestricted()) return items;
+    const allowed = await Promise.all(items.map(allowedCard));
+    return items.filter((item, index) => allowed[index]);
+  };
+
   const tmdbReady = () => {
     if (!getProvider("tmdb").configured) throw new ConfigError("Add your TMDB key in Settings → Streaming to browse movies, shows, and anime.", 400);
   };
@@ -68,10 +82,9 @@ export function registerMedia(app, { resolveTopic }) {
     }[kind];
     const settled = await Promise.allSettled(rails.map(([, , load]) => load()));
     if (settled.every(result => result.status === "rejected")) throw settled[0].reason;
-    return {
-      rails: rails.map(([id, title], index) => settled[index].status === "fulfilled"
-        ? { id, title, items: cards(kind === "anime" ? settled[index].value.results : only(kind, settled[index].value.results)).slice(0, 20) } : null).filter(rail => rail?.items.length),
-    };
+    const built = await Promise.all(rails.map(async ([id, title], index) => settled[index].status === "fulfilled"
+      ? { id, title, items: (await visible(cards(kind === "anime" ? settled[index].value.results : only(kind, settled[index].value.results)))).slice(0, 20) } : null));
+    return { rails: built.filter(rail => rail?.items.length) };
   }));
 
   app.get("/api/v1/catalog/genres", handle(async req => {
@@ -89,7 +102,7 @@ export function registerMedia(app, { resolveTopic }) {
     const type = kind === "movies" || (kind === "anime" && req.query.type === "movie") ? "movie" : "show";
     const sortKey = SORTS[sort] ?? (type === "movie" ? "primary_release_date.desc" : "first_air_date.desc");
     const result = await media().tmdb.discover(type, { genre: genre ? Number(genre) : undefined, anime: kind === "anime", sort: sortKey, page: Number(page) || 1, minVotes: sort === "new" ? 10 : undefined });
-    return { page: result.page, totalPages: result.totalPages, items: cards(kind === "anime" ? result.results : only(kind, result.results)) };
+    return { page: result.page, totalPages: result.totalPages, items: await visible(cards(kind === "anime" ? result.results : only(kind, result.results))) };
   }));
 
   app.get("/api/v1/catalog/search", handle(async req => {
@@ -98,7 +111,7 @@ export function registerMedia(app, { resolveTopic }) {
     tmdbReady();
     const type = req.query.type === "movie" ? "movie" : req.query.type === "show" ? "show" : undefined;
     const result = await media().tmdb.search(q, { type, page: Number(req.query.page) || 1 });
-    const items = cards(result.results);
+    const items = await visible(cards(result.results));
     const kind = req.query.kind;
     return { page: result.page, totalPages: result.totalPages, items: kind === "anime" ? items.filter(item => item.isAnime) : kind === "movies" || kind === "shows" ? items.filter(item => !item.isAnime && item.type === (kind === "movies" ? "movie" : "show")) : items };
   }));
@@ -137,6 +150,7 @@ export function registerMedia(app, { resolveTopic }) {
         const detail = result.value;
         const local = lookup.get(detail.type, detail.tmdbId);
         if (local && items.some(item => item.titleId === local.id)) continue;
+        if (local ? !titleAllowed(local.id) : !levelAllowed(certificationLevel(detail.certification))) continue;
         items.push({
           ref: local?.id || `tmdb:${detail.type}:${detail.tmdbId}`, titleId: local?.id || null, type: detail.type, title: detail.title, year: detail.year, overview: detail.overview,
           rating: detail.rating, backdrop: imageUrl(detail.backdropPath || chosen[index].backdropPath, "w1280"), logo: imageUrl(detail.logoPath, "w500"), genres: bannerGenres(detail.genres, detail.isAnime), isAnime: detail.isAnime,
@@ -161,7 +175,7 @@ export function registerMedia(app, { resolveTopic }) {
 
   const episodeRows = (titleId, season) => {
     const rows = db.prepare(`SELECT a.*, cs.progress_ms, cs.completed, cs.last_viewed_at FROM assets a LEFT JOIN consumption_state cs ON cs.asset_id=a.id AND cs.user_id=?
-      WHERE a.title_id=? AND a.season_number=? ORDER BY a.episode_number`).all(userId, titleId, season);
+      WHERE a.title_id=? AND a.season_number=? AND ${assetVisibleSql("a")} ORDER BY a.episode_number`).all(userId(), titleId, season);
     const own = new Map();
     for (const row of db.prepare(`SELECT an.asset_id, t.id, t.slug, t.name, t.avatar_url FROM annotations an JOIN annotation_topics at ON at.annotation_id=an.id JOIN topics t ON t.id=at.topic_id
       JOIN assets a ON a.id=an.asset_id WHERE a.title_id=? AND a.season_number=? AND an.motivation!='clipping' ORDER BY t.name`).all(titleId, season)) {
@@ -187,7 +201,7 @@ export function registerMedia(app, { resolveTopic }) {
 
   app.get("/api/v1/titles/:ref", handle(async (req, reply) => {
     const title = await resolveRef(decodeURIComponent(req.params.ref));
-    if (!title) return reply.code(404).send({ error: "Title not found" });
+    if (!title || !titleAllowed(title.id)) return reply.code(404).send({ error: "Title not found" });
     // A series needs its first season's episodes to know what to play next.
     if (title.type === "show" && getProvider("tmdb").configured && !db.prepare("SELECT 1 FROM assets WHERE title_id=? AND season_number>=1").get(title.id)) {
       const first = db.prepare("SELECT number FROM title_seasons WHERE title_id=? AND number>=1 ORDER BY number LIMIT 1").get(title.id);
@@ -228,6 +242,14 @@ export function registerMedia(app, { resolveTopic }) {
     return presentTitle(getTitle(fresh.id));
   }));
 
+  // Admin only (see profiles.js): replaces the title's certification; null goes back to it.
+  app.put("/api/v1/titles/:id/rating", handle(async (req, reply) => {
+    const level = ratingLevel(req.body?.rating);
+    if (level === undefined) return reply.code(400).send({ error: "rating must be a rating level or null" });
+    if (!db.prepare("UPDATE titles SET content_rating=?, updated_at=? WHERE id=?").run(level, now(), req.params.id).changes) return reply.code(404).send({ error: "Title not found" });
+    return presentTitle(getTitle(req.params.id));
+  }));
+
   // Tags on a whole movie or series also apply to all of its episodes.
   app.post("/api/v1/titles/:id/topics", handle(async (req, reply) => {
     const title = getTitle(req.params.id);
@@ -253,7 +275,7 @@ export function registerMedia(app, { resolveTopic }) {
   const libraryCard = row => {
     const next = nextUp(row.id);
     const counts = row.type === "show" ? db.prepare(`SELECT count(*) total, sum(CASE WHEN cs.completed=1 OR (cs.progress_ms>=a.duration_ms*0.92) THEN 1 ELSE 0 END) watched FROM assets a
-      LEFT JOIN consumption_state cs ON cs.asset_id=a.id AND cs.user_id=? WHERE a.title_id=? AND a.season_number>=1 AND a.availability!='unaired'`).get(userId, row.id) : null;
+      LEFT JOIN consumption_state cs ON cs.asset_id=a.id AND cs.user_id=? WHERE a.title_id=? AND a.season_number>=1 AND a.availability!='unaired'`).get(userId(), row.id) : null;
     return { ...publicTitle(row, { withTopics: false }), ref: row.id, watchedCount: counts?.watched || 0, episodeCount: counts?.total || 0, progressMs: next?.asset && next.resume ? next.progress?.progress_ms || 0 : 0, durationMs: next?.asset?.duration_ms || null, watched: Boolean(next?.watched && row.type === "movie") };
   };
 

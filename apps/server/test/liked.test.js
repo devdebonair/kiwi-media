@@ -9,10 +9,13 @@ process.env.KIWI_DATA_DIR = directory;
 const { app } = await import('../src/index.js');
 const { db } = await import('@kiwi/database');
 after(async () => { await app.close(); db.close(); rmSync(directory, { recursive: true, force: true }); });
-const like = (id, count) => app.inject({ method: 'PUT', url: `/api/v1/assets/${id}/likes`, payload: { count } });
+// These tests add a second profile, so requests carry the owner's profile cookie as a browser would.
+const cookie = (await app.inject({ method: 'POST', url: '/api/v1/profiles/user-local/select' })).headers['set-cookie'].split(';')[0];
+const inject = options => app.inject({ ...(typeof options === 'string' ? { url: options } : options), headers: { cookie } });
+const like = (id, count) => inject({ method: 'PUT', url: `/api/v1/assets/${id}/likes`, payload: { count } });
 
 test('liked videos sort by like count, filter by level and topic, and skip unliked or non-video items', async () => {
-  assert.deepEqual((await app.inject('/api/v1/liked')).json(), []);
+  assert.deepEqual((await inject('/api/v1/liked')).json(), []);
   const videos = db.prepare("SELECT id FROM assets WHERE kind='video' ORDER BY added_at DESC, id DESC LIMIT 4").all().map(row => row.id);
   assert.equal(videos.length, 4);
   const other = db.prepare("SELECT id FROM assets WHERE kind!='video' LIMIT 1").get();
@@ -21,22 +24,22 @@ test('liked videos sort by like count, filter by level and topic, and skip unlik
   await like(videos[2], 2);
   await like(videos[3], 0);
   if (other) await like(other.id, 5);
-  db.prepare('INSERT INTO users VALUES (?,?,?)').run('other-user', 'Other', '2025-01-01');
+  db.prepare('INSERT INTO users (id,display_name,created_at) VALUES (?,?,?)').run('other-user', 'Other', '2025-01-01');
   db.prepare('INSERT INTO asset_likes VALUES (?,?,?)').run('other-user', videos[3], 5);
 
-  const rows = (await app.inject('/api/v1/liked')).json();
+  const rows = (await inject('/api/v1/liked')).json();
   assert.deepEqual(rows.map(row => row.id), [videos[1], videos[0], videos[2]]);
   assert.deepEqual(rows.map(row => row.my_likes), [5, 2, 2]);
   assert.ok(Array.isArray(rows[0].topics));
-  assert.deepEqual((await app.inject('/api/v1/liked?limit=1&offset=1')).json().map(row => row.id), [videos[0]]);
-  assert.deepEqual((await app.inject('/api/v1/liked?likes=2')).json().map(row => row.id), [videos[0], videos[2]]);
-  assert.deepEqual((await app.inject('/api/v1/liked?likes=4')).json(), []);
+  assert.deepEqual((await inject('/api/v1/liked?limit=1&offset=1')).json().map(row => row.id), [videos[0]]);
+  assert.deepEqual((await inject('/api/v1/liked?likes=2')).json().map(row => row.id), [videos[0], videos[2]]);
+  assert.deepEqual((await inject('/api/v1/liked?likes=4')).json(), []);
 
-  const filters = (await app.inject('/api/v1/liked/filters')).json();
+  const filters = (await inject('/api/v1/liked/filters')).json();
   assert.deepEqual(filters.levels, [{ likes: 5, item_count: 1 }, { likes: 2, item_count: 2 }]);
   assert.ok(filters.topics.every(topic => topic.item_count < rows.length));
   for (const topic of filters.topics) {
-    const matching = (await app.inject(`/api/v1/liked?topic=${encodeURIComponent(topic.slug)}`)).json();
+    const matching = (await inject(`/api/v1/liked?topic=${encodeURIComponent(topic.slug)}`)).json();
     assert.equal(matching.length, topic.item_count);
     assert.ok(matching.every(row => row.topics.some(item => item.id === topic.id)));
   }
@@ -44,6 +47,6 @@ test('liked videos sort by like count, filter by level and topic, and skip unlik
 
 test('liked videos reject invalid filters and pagination', async () => {
   for (const query of ['likes=0', 'likes=6', 'likes=2.5', 'likes=', 'limit=0', 'limit=201', 'offset=-1']) {
-    assert.equal((await app.inject(`/api/v1/liked?${query}`)).statusCode, 400, query);
+    assert.equal((await inject(`/api/v1/liked?${query}`)).statusCode, 400, query);
   }
 });
