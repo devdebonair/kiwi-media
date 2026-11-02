@@ -11,20 +11,20 @@ export function DownloadSettings({ api }) {
     setData({ ...plugins, downloaders, types, profiles, rules });
   };
   useEffect(() => {
-    load().then(() => { if (location.hash === "#downloads") document.getElementById("downloads")?.scrollIntoView(); }).catch(failure => setError(failure.message));
+    load().catch(failure => setError(failure.message));
   }, []);
   const perform = async action => {
     setBusy(true); setError("");
     try { await action(); await load(); } catch (failure) { setError(failure.message); } finally { setBusy(false); }
   };
-  if (!data) return <section id="downloads" className="settings-card download-settings"><div><h2>Downloads</h2><p>{error || "Loading…"}</p></div></section>;
+  if (!data) return <section id="downloads" className="settings-card download-settings"><div><h3>Downloaders</h3><p>{error || "Loading…"}</p></div></section>;
   const pluginFor = id => data.plugins.find(plugin => plugin.id === id);
   const typeFor = id => data.types.find(type => type.id === id);
 
   return <>
     <section id="downloads" className="settings-card download-settings">
       <div className="settings-card-head">
-        <div><h2>Downloaders</h2><p>Sources used by the Upload button. Kiwi picks the default downloader unless another one fits the link better.</p></div>
+        <div><h3>Downloaders</h3><p>Sources used by the Upload button. Kiwi picks the default downloader unless another one fits the link better.</p></div>
         <button className="primary-button" disabled={busy} onClick={() => setEditor({ kind: "pick-plugin" })}><Plus /> Add downloader</button>
       </div>
       <ul className="settings-list">{data.downloaders.map(item => {
@@ -49,9 +49,9 @@ export function DownloadSettings({ api }) {
       <p className="settings-footnote">Custom downloader plugins are JavaScript modules placed in <code>{data.directory}</code>. They run with the server's permissions, so only install plugins you trust.</p>
     </section>
 
-    <section className="settings-card download-settings">
+    <section className="settings-card download-settings" id="vpn-profiles">
       <div className="settings-card-head">
-        <div><h2>VPN profiles</h2><p>Route downloads through a VPN provider's proxy or a WireGuard tunnel without installing a VPN on the server. Downloads assigned to a VPN stop rather than fall back to the server's own connection.</p></div>
+        <div><h3>VPN profiles</h3><p>Route downloads through a VPN provider's proxy or a WireGuard tunnel without installing a VPN on the server. Downloads assigned to a VPN stop rather than fall back to the server's own connection.</p></div>
         <button className="primary-button" disabled={busy} onClick={() => setEditor({ kind: "pick-vpn" })}><Plus /> Add VPN profile</button>
       </div>
       {data.profiles.length ? <ul className="settings-list">{data.profiles.map(profile => <VpnRow key={profile.id} profile={profile} type={typeFor(profile.type)} api={api} busy={busy}
@@ -60,8 +60,8 @@ export function DownloadSettings({ api }) {
         : <p className="muted">No VPN profiles yet.</p>}
     </section>
 
-    <section className="settings-card download-settings">
-      <div className="settings-card-head"><div><h2>VPN by website</h2><p>Always use a VPN profile for a site and its subdomains. Site rules take priority over a downloader's default VPN; you can still override both for a single download.</p></div></div>
+    <section className="settings-card download-settings" id="vpn-sites">
+      <div className="settings-card-head"><div><h3>VPN by website</h3><p>Always use a VPN profile for a site and its subdomains. Site rules take priority over a downloader's default VPN; you can still override both for a single download.</p></div></div>
       {data.rules.length > 0 && <ul className="settings-list">{data.rules.map(rule => <li key={rule.domain}>
         <div className="settings-list-copy"><strong><Globe size={15} /> {rule.domain}</strong><small><ShieldCheck size={13} className="vpn-on" /> {rule.vpn_name}</small></div>
         <div className="settings-list-actions"><button className="icon-button" disabled={busy} aria-label={`Remove rule for ${rule.domain}`} title="Remove" onClick={() => perform(() => api(`/api/v1/vpn/rules/${encodeURIComponent(rule.domain)}`, { method: "DELETE" }))}><Trash size={18} /></button></div>

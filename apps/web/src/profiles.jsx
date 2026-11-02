@@ -2,6 +2,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Backspace, Check, Gear, LockSimple, LockSimpleOpen, PencilSimple, Plus, ShieldCheck, SpinnerGap, Trash, UsersThree, X } from "@phosphor-icons/react";
 import { PLAYLIST_KEY } from "./playlist-state.mjs";
+import { locateSetting } from "./settings-nav.jsx";
 
 // Profiles: who is watching. The server decides what each profile may see; the browser only picks one.
 // Any API call answering 401 "profile_required" (see client-app's api helper) brings the picker back.
@@ -137,7 +138,7 @@ export function ProfileMenu({ navigate }) {
       {profileCount > 1 && <button role="menuitem" onClick={switchProfile}><UsersThree size={18} /> Switch profile</button>}
       <button role="menuitem" onClick={() => { setOpen(false); setPinMode("set"); }}>{profile.locked ? <LockSimple size={18} /> : <LockSimpleOpen size={18} />} {profile.locked ? "Change PIN" : "Lock with a PIN"}</button>
       {profile.locked && !(isAdmin && profileCount > 1) && <button role="menuitem" onClick={removePin}><LockSimpleOpen size={18} /> Remove PIN</button>}
-      {isAdmin && <button role="menuitem" onClick={() => { setOpen(false); navigate("/settings#profiles"); }}><Gear size={18} /> {profileCount > 1 ? "Manage profiles" : "Add profiles"}</button>}
+      {isAdmin && <button role="menuitem" onClick={() => { setOpen(false); navigate("/settings#profiles"); locateSetting("profiles"); }}><Gear size={18} /> {profileCount > 1 ? "Manage profiles" : "Add profiles"}</button>}
     </div>}
     {message && <div className="profile-toast" role="status" onAnimationEnd={() => setMessage("")}>{message}</div>}
     {pinMode && <PinDialog title={profile.locked ? "Choose a new PIN" : "Choose a 4-digit PIN"} profile={profile} close={() => setPinMode(null)} submit={setPin} />}
@@ -183,8 +184,6 @@ export function ProfilesSettings({ api }) {
   const [profiles, setProfiles] = useState(null), [editing, setEditing] = useState(null), [pinFor, setPinFor] = useState(null), [message, setMessage] = useState("");
   const load = () => api("/api/v1/profiles").then(value => setProfiles(value.profiles)).catch(e => setMessage(e.message));
   useEffect(() => { load(); }, []);
-  // Arriving from "Manage profiles" in the header menu.
-  useEffect(() => { if (profiles && window.location.hash === "#profiles") document.getElementById("profiles")?.scrollIntoView({ block: "start" }); }, [profiles === null]);
   const act = async work => { setMessage(""); try { await work(); await load(); refresh(); } catch (e) { setMessage(e.message); } };
   const adminNeedsPin = profiles?.some(profile => profile.isAdmin && !profile.locked);
   const savePin = async pin => {
@@ -192,7 +191,7 @@ export function ProfilesSettings({ api }) {
     setPinFor(null); setMessage(`PIN ${pin ? "saved" : "removed"} for ${pinFor.name}`); await load(); refresh();
   };
   return <section className="settings-card profiles-settings" id="profiles">
-    <div><h2>Profiles</h2><p>Everyone gets their own history, likes, and progress. Limit a profile to a content rating; admins see everything and manage settings.</p></div>
+    <div><h3>Profiles</h3><p>Everyone gets their own history, likes, and progress. Limit a profile to a content rating; admins see everything and manage settings.</p></div>
     {adminNeedsPin && <div className="notice">Set a PIN on every admin profile before adding profiles, so no one else can open them.</div>}
     <div className="profile-rows">
       {profiles === null ? <p>Loading profiles…</p> : profiles.map(profile => <div className="profile-row" key={profile.id}>

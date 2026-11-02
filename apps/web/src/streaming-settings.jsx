@@ -8,8 +8,8 @@ const RESOLUTIONS = [[480, "480p"], [720, "720p"], [1080, "1080p (Full HD)"], [2
 const list = value => value.split(/[\n,]/).map(item => item.trim()).filter(Boolean);
 const text = value => (value || []).join(", ");
 
-function Toggle({ checked, onChange, label, help, disabled }) {
-  return <label className="config-toggle"><input type="checkbox" checked={checked} disabled={disabled} onChange={event => onChange(event.target.checked)} /><span>{label}{help && <small className="field-help">{help}</small>}</span></label>;
+function Toggle({ checked, onChange, label, help, disabled, id }) {
+  return <label className="config-toggle" id={id}><input type="checkbox" checked={checked} disabled={disabled} onChange={event => onChange(event.target.checked)} /><span>{label}{help && <small className="field-help">{help}</small>}</span></label>;
 }
 
 // Languages in order of preference: the first one you can follow wins.
@@ -44,7 +44,7 @@ function ProviderCard({ provider, api, reload }) {
     catch (error) { setState({ busy: "", message: "", error: error.message }); }
   };
   const ready = provider.configured || !provider.fields.some(field => field.required);
-  return <li className="provider-card">
+  return <li className="provider-card" id={`provider-${provider.id}`}>
     <div className="provider-head">
       <div><strong>{provider.name}<span className={`pill ${ready && provider.enabled ? "accent" : ""}`}>{ready ? (provider.enabled ? "On" : "Off") : "Not set up"}</span></strong><small>{provider.description}</small></div>
     </div>
@@ -68,14 +68,14 @@ export function StreamingSettings({ api }) {
     setData(value); setRules(value.rules); setPlayback(value.playback); setDownloads(value.downloads);
     api("/api/v1/media/cache").then(setCache).catch(() => {});
   };
-  useEffect(() => { load().then(() => { if (location.hash === "#streaming") document.getElementById("streaming")?.scrollIntoView(); }).catch(failure => setError(failure.message)); }, []);
+  useEffect(() => { load().catch(failure => setError(failure.message)); }, []);
   const run = (key, action) => async () => {
     setBusy(key); setNotes(current => ({ ...current, [key]: "" }));
     try { const message = await action(); setNotes(current => ({ ...current, [key]: message || "Saved." })); }
     catch (failure) { setNotes(current => ({ ...current, [key]: `⚠ ${failure.message}` })); }
     finally { setBusy(""); }
   };
-  if (!data || !rules) return <section id="streaming" className="settings-card download-settings"><div><h2>Streaming</h2><p>{error || "Loading…"}</p></div></section>;
+  if (!data || !rules) return <section id="streaming" className="settings-card download-settings"><div><h3>Catalogs and sources</h3><p>{error || "Loading…"}</p></div></section>;
   const put = (path, body) => api(path, { method: "PUT", body: JSON.stringify(body) });
   const writable = data.roots.filter(root => !root.read_only);
   const setRule = patch => setRules(current => ({ ...current, ...patch }));
@@ -85,12 +85,12 @@ export function StreamingSettings({ api }) {
 
   return <>
     <section id="streaming" className="settings-card download-settings">
-      <div className="settings-card-head"><div><h2>Catalogs and sources</h2><p>Movies, TV shows, and anime come from a metadata catalog and play from TorBox. Add your keys here; they stay on the server and are never shown again.</p></div></div>
+      <div className="settings-card-head"><div><h3>Catalogs and sources</h3><p>Movies, TV shows, and anime come from a metadata catalog and play from TorBox. Add your keys here; they stay on the server and are never shown again.</p></div></div>
       <ul className="settings-list provider-list">{data.providers.map(provider => <ProviderCard key={provider.id} provider={provider} api={api} reload={load} />)}</ul>
     </section>
 
-    <section className="settings-card download-settings">
-      <div className="settings-card-head"><div><h2>Source rules</h2><p>Kiwi ranks every release it finds with these rules and plays the best one, so you never have to choose. The defaults favor 1080p that plays directly in a browser, releases TorBox already has, and English-friendly audio.</p></div></div>
+    <section className="settings-card download-settings" id="source-rules">
+      <div className="settings-card-head"><div><h3>Source rules</h3><p>Kiwi ranks every release it finds with these rules and plays the best one, so you never have to choose. The defaults favor 1080p that plays directly in a browser, releases TorBox already has, and English-friendly audio.</p></div></div>
       <div className="rules-grid">
         <div className="config-field"><label htmlFor="rule-preferred">Preferred quality</label><select id="rule-preferred" value={rules.preferredResolution} onChange={event => setRule({ preferredResolution: Number(event.target.value) })}>{RESOLUTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><small className="field-help">The best match. Higher or lower is still allowed, just ranked lower.</small></div>
         <div className="config-field"><label htmlFor="rule-min">Lowest quality</label><select id="rule-min" value={rules.minResolution} onChange={event => setRule({ minResolution: Number(event.target.value) })}>{RESOLUTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
@@ -98,20 +98,20 @@ export function StreamingSettings({ api }) {
         <div className="config-field"><label htmlFor="rule-size">Size limit (GB per hour)</label><input id="rule-size" type="number" min="1" max="100" value={rules.maxGbPerHour} onChange={event => setRule({ maxGbPerHour: Number(event.target.value) })} /><small className="field-help">Keeps streams smooth on ordinary connections. About 5 GB/hour is typical for 1080p.</small></div>
       </div>
       <div className="rules-toggles">
-        <Toggle checked={rules.requireCached} onChange={value => setRule({ requireCached: value })} label="Only instant sources" help="Play only releases TorBox already has, so playback starts in seconds. Turning this off lets slower torrents be chosen." />
-        <Toggle checked={rules.directPlay} onChange={value => setRule({ directPlay: value })} label="Prefer files that play directly" help="Favors H.264 video and common audio so nothing needs converting on the server." />
-        <Toggle checked={rules.allowHdr} onChange={value => setRule({ allowHdr: value })} label="Allow HDR and Dolby Vision" help="Usually looks washed out on standard screens, so these are ranked lower unless you turn this on." />
-        <Toggle checked={rules.avoidHardcodedSubs} onChange={value => setRule({ avoidHardcodedSubs: value })} label="Avoid burned-in subtitles" help="Subtitles baked into the picture can't be turned off or changed." />
+        <Toggle id="rule-cached" checked={rules.requireCached} onChange={value => setRule({ requireCached: value })} label="Only instant sources" help="Play only releases TorBox already has, so playback starts in seconds. Turning this off lets slower torrents be chosen." />
+        <Toggle id="rule-direct" checked={rules.directPlay} onChange={value => setRule({ directPlay: value })} label="Prefer files that play directly" help="Favors H.264 video and common audio so nothing needs converting on the server." />
+        <Toggle id="rule-hdr" checked={rules.allowHdr} onChange={value => setRule({ allowHdr: value })} label="Allow HDR and Dolby Vision" help="Usually looks washed out on standard screens, so these are ranked lower unless you turn this on." />
+        <Toggle id="rule-hardsubs" checked={rules.avoidHardcodedSubs} onChange={value => setRule({ avoidHardcodedSubs: value })} label="Avoid burned-in subtitles" help="Subtitles baked into the picture can't be turned off or changed." />
       </div>
       <div className="rules-grid wide">
         <div className="config-field"><label htmlFor="rule-exclude">Never use releases containing</label><textarea id="rule-exclude" rows={2} value={text(rules.excludeTerms)} onChange={event => setRule({ excludeTerms: list(event.target.value) })} /><small className="field-help">Separate with commas. Cam, screener, and telesync copies are always excluded.</small></div>
         <div className="config-field"><label htmlFor="rule-prefer">Preferred release groups</label><textarea id="rule-prefer" rows={2} value={text(rules.preferGroups)} onChange={event => setRule({ preferGroups: list(event.target.value) })} /></div>
         <div className="config-field"><label htmlFor="rule-avoid">Avoid release groups</label><textarea id="rule-avoid" rows={2} value={text(rules.avoidGroups)} onChange={event => setRule({ avoidGroups: list(event.target.value) })} /></div>
       </div>
-      <h3 className="settings-subhead">Anime</h3>
+      <h4 className="settings-subhead">Anime</h4>
       <div className="rules-toggles">
-        <Toggle checked={rules.anime.preferDualAudio} onChange={value => setAnime({ preferDualAudio: value })} label="Prefer dual audio and English dubs" help="Releases with both Japanese and English audio rank first; Japanese with subtitles is next." />
-        <Toggle checked={rules.anime.allowBatches} onChange={value => setAnime({ allowBatches: value })} label="Allow batch releases" help="Whole-season packs are fine when no single-episode release is available." />
+        <Toggle id="rule-dual-audio" checked={rules.anime.preferDualAudio} onChange={value => setAnime({ preferDualAudio: value })} label="Prefer dual audio and English dubs" help="Releases with both Japanese and English audio rank first; Japanese with subtitles is next." />
+        <Toggle id="rule-batches" checked={rules.anime.allowBatches} onChange={value => setAnime({ allowBatches: value })} label="Allow batch releases" help="Whole-season packs are fine when no single-episode release is available." />
       </div>
       <div className="config-field"><label htmlFor="rule-anime-groups">Preferred anime groups</label><textarea id="rule-anime-groups" rows={2} value={text(rules.anime.preferGroups)} onChange={event => setAnime({ preferGroups: list(event.target.value) })} /></div>
       <div className="settings-actions">
@@ -121,11 +121,11 @@ export function StreamingSettings({ api }) {
       </div>
     </section>
 
-    <section className="settings-card download-settings">
-      <div className="settings-card-head"><div><h2>Language and subtitles</h2><p>Audio and subtitles start in the first language below that the file has. Your choices while watching a series are remembered for the rest of its episodes.</p></div></div>
+    <section className="settings-card download-settings" id="languages">
+      <div className="settings-card-head"><div><h3>Language and subtitles</h3><p>Audio and subtitles start in the first language below that the file has. Your choices while watching a series are remembered for the rest of its episodes.</p></div></div>
       <div className="language-columns">
-        <div><h3 className="settings-subhead">Audio, in order</h3><LanguageOrder label="audio languages" value={playback.audioLanguages} languages={data.languages} onChange={value => setPlayback(current => ({ ...current, audioLanguages: value }))} /></div>
-        <div><h3 className="settings-subhead">Subtitles, in order</h3><LanguageOrder label="subtitle languages" value={playback.subtitleLanguages} languages={data.languages} onChange={value => setPlayback(current => ({ ...current, subtitleLanguages: value }))} /></div>
+        <div id="audio-languages"><h4 className="settings-subhead">Audio, in order</h4><LanguageOrder label="audio languages" value={playback.audioLanguages} languages={data.languages} onChange={value => setPlayback(current => ({ ...current, audioLanguages: value }))} /></div>
+        <div id="subtitle-languages"><h4 className="settings-subhead">Subtitles, in order</h4><LanguageOrder label="subtitle languages" value={playback.subtitleLanguages} languages={data.languages} onChange={value => setPlayback(current => ({ ...current, subtitleLanguages: value }))} /></div>
       </div>
       <div className="config-field"><label htmlFor="subtitle-mode">Subtitles</label>
         <select id="subtitle-mode" value={playback.subtitleMode} onChange={event => setPlayback(current => ({ ...current, subtitleMode: event.target.value }))}>
@@ -135,9 +135,9 @@ export function StreamingSettings({ api }) {
       </div>
     </section>
 
-    <section className="settings-card download-settings">
-      <div className="settings-card-head"><div><h2>Saving movies and episodes</h2><p>Choose where downloaded movies and episodes go. They are named like <code>TV Shows/Show (2020)/Season 01/Show - S01E02 - Title.mkv</code>, and a saved copy plays from disk from then on, keeping its progress, likes, and tags.</p></div></div>
-      {!writable.length ? <p className="muted">No folder allows downloads yet. Add one under Media libraries above, or allow downloads for an existing folder.</p> : <>
+    <section className="settings-card download-settings" id="saving-media">
+      <div className="settings-card-head"><div><h3>Saving movies and episodes</h3><p>Choose where downloaded movies and episodes go. They are named like <code>TV Shows/Show (2020)/Season 01/Show - S01E02 - Title.mkv</code>, and a saved copy plays from disk from then on, keeping its progress, likes, and tags.</p></div></div>
+      {!writable.length ? <p className="muted">No folder allows downloads yet. Add one under Library › Media folders above, or allow downloads for an existing folder.</p> : <>
         <div className="config-field"><label htmlFor="download-root">Download folder</label>
           <select id="download-root" value={downloads.rootId || ""} onChange={event => setDownloads(current => ({ ...current, rootId: event.target.value || null }))}>
             <option value="">Not chosen</option>{writable.map(root => <option key={root.id} value={root.id}>{root.name} — {root.absolute_path}</option>)}</select></div>
@@ -151,8 +151,8 @@ export function StreamingSettings({ api }) {
         </div></>}
     </section>
 
-    <section className="settings-card download-settings">
-      <div className="settings-card-head"><div><h2>Cache</h2><p>Catalog answers and artwork are stored locally so browsing is fast and stays within each service's rate limits. Clearing it only means things are fetched again.</p></div>
+    <section className="settings-card download-settings" id="cache">
+      <div className="settings-card-head"><div><h3>Cache</h3><p>Catalog answers and artwork are stored locally so browsing is fast and stays within each service's rate limits. Clearing it only means things are fetched again.</p></div>
         <button className="outline-button" disabled={busy !== ""} onClick={run("cache", async () => { setCache(await api("/api/v1/media/cache", { method: "DELETE" })); return "Cleared."; })}><Trash />Clear cache</button></div>
       {cache && <ul className="cache-stats">{cache.providers.map(item => <li key={item.provider}><strong>{item.provider}</strong><span>{item.entries} cached answers · {sizeMb(item.bytes || 0)}</span>{item.stats && <small>{item.stats.requests} requests · {item.stats.hits} cache hits · {item.stats.rateLimited} rate-limited</small>}</li>)}
         <li><strong>Artwork</strong><span>{cache.images.entries} images · {sizeMb(cache.images.bytes)}</span><small>{cache.images.pinned} kept for your list</small></li></ul>}
