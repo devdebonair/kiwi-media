@@ -25,7 +25,7 @@ const karla = Karla({ subsets: ["latin"], variable: "--font-sans", display: "swa
 
 export const metadata = {
   title: "Kiwi — your media, connected",
-  description: "A self-hosted media library organized around topics, moments, and feeds.",
+  description: "A self-hosted media library organized around topics, moments, lists, and channels.",
 };
 
 export default function RootLayout({ children }) {

@@ -122,8 +122,7 @@ async function attachToAsset(root, media, assetId, topicIds) {
   } catch (error) { db.exec("ROLLBACK"); throw error; }
   tagTopics(assetId, topicIds);
   try {
-    const { stdout } = await exec("ffprobe", ["-v", "error", "-of", "json", "-show_format", "-show_streams", path], { timeout: 20_000, killSignal: "SIGKILL", maxBuffer: 2 * 1024 * 1024 });
-    const probe = JSON.parse(stdout), video = probe.streams?.find(stream => stream.codec_type === "video");
+    const probe = await probeFile(path), video = probe.streams?.find(stream => stream.codec_type === "video");
     const metadata = JSON.parse(asset.metadata_json || "{}");
     const duration = Math.round(Number(probe.format?.duration || 0) * 1000) || null;
     if (duration) metadata.probedDuration = duration;
@@ -132,12 +131,34 @@ async function attachToAsset(root, media, assetId, topicIds) {
   return [assetId];
 }
 
+// Tags in which cameras, phones, and editors record when a video or recording was made.
+const DATE_TAGS = ["com.apple.quicktime.creationdate", "creation_time", "date_recorded", "date"];
+// Containers write these when no date was set (the QuickTime and Unix epochs), so they mean "unknown".
+const EARLIEST = Date.UTC(1971, 0, 1);
+
+// When a file was recorded: the date embedded in it, else the file's last-modified time (when it was saved or
+// downloaded, which is usually close). Returns { at, source } with source "embedded" or "file", or null.
+export function recordedDate(probe, info) {
+  const tags = [probe?.format?.tags, ...(probe?.streams || []).map(stream => stream.tags)].filter(Boolean)
+    .map(list => Object.fromEntries(Object.entries(list).map(([key, value]) => [key.toLowerCase(), value])));
+  for (const key of DATE_TAGS) {
+    for (const list of tags) {
+      const time = Date.parse(String(list[key] ?? "").trim());
+      if (Number.isFinite(time) && time >= EARLIEST && time <= Date.now() + 86_400_000) return { at: new Date(time).toISOString(), source: "embedded" };
+    }
+  }
+  const modified = info?.mtimeMs;
+  return Number.isFinite(modified) && modified >= EARLIEST ? { at: new Date(modified).toISOString(), source: "file" } : null;
+}
+
+const probeFile = async (path, args = ["-show_format", "-show_streams"]) =>
+  JSON.parse((await exec("ffprobe", ["-v", "error", "-of", "json", ...args, path], { timeout: 20_000, killSignal: "SIGKILL", maxBuffer: 2 * 1024 * 1024 })).stdout);
+
 export async function enrichFile(asset) {
   const metadata = JSON.parse(asset.metadata_json);
-  let durationMs = null, width = null, height = null;
+  let durationMs = null, width = null, height = null, probe = null;
   if (["video", "audio"].includes(asset.kind)) {
-    const { stdout } = await exec("ffprobe", ["-v", "error", "-of", "json", "-show_format", "-show_streams", asset.file_path], { timeout: 20_000, killSignal: "SIGKILL", maxBuffer: 2 * 1024 * 1024 });
-    const probe = JSON.parse(stdout);
+    probe = await probeFile(asset.file_path);
     const video = probe.streams?.find(stream => stream.codec_type === "video");
     const audio = probe.streams?.find(stream => stream.codec_type === "audio");
     durationMs = Math.round(Number(probe.format?.duration || 0) * 1000) || null;
@@ -154,9 +175,45 @@ export async function enrichFile(asset) {
     } catch { thumbnailError = true; }
   }
   metadata.libraryEnriched = !thumbnailError;
-  db.prepare("UPDATE assets SET duration_ms=?,width=?,height=?,thumbnail_url=?,metadata_json=?,updated_at=? WHERE id=?")
-    .run(durationMs, width, height, asset.title_id ? asset.thumbnail_url : existsSync(thumbPath) ? `/generated/${asset.id}.jpg` : null, JSON.stringify(metadata), now(), asset.id);
+  // Movies and episodes have their air date; a home video gets when it was recorded, unless it already has a date.
+  let recorded = null;
+  if (!asset.title_id && !asset.captured_at) {
+    recorded = recordedDate(probe, await stat(asset.file_path).catch(() => null));
+    metadata.capturedAtSource = recorded?.source || "unknown";
+  }
+  db.prepare("UPDATE assets SET duration_ms=?,width=?,height=?,thumbnail_url=?,captured_at=coalesce(captured_at,?),metadata_json=?,updated_at=? WHERE id=?")
+    .run(durationMs, width, height, asset.title_id ? asset.thumbnail_url : existsSync(thumbPath) ? `/generated/${asset.id}.jpg` : null, recorded?.at || null, JSON.stringify(metadata), now(), asset.id);
   return !thumbnailError;
+}
+
+// Gives home videos imported before recording dates were read one, a batch at a time (only the tags are read, so
+// it's quick). Returns { checked, dated }; checked is 0 when none are left. A file that's gone is marked unknown,
+// but when none of a batch can be found (a disconnected drive) nothing is marked and it's tried again later.
+export async function backfillRecordedDates({ batch = 200, concurrency = 4 } = {}) {
+  const assets = db.prepare(`SELECT id, kind, file_path, metadata_json FROM assets WHERE title_id IS NULL AND captured_at IS NULL
+    AND file_path IS NOT NULL AND file_path!='' AND json_extract(metadata_json,'$.capturedAtSource') IS NULL ORDER BY added_at LIMIT ?`).all(batch);
+  const found = [];
+  let next = 0;
+  await Promise.all(Array.from({ length: concurrency }, async () => {
+    while (next < assets.length) {
+      const asset = assets[next++];
+      const info = await stat(asset.file_path).catch(() => null);
+      const probe = info && ["video", "audio"].includes(asset.kind) ? await probeFile(asset.file_path, ["-show_entries", "format_tags:stream_tags"]).catch(() => null) : null;
+      found.push({ asset, info, recorded: info ? recordedDate(probe, info) : null });
+    }
+  }));
+  if (found.length && found.every(entry => !entry.info)) return { checked: 0, dated: 0, unreachable: found.length };
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const update = db.prepare("UPDATE assets SET captured_at=coalesce(captured_at,?), metadata_json=? WHERE id=?");
+    for (const { asset, recorded } of found) {
+      const metadata = JSON.parse(asset.metadata_json || "{}");
+      metadata.capturedAtSource = recorded?.source || "unknown";
+      update.run(recorded?.at || null, JSON.stringify(metadata), asset.id);
+    }
+    db.exec("COMMIT");
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
+  return { checked: found.length, dated: found.filter(entry => entry.recorded).length };
 }
 
 export async function enrichRoot(root, progress = () => {}) {

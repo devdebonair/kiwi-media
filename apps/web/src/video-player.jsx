@@ -16,7 +16,7 @@ const time = seconds => {
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
 };
 
-export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded, onMinimize, onPlay, onPrevious, onNext, onToggleTheater, theater = false, autoPlay = true, onMediaChange, clipTools }) {
+export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded, onMinimize, onPlay, onPrevious, onNext, onToggleTheater, theater = false, autoPlay = true, onMediaChange, onProgress, clipTools }) {
   // Switching sources is an admin action.
   const { isAdmin } = useSession();
   const catalog = Boolean(asset.catalog);
@@ -101,6 +101,9 @@ export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded,
   const ready = session.phase === 'ready' && (!catalog || applied);
   const total = remux && info?.durationMs ? info.durationMs / 1000 : duration;
   const src = remux ? remuxUrl(original, plan, offset) : compatible ? `${original}?compatible=1` : original;
+
+  // Where playback is, in seconds of the whole movie or episode, for whoever needs to plan ahead.
+  useEffect(() => { if (total > 0) onProgress?.(position, total); }, [position, total]);
 
   // Repackaged playback restarts at an offset; these let the rest of the app see real positions in the movie.
   const live = useRef({});

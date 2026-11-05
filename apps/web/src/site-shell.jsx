@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { SearchBar } from "./search-bar.jsx";
 import { UploadButton } from "./download-dialog.jsx";
 import { ProfileMenu, useSession } from "./profiles.jsx";
-import { BookmarksSimple, CaretRight, ClockCounterClockwise, DownloadSimple, FilmStrip, Gear, Heart, House, Leaf, List, MagnifyingGlass, MonitorPlay, Play, Rows, Sparkle, Tag, Television, VideoCamera, X } from "@phosphor-icons/react";
+import { BookmarksSimple, CaretRight, ClockCounterClockwise, DownloadSimple, FilmStrip, Gear, Heart, House, Leaf, List, MagnifyingGlass, MonitorPlay, Play, Sparkle, Tag, Television, VideoCamera, X } from "@phosphor-icons/react";
 
 // Below this width the icon rail is replaced by a top bar with a menu button; it matches `max-width: 899px` in shell.css.
 export const MOBILE_NAV_QUERY = "(max-width: 899px)";
@@ -13,7 +13,7 @@ export const MOBILE_NAV_QUERY = "(max-width: 899px)";
 const groups = [
   [["/", "Home", "home", House], ["/movies", "Movies", "movies", FilmStrip], ["/shows", "TV Shows", "shows", MonitorPlay], ["/anime", "Anime", "anime", Sparkle], ["/guide", "TV Guide", "guide", Television]],
   [["/library", "Home Videos", "library", VideoCamera], ["/shorts", "Shorts", "shorts", Play], ["/topics", "Topics", "topics", Tag]],
-  [["/lists", "My List", "lists", BookmarksSimple], ["/feeds", "Feeds", "feeds", Rows], ["/liked", "Liked", "liked", Heart], ["/history", "History", "history", ClockCounterClockwise], ["/downloads", "Downloads", "downloads", DownloadSimple]],
+  [["/lists", "My List", "lists", BookmarksSimple], ["/liked", "Liked", "liked", Heart], ["/history", "History", "history", ClockCounterClockwise], ["/downloads", "Downloads", "downloads", DownloadSimple]],
 ];
 
 // Downloads and Settings are admin pages.
@@ -23,8 +23,8 @@ const useGroups = () => {
   return isAdmin ? groups : groups.map(group => group.filter(([, , page]) => !ADMIN_PAGES.has(page)));
 };
 
-// A feed lights up Feeds and a topic lights up Topics.
-const active = (route, page) => route.page === page || (page === "feeds" && route.page === "feed") || (page === "topics" && route.page === "topic");
+// A topic lights up Topics.
+const active = (route, page) => route.page === page || (page === "topics" && route.page === "topic");
 
 export function Brand({ navigate, compact = false }) {
   return <a href="/" className={`brand ${compact ? "is-compact" : ""}`} aria-label="Kiwi home" onClick={event => {

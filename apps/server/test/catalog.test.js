@@ -448,3 +448,38 @@ test('the catalog downloader is internal: it never shows up as a choice in Setti
   const plugins = (await get('/api/v1/downloads/plugins')).json();
   assert.equal(plugins.plugins.some(plugin => plugin.id === 'kiwi-media'), false);
 });
+
+test('a source readied ahead of time is planned for the browser that plays it', async () => {
+  const title = db.prepare("SELECT id FROM titles WHERE tmdb_id=100").get();
+  const assetId = `${title.id}-s01e02`;
+  const source = db.prepare("SELECT id FROM playback_sources WHERE asset_id=? AND status='selected'").get(assetId);
+  const info = { ...probeInfo, video: { ...probeInfo.video, codec: 'hevc' }, audio: [{ ...probeInfo.audio[1], position: 0, default: true }] };
+  // What a warm-up left behind, planned for a browser with no HEVC decoder.
+  const warmed = { status: 'ready', origin: 'torbox', sourceId: source.id, info, chosen: { audio: info.audio[0], subtitle: null }, plan: { mode: 'remux', video: 'transcode' } };
+  const saved = media.getMedia();
+  try {
+    media.setMedia({ ...saved, sources: { ...saved.sources, prepare: async () => warmed } });
+    assert.deepEqual((await post(`/api/v1/assets/${assetId}/stream`, { caps: ['hevc'] })).json().playback, { mode: 'direct' });
+    assert.equal((await post(`/api/v1/assets/${assetId}/stream`, { caps: [] })).json().playback.video, 'transcode');
+  } finally { media.setMedia(saved); }
+});
+
+test('opening a title page readies what Play points to, without adding torrents for titles you are only browsing', async () => {
+  const show = db.prepare("SELECT id FROM titles WHERE tmdb_id=100").get();
+  const saved = media.getMedia();
+  const calls = [];
+  try {
+    media.setMedia({ ...saved, sources: { ...saved.sources, prepare: async id => { calls.push(['open', id]); }, check: async id => { calls.push(['find', id]); } } });
+    // A show you've been watching: its next episode is opened in full.
+    const watching = await post(`/api/v1/assets/${show.id}-s01e03/warm`);
+    assert.equal(watching.statusCode, 202);
+    assert.equal(watching.json().status, 'opening');
+    // Something never played: only its releases are looked up.
+    db.prepare("INSERT INTO assets (id,kind,title,title_id,season_number,episode_number,added_at,updated_at) VALUES ('warm-unseen','video','Unseen',?,1,9,'2000-01-01','2000-01-01')").run(show.id);
+    db.prepare("DELETE FROM consumption_state WHERE asset_id IN (SELECT id FROM assets WHERE title_id=?)").run(show.id);
+    assert.equal((await post('/api/v1/assets/warm-unseen/warm')).json().status, 'finding');
+    assert.deepEqual(calls, [['open', `${show.id}-s01e03`], ['find', 'warm-unseen']]);
+    // Home videos and missing items are left alone.
+    assert.equal((await post('/api/v1/assets/nope/warm')).statusCode, 404);
+  } finally { media.setMedia(saved); db.prepare("DELETE FROM assets WHERE id='warm-unseen'").run(); }
+});

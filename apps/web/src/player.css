@@ -2,6 +2,8 @@
 .kiwi-player { width: 100%; background: #0f0e10; color: #eeeef0; }
 .kiwi-screen { position: relative; display: grid; place-items: center; min-height: 180px; background: #08090b; }
 .player-shell .kiwi-screen video { display: block; width: 100%; height: auto; max-height: 70vh; max-height: 70svh; object-fit: contain; }
+/* Theater mode: as tall as the window allows below the header, leaving the controls in view (never smaller than normal). */
+.watch-page.theater-mode .player-shell .kiwi-screen video, .watch-page.theater-mode .kiwi-placeholder { max-height: max(70svh, calc(100svh - var(--topbar) - 112px)); }
 .kiwi-controls { padding: 9px 18px 12px; background: #1a191b; border-top: 1px solid #ffffff0a; }
 .kiwi-seek { appearance: none; background: transparent; display: block; width: 100%; height: 18px; margin: 0; accent-color: var(--green); cursor: pointer; }
 .kiwi-seek::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(to right, var(--green) var(--progress), #ffffff26 var(--progress)); }

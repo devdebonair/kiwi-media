@@ -277,12 +277,9 @@ export function registerProfiles(app) {
       UNION SELECT j.value FROM guide_channels c, json_each(c.rules_json, '$.titleIds') j WHERE c.owner_id=?`).all(user.id, user.id).map(entry => entry.title_id);
     db.exec("BEGIN IMMEDIATE");
     try {
-      for (const table of ["consumption_state", "asset_views", "asset_likes", "topic_follows", "feed_follows", "user_settings", "lists", "profile_preferences"]) db.prepare(`DELETE FROM ${table} WHERE user_id=?`).run(user.id);
+      for (const table of ["consumption_state", "asset_views", "asset_likes", "topic_follows", "user_settings", "lists", "profile_preferences"]) db.prepare(`DELETE FROM ${table} WHERE user_id=?`).run(user.id);
       // Its personal TV channels go too; household channels stay.
       db.prepare("DELETE FROM guide_channels WHERE owner_id=?").run(user.id);
-      // Feeds and collections stay with the household.
-      db.prepare("UPDATE feeds SET owner_id=? WHERE owner_id=?").run(OWNER_ID, user.id);
-      db.prepare("UPDATE collections SET owner_id=? WHERE owner_id=?").run(OWNER_ID, user.id);
       db.prepare("DELETE FROM users WHERE id=?").run(user.id);
       db.exec("COMMIT");
     } catch (error) { db.exec("ROLLBACK"); throw error; }

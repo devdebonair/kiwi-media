@@ -386,49 +386,6 @@ app.post("/api/v1/topics/:id/follow", async req => {
   return { followed: !exists };
 });
 
-// A feed made from tags shows only when the profile can see at least one of them.
-const feedVisible = query => !query.topicIds?.length || query.topicIds.some(id => topicAllowed(id));
-app.get("/api/v1/feeds", async () => db.prepare("SELECT * FROM feeds ORDER BY updated_at DESC").all().map(f => ({ ...f, query: JSON.parse(f.query_json) })).filter(f => feedVisible(f.query)));
-
-app.get("/api/v1/collections", async () => db.prepare(`SELECT c.*,count(ci.asset_id) item_count FROM collections c LEFT JOIN collection_items ci ON ci.collection_id=c.id GROUP BY c.id ORDER BY c.updated_at DESC`).all());
-
-app.post("/api/v1/collections", async (req, reply) => {
-  const name = String(req.body?.name || "").trim(); if (!name) return reply.code(400).send({ error: "A collection name is required" });
-  const id=randomUUID(),timestamp=new Date().toISOString(),slug=`${name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")}-${Date.now().toString(36)}`;
-  db.prepare("INSERT INTO collections VALUES (?,?,?,?,?,?,?,?)").run(id,userId(),slug,name,req.body?.description||"",req.body?.visibility||"private",timestamp,timestamp);
-  return reply.code(201).send({id,slug,name});
-});
-
-app.post("/api/v1/collections/:id/items", async (req, reply) => {
-  const assetId=req.body?.assetId; if(!assetId)return reply.code(400).send({error:"assetId is required"});
-  const position=db.prepare("SELECT coalesce(max(position),-1)+1 position FROM collection_items WHERE collection_id=?").get(req.params.id).position;
-  db.prepare("INSERT OR IGNORE INTO collection_items VALUES (?,?,?,?)").run(req.params.id,assetId,position,new Date().toISOString());
-  return reply.code(201).send({ok:true});
-});
-
-app.get("/api/v1/feeds/:slug", async (req, reply) => {
-  const feed = db.prepare("SELECT * FROM feeds WHERE slug=?").get(req.params.slug);
-  if (!feed) return reply.code(404).send({ error: "Feed not found" });
-  const query = JSON.parse(feed.query_json);
-  if (!feedVisible(query)) return reply.code(404).send({ error: "Feed not found" });
-  const assets = query.topicIds?.length
-    ? listAssets(`EXISTS(SELECT 1 FROM effective_asset_topics et WHERE et.asset_id=a.id AND et.topic_id IN (${query.topicIds.map(() => "?").join(",")}))`, query.topicIds)
-    : query.text ? searchHits(query.text, "assets").filter(item => item.entityType === "asset") : listAssets();
-  return { ...feed, query, assets };
-});
-
-app.post("/api/v1/feeds", async (req, reply) => {
-  const name = String(req.body?.name || "").trim();
-  const query = req.body?.query || {};
-  if (!name) return reply.code(400).send({ error: "A feed name is required" });
-  const slugBase = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || randomUUID();
-  let slug = slugBase;
-  if (db.prepare("SELECT 1 FROM feeds WHERE slug=?").get(slug)) slug = `${slugBase}-${Date.now().toString(36)}`;
-  const id = randomUUID(), timestamp = new Date().toISOString();
-  db.prepare("INSERT INTO feeds (id,owner_id,slug,name,description,query_json,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)").run(id, userId(), slug, name, req.body?.description || "", JSON.stringify(query), "private", timestamp, timestamp);
-  return reply.code(201).send({ id, slug, name, query });
-});
-
 // The Save button on a video: adds it to your Watch List, or takes it off all of your lists. An episode or
 // movie from the catalog is saved as its title. (Choosing a specific list is in lists.js.)
 app.post("/api/v1/assets/:id/save", async (req, reply) => {

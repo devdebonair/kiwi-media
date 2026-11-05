@@ -37,6 +37,8 @@ export function TitlePage({ reference, api, navigate, AppLink, Loading, Empty })
     let active = true;
     setTitle(null); setError(null); setEpisodes(null); setSeason(null); setNote("");
     load().then(value => {
+      // Get what Play points to ready while you read the page.
+      if (active && value.nextUp?.id) api(`/api/v1/assets/${value.nextUp.id}/warm`, { method: "POST" }).catch(() => {});
       if (!active || value.type !== "show") return;
       const next = value.nextUp?.season;
       const first = value.seasons.find(item => item.number >= 1) || value.seasons[0];

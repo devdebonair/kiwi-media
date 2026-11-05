@@ -36,7 +36,6 @@ db.prepare("INSERT INTO assets(id,kind,title,title_id,duration_ms,added_at,updat
 db.prepare("INSERT INTO annotations(id,asset_id,motivation,note_markdown,created_at,updated_at) VALUES ('clip-bad','family-video','clipping','Oops',?,?)").run(now, now);
 db.prepare("INSERT INTO annotation_selectors(id,annotation_id,selector_type,start_ms,end_ms) VALUES ('sel-bad','clip-bad','time-range',0,5000)").run();
 db.prepare("INSERT INTO annotation_topics(annotation_id,topic_id,role) VALUES ('clip-bad','performer','subject')").run();
-db.prepare("INSERT INTO feeds(id,owner_id,slug,name,query_json,created_at,updated_at) VALUES ('feed-performer','user-local','performer-feed','Velvet Performer','{\"topicIds\":[\"performer\"]}',?,?)").run(now, now);
 db.prepare("INSERT INTO guide_channels(id,number,name,rules_json,created_at,updated_at) VALUES ('ch-performer',7,'Velvet channel',?,?,?)").run(JSON.stringify({ topicIds: ['performer'] }), now, now);
 rebuildSearch();
 
@@ -63,7 +62,7 @@ test('a rated tag is a minimum for everything carrying it, even in an unrated fo
 test('hidden tags are hidden everywhere a tag shows up', async () => {
   const kidTopics = (await kid('GET', '/api/v1/topics')).json().map(topic => topic.id);
   assert.ok(kidTopics.includes('family') && !kidTopics.includes('performer') && !kidTopics.includes('explicit-word'));
-  for (const url of ['/api/v1/topics/performer', '/api/v1/topics/explicit-word', '/api/v1/topics/performer/metadata', '/api/v1/feeds/performer-feed', '/api/v1/clips/clip-bad'])
+  for (const url of ['/api/v1/topics/performer', '/api/v1/topics/explicit-word', '/api/v1/topics/performer/metadata', '/api/v1/clips/clip-bad'])
     assert.ok([403, 404].includes((await kid('GET', url)).statusCode), url);
   assert.equal((await kid('POST', '/api/v1/topics/performer/follow')).statusCode, 404);
   assert.equal((await owner('GET', '/api/v1/topics/performer')).statusCode, 200);
@@ -73,7 +72,6 @@ test('hidden tags are hidden everywhere a tag shows up', async () => {
   const search = (await kid('GET', '/api/v1/search?q=zebrafinch')).json();
   assert.deepEqual(search.map(hit => hit.id), ['family-video']);
   assert.equal((await kid('GET', '/api/v1/search?q=velvet')).json().length, 0);
-  assert.ok(!(await kid('GET', '/api/v1/feeds')).json().some(feed => feed.id === 'feed-performer'));
   const channels = (await kid('GET', '/api/v1/guide/channels')).json();
   assert.ok(!JSON.stringify(channels).includes('Velvet'));
   assert.ok(JSON.stringify((await owner('GET', '/api/v1/guide/channels')).json()).includes('Velvet channel'));

@@ -12,6 +12,7 @@ import { resumeSeconds } from "./playback-progress.mjs";
 import { ClipList, useClips } from "./clips.jsx";
 import { RatingSelect, useSession } from "./profiles.jsx";
 import { ListPicker } from "./lists.jsx";
+import { warmPlayback } from "./playback-session.jsx";
 
 // Matches the `max-width: 860px` block in modern.css where the watch layout collapses to one column.
 const STACKED_WATCH_QUERY = "(max-width: 860px)";
@@ -102,9 +103,24 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
     return () => observer.disconnect();
   }, [asset?.id, mini]);
 
+  // The next episode gets its source found and opened while this one plays (from three quarters in, or the last
+  // five minutes), so it starts right away. During the countdown a repackaged stream is started too.
+  const warming = useRef({ id: null, controller: null });
+  useEffect(() => () => warming.current.controller?.abort(), [id]);
+  const warmNext = (startStream = false) => {
+    const next = asset?.catalog?.next;
+    if (!next || mini) return;
+    if (warming.current.id === next.id && !startStream) return;
+    warming.current.controller?.abort();
+    const controller = new AbortController();
+    warming.current = { id: next.id, controller };
+    warmPlayback({ id: next.id, titleId: asset.catalog.titleId }, { signal: controller.signal, startStream }).catch(() => {});
+  };
+  const progress = (position, total) => { if (position >= total * 0.75 || total - position <= 300) warmNext(); };
+
   const finish = () => {
     if (asset?.catalog) {
-      if (asset.catalog.next && !mini) setUpNext({ episode: asset.catalog.next, seconds: 8 });
+      if (asset.catalog.next && !mini) { setUpNext({ episode: asset.catalog.next, seconds: 8 }); warmNext(true); }
       return;
     }
     const next = playlistReducer(playlist, { type: "remove", id });
@@ -153,7 +169,7 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
     <div className={`watch-layout ${hasAside ? "" : "without-related"}`} style={playerHeight ? { "--player-height": `${playerHeight}px` } : undefined}>
       <div className="watch-primary">
         <div className="player-shell" ref={playerRef}>
-          {hasFile && asset.kind === "video" ? <VideoPlayer key={asset.id} asset={asset} api={api} mediaRef={mediaRef} onMediaChange={setMediaReady} clipTools={mini ? undefined : clipTools} initialSeconds={initialSeconds} autoPlay={!suspended} onEnded={finish} onPlay={() => { if (!catalog) playlist.dispatch({ type: "play", asset }); }}
+          {hasFile && asset.kind === "video" ? <VideoPlayer key={asset.id} asset={asset} api={api} mediaRef={mediaRef} onMediaChange={setMediaReady} onProgress={catalog?.next ? progress : undefined} clipTools={mini ? undefined : clipTools} initialSeconds={initialSeconds} autoPlay={!suspended} onEnded={finish} onPlay={() => { if (!catalog) playlist.dispatch({ type: "play", asset }); }}
             onPrevious={catalog ? episodeLink(catalog.previous) : previous} onNext={catalog ? episodeLink(catalog.next) : next} theater={theater} onToggleTheater={mini ? undefined : () => setTheater(value => !value)}
             onMinimize={mini || catalog ? undefined : () => { playlist.dispatch({ type: "play", asset }); navigate("/"); }} />
             : hasFile && asset.kind === "audio" ? <div className="audio-player">{asset.thumbnail_url && <img src={asset.thumbnail_url} alt="" />}<audio ref={mediaRef} src={src} controls autoPlay onError={() => setPlaybackError(true)} /></div>

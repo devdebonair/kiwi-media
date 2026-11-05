@@ -109,30 +109,9 @@ export function migrate() {
       source_url TEXT, canonical_url TEXT, site_name TEXT, creator_name TEXT,
       retrieved_at TEXT, published_at TEXT, metadata_json TEXT NOT NULL DEFAULT '{}'
     );
-    CREATE TABLE IF NOT EXISTS feeds (
-      id TEXT PRIMARY KEY, owner_id TEXT REFERENCES users(id), slug TEXT NOT NULL UNIQUE,
-      name TEXT NOT NULL, description TEXT, query_version INTEGER NOT NULL DEFAULT 1,
-      query_json TEXT NOT NULL, sort_mode TEXT NOT NULL DEFAULT 'recent',
-      visibility TEXT NOT NULL DEFAULT 'private', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-    );
     CREATE TABLE IF NOT EXISTS topic_follows (
       user_id TEXT NOT NULL REFERENCES users(id), topic_id TEXT NOT NULL REFERENCES topics(id),
       followed_at TEXT NOT NULL, PRIMARY KEY(user_id, topic_id)
-    );
-    CREATE TABLE IF NOT EXISTS feed_follows (
-      user_id TEXT NOT NULL REFERENCES users(id), feed_id TEXT NOT NULL REFERENCES feeds(id),
-      followed_at TEXT NOT NULL, PRIMARY KEY(user_id, feed_id)
-    );
-    CREATE TABLE IF NOT EXISTS collections (
-      id TEXT PRIMARY KEY, owner_id TEXT REFERENCES users(id), slug TEXT NOT NULL UNIQUE,
-      name TEXT NOT NULL, description TEXT, visibility TEXT NOT NULL DEFAULT 'private',
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS collection_items (
-      collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
-      asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
-      position INTEGER NOT NULL, added_at TEXT NOT NULL,
-      PRIMARY KEY(collection_id, asset_id)
     );
     CREATE TABLE IF NOT EXISTS consumption_state (
       user_id TEXT NOT NULL REFERENCES users(id), asset_id TEXT NOT NULL REFERENCES assets(id),
@@ -413,6 +392,9 @@ export function migrate() {
       db.exec("COMMIT");
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   }
+  // Collections (never used) and feeds (saved tag or text searches) were early takes on what lists, tag pages,
+  // and TV channels now do.
+  db.exec("DROP TABLE IF EXISTS collection_items; DROP TABLE IF EXISTS collections; DROP TABLE IF EXISTS feed_follows; DROP TABLE IF EXISTS feeds;");
   // Channels v2: what a channel airs moves from a tag table plus a match mode into one rules object (tags, titles,
   // lists, folders, and filters), and a channel can belong to one profile instead of the household.
   if (!db.prepare("SELECT 1 FROM app_state WHERE key='channels-v2'").get()) {
@@ -538,10 +520,6 @@ export function seed() {
   db.prepare("INSERT INTO annotations (id,asset_id,motivation,note_markdown,origin,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)").run(momentId, "asset-city", "clipping", "Empire State Building appears above the avenue", "seed", "public", now(), now());
   annotationTopicStmt.run(momentId, "topic-nyc", "depicted");
   db.prepare("INSERT INTO annotation_selectors (id,annotation_id,selector_type,start_ms,end_ms) VALUES (?,?,?,?,?)").run(randomUUID(), momentId, "time-range", 45000, 76000);
-  const feedStmt = db.prepare("INSERT INTO feeds (id,owner_id,slug,name,description,query_json,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)");
-  feedStmt.run("feed-nyc", userId, "new-york-city", "New York City", "Everything connected to New York City.", JSON.stringify({ topicIds: ["topic-nyc"] }), "public", now(), now());
-  feedStmt.run("feed-jazz", userId, "jazz", "Jazz", "Performances, albums, photos, and writing.", JSON.stringify({ topicIds: ["topic-jazz"] }), "public", now(), now());
-  feedStmt.run("feed-anime", userId, "anime", "Anime", "Japanese animation and theme music from across the library.", JSON.stringify({ topicIds: ["topic-anime"] }), "public", now(), now());
   rebuildSearch();
 }
 
@@ -655,7 +633,6 @@ function syncAnimeFixtures() {
       db.prepare("INSERT INTO annotation_topics VALUES (?,?,?)").run(annotationId, topicId, "subject");
     }
   }
-  db.prepare("INSERT OR IGNORE INTO feeds (id,owner_id,slug,name,description,query_json,visibility,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)").run("feed-anime", "user-local", "anime", "Anime", "Japanese animation and theme music from across the library.", JSON.stringify({ topicIds: ["topic-anime"] }), "public", timestamp, timestamp);
   rebuildSearch();
 }
 

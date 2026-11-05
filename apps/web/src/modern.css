@@ -59,11 +59,11 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
 .error-notice a { text-decoration: underline; }
 .tabs { gap: 26px; }
 .tabs button { font-size: 13px; }
-.feed-grid > a, .topic-grid > a, .settings-card { background: #1a191b; border-color: var(--line); }
-.feed-grid > a, .topic-grid > a { transition: border-color .2s, background .2s; }
-.feed-grid > a:hover, .topic-grid > a:hover { background: #29282b; border-color: #b6df8340; }
-.feed-grid h2, .topic-grid h2, .settings-card h2 { font-size: 19px; font-weight: 500; }
-.feed-grid p, .settings-card p { font-size: 13px; line-height: 1.7; }
+.topic-grid > a, .settings-card { background: #1a191b; border-color: var(--line); }
+.topic-grid > a { transition: border-color .2s, background .2s; }
+.topic-grid > a:hover { background: #29282b; border-color: #b6df8340; }
+.topic-grid h2, .settings-card h2 { font-size: 19px; font-weight: 500; }
+.settings-card p { font-size: 13px; line-height: 1.7; }
 .topic-grid > a > div { min-width: 0; }
 .topic-grid p { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.6; }
 .topic-grid img { flex-shrink: 0; }

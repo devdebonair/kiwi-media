@@ -9,7 +9,7 @@ import { ConfigError, destinationFor, downloadBlocker } from "@kiwi/downloads";
 import {
   LANGUAGES, MEDIA_DOWNLOADER_ID, MEDIA_SCHEME, SourceError, assetSummary, cacheSummary, clearHttpCache, continueWatching, defaultRules, describeLocalTracks, describePrepared,
   getDownloadSettings, getMedia, getPlayback, getProvider, getRules, getTitle, imageUrl, inMyList, libraryTitles, nextUp, openTitle, providerDefinitions,
-  publicProvider, publicSeasons, publicTitle, resetRules, saveDownloadSettings, savePlayback, saveProvider, saveRules, setAnime, setLibrary, startRemux, createHlsSessions, ensureSeason, ensureAllSeasons,
+  publicProvider, publicSeasons, publicTitle, resetRules, saveDownloadSettings, savePlayback, saveProvider, saveRules, setAnime, setLibrary, startRemux, createHlsSessions, ensureSeason, ensureAllSeasons, playbackPlan,
 } from "@kiwi/media";
 
 const userId = currentUserId;
@@ -307,9 +307,25 @@ export function registerMedia(app, { resolveTopic }) {
     if (waited.pending) return reply.code(202).send({ status: "preparing", stage: sources.stage(id) });
     if (waited.error?.code === "downloading") return reply.code(202).send({ status: "preparing", stage: waited.error.message });
     if (waited.error) throw waited.error;
-    const described = describePrepared(id, waited.result);
+    // A preparation may be shared with, or reused from, a warm-up for another browser: plan for this one.
+    const prepared = waited.result.info ? { ...waited.result, plan: playbackPlan(waited.result.info, waited.result.chosen, { caps: capsOf(req.body) }) } : waited.result;
+    const described = describePrepared(id, prepared);
     if (described.needsExternalSubtitles) lookOnline(id, described);
     return described;
+  }));
+
+  // A title page was opened: get what its Play button points to ready, so pressing it starts quickly. A movie or
+  // episode played before, or a show you're in the middle of, is opened in full; anything else only has its
+  // releases found (adding a torrent to TorBox for every title you look at would use up its hourly limit).
+  app.post("/api/v1/assets/:id/warm", handle(async (req, reply) => {
+    const asset = db.prepare("SELECT id, title_id, file_path FROM assets WHERE id=?").get(req.params.id);
+    if (!asset) return reply.code(404).send({ error: "Not found" });
+    if (!asset.title_id || (asset.file_path && existsSync(asset.file_path)) || !getProvider("torbox").configured) return reply.code(202).send({ status: "skipped" });
+    const played = db.prepare("SELECT 1 FROM playback_sources WHERE asset_id=? AND status='selected'").get(asset.id)
+      || db.prepare("SELECT 1 FROM consumption_state cs JOIN assets a ON a.id=cs.asset_id WHERE cs.user_id=? AND a.title_id=? AND cs.last_viewed_at IS NOT NULL LIMIT 1").get(userId(), asset.title_id);
+    const { sources } = media();
+    (played ? sources.prepare(asset.id) : sources.check(asset.id)).catch(error => console.log(`[media] warm-up for ${asset.id}: ${error.message}`));
+    return reply.code(202).send({ status: played ? "opening" : "finding" });
   }));
 
   // When the file has no subtitles in your language, fetch them in the background; the player picks them up when ready.

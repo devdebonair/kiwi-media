@@ -23,7 +23,7 @@ const endpoint = `/api/v1/library/roots/${root}/topics`;
 const add = payload => app.inject({ method: 'POST', url: endpoint, payload });
 const get = async url => { const response = await app.inject(url); assert.equal(response.statusCode, 200); return response.json(); };
 
-test('folder tags are query-time inheritance across content, filters, counts, feeds and search', async () => {
+test('folder tags are query-time inheritance across content, filters, counts and search', async () => {
   const annotations = db.prepare('SELECT count(*) n FROM annotations').get().n;
   const response = await add({ name: 'Foldermagic' });
   assert.equal(response.statusCode, 200);
@@ -49,8 +49,6 @@ test('folder tags are query-time inheritance across content, filters, counts, fe
   addAsset('folder-later', '/media/test_%/later.mp4');
   assert.equal((await get(`/api/v1/assets?topic=${topic.id}`)).length, 3);
   assert.equal((await get('/api/v1/search?q=Foldermagic&kind=videos')).length, 3);
-  const feed = (await app.inject({ method: 'POST', url: '/api/v1/feeds', payload: { name: 'Folder feed', query: { topicIds: [topic.id] } } })).json();
-  assert.equal((await get(`/api/v1/feeds/${feed.slug}`)).assets.length, 3);
   // Direct tags and duplicate file records must not inflate counts or labels.
   await app.inject({ method: 'POST', url: '/api/v1/assets/folder-first/topics', payload: { topicId: topic.id } });
   await app.inject({ method: 'POST', url: '/api/v1/assets/folder-first/topics', payload: { name: 'Related folder tag' } });

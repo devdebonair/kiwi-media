@@ -5,7 +5,7 @@ import { titleAllowed, topicAllowed } from "./profiles.js";
 // folders. Filters then narrow that down: media types, a rating limit of the channel's own, tags to leave out, and
 // a year range. The profile watching still only sees what it may watch; the channel's rating limit is on top.
 //
-// Stored as JSON in guide_channels.rules_json, with the same key names a feed's query uses (topicIds).
+// Stored as JSON in guide_channels.rules_json.
 
 export const MAX_SOURCES = 50;
 export const TYPES = ["movies", "shows", "anime", "home"];

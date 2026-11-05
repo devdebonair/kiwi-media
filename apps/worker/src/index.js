@@ -2,7 +2,7 @@ import { db, rebuildSearch } from "@kiwi/database";
 import { createDownloadRunner } from "@kiwi/downloads/runner";
 import { registerPlugin } from "@kiwi/downloads";
 import { mediaDownloadPlugin } from "@kiwi/media";
-import { scanRoot, enrichRoot, enqueue, importDownloadedFiles } from "./library.js";
+import { scanRoot, enrichRoot, enqueue, importDownloadedFiles, backfillRecordedDates } from "./library.js";
 import { checkAvailability, refreshLibrary } from "./catalog.js";
 
 const workerId = `worker-${process.pid}`;
@@ -56,6 +56,22 @@ const check = () => {
 };
 setTimeout(check, 90_000).unref();
 setInterval(check, 10 * 60_000).unref();
+
+// Home videos imported before recording dates were read get one, a batch at a time until none are left.
+let dating = false;
+const backfill = async () => {
+  if (dating) return;
+  dating = true;
+  try {
+    const total = { checked: 0, dated: 0 };
+    for (let result = await backfillRecordedDates(); result.checked; result = await backfillRecordedDates()) {
+      total.checked += result.checked; total.dated += result.dated;
+    }
+    if (total.checked) console.log(JSON.stringify({ recordedDates: total }));
+  } catch (error) { console.error(error); } finally { dating = false; }
+};
+setTimeout(backfill, 30_000).unref();
+setInterval(backfill, 3_600_000).unref();
 
 console.log(`Kiwi worker ${workerId} ready`);
 setInterval(() => poll().catch(console.error), 1500);

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { detectEnvironment, planPlayback, remuxUrl } from "./playback-plan.mjs";
+import { applyPreference, loadPreference } from "./track-preferences.mjs";
 
 // What this browser can decode without the server re-encoding the video.
 export function detectCaps() {
@@ -17,6 +19,23 @@ const wait = (ms, signal) => new Promise((resolve, reject) => {
   const timer = setTimeout(resolve, ms);
   signal.addEventListener("abort", () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
 });
+
+// Gets a movie or episode ready before it plays: the server finds and opens its source and reads its tracks, so
+// starting it later only has to load the picture. With `startStream`, a stream the server repackages (Apple
+// browsers) is also started from the first second. Used for the TV Guide's next program and the next episode.
+export async function warmPlayback({ id, titleId }, { signal, startStream = false, env = detectEnvironment() } = {}) {
+  const caps = detectCaps();
+  for (let tries = 0; tries < 60; tries++) {
+    const response = await fetch(`/api/v1/assets/${id}/stream`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ caps }), signal });
+    if (response.status === 202) { await wait(1000, signal); continue; }
+    if (!response.ok || !startStream) return;
+    const info = await response.json();
+    const chosen = applyPreference(info, loadPreference(`title:${titleId}`));
+    const plan = planPlayback(info, { audioPosition: chosen?.audioPosition ?? null, env });
+    if (plan.remux && plan.hls) await fetch(remuxUrl(`/api/v1/assets/${id}/file`, plan, 0), { signal });
+    return;
+  }
+}
 
 // Asks the server to find, verify, and open a source for a movie or episode (it may take several seconds the
 // first time), then reports the tracks and how the file should reach the browser. Home videos skip the

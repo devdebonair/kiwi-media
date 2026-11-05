@@ -11,7 +11,7 @@ import { LikeButton } from "./animated-like-button.jsx";
 import { AddTag } from "./add-tag.jsx";
 import { TopicLabel } from "./topic-label.jsx";
 import { airing, clock, dayLabel, halfHour, liveOffset, placement, programAt, slots, span } from "./guide-time.mjs";
-import { detectCaps, usePlaybackSession } from "./playback-session.jsx";
+import { usePlaybackSession, warmPlayback } from "./playback-session.jsx";
 import { detectEnvironment, planPlayback, remuxUrl } from "./playback-plan.mjs";
 import { applyPreference, loadPreference } from "./track-preferences.mjs";
 import { SubtitleLayer, useSubtitleCues, useSubtitleStyle } from "./subtitle-layer.jsx";
@@ -356,21 +356,6 @@ function ChannelLine({ channel, navigate, onEdit }) {
   </div>;
 }
 
-// Gets the next program ready shortly before it starts. The server already has its source; on Apple browsers
-// the repackaged stream is also started from the program's first second, so the change of program is instant.
-async function warmNext(next, env, signal) {
-  const caps = detectCaps();
-  for (let tries = 0; tries < 30; tries++) {
-    const response = await fetch(`/api/v1/assets/${next.id}/stream`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ caps }), signal });
-    if (response.status === 202) { await new Promise(resolve => setTimeout(resolve, 1000)); continue; }
-    if (!response.ok) return;
-    const info = await response.json();
-    const chosen = applyPreference(info, loadPreference(`title:${next.title_id}`));
-    const plan = planPlayback(info, { audioPosition: chosen?.audioPosition ?? null, env });
-    if (plan.remux && plan.hls) await fetch(remuxUrl(`/api/v1/assets/${next.id}/file`, plan, 0), { signal });
-    return;
-  }
-}
 
 // A program joined in its first seconds starts from the beginning (the stream readied ahead of time) and skips forward.
 const JOIN_FROM_START = 15;
@@ -453,7 +438,8 @@ function GuidePlayer({ api, channel, navigate, onLost, controls = null, actions 
     const next = lineup.find(item => item.start === program.end);
     if (!next?.catalog) return;
     const controller = new AbortController();
-    const timer = setTimeout(() => { warmNext(next, env, controller.signal).catch(() => {}); }, Math.max(0, program.end - 30_000 - Date.now()));
+    // Shortly before it starts; the server has usually found its source already.
+    const timer = setTimeout(() => { warmPlayback({ id: next.id, titleId: next.title_id }, { signal: controller.signal, startStream: true, env }).catch(() => {}); }, Math.max(0, program.end - 30_000 - Date.now()));
     return () => { clearTimeout(timer); controller.abort(); };
   }, [lineup, program?.id, program?.start, env]);
 
