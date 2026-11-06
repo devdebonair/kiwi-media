@@ -256,8 +256,9 @@ export function migrate() {
       db.exec("COMMIT");
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   }
-  // Views, not materialized mappings: new imports inherit folder tags and topic rules immediately.
-  // Clips (tags on a time range) are not tags on the whole video; they have their own view below.
+  // What each asset is tagged with, computed from its own tags, its folder's, and its title's (effective_asset_topics
+  // below stores the result, kept exact by triggers). Clips (tags on a time range) are not tags on the whole video;
+  // they have their own view below.
   const directView = `CREATE VIEW direct_asset_topics AS
     SELECT a.asset_id, at.topic_id FROM annotations a
     JOIN annotation_topics at ON at.annotation_id=a.id
@@ -279,7 +280,8 @@ export function migrate() {
   if (db.prepare("SELECT sql FROM sqlite_master WHERE type='view' AND name='direct_asset_topics'").get()?.sql !== directView) {
     db.exec("BEGIN IMMEDIATE");
     try {
-      db.exec("DROP VIEW IF EXISTS effective_asset_topics");
+      db.exec("DROP VIEW IF EXISTS effective_asset_topics_live");
+      if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='view' AND name='effective_asset_topics'").get()) db.exec("DROP VIEW effective_asset_topics");
       db.exec("DROP VIEW IF EXISTS direct_asset_topics");
       db.exec(directView);
       db.exec("COMMIT");
@@ -311,19 +313,6 @@ export function migrate() {
       db.exec("DELETE FROM search_index WHERE entity_type='clip'");
       for (const row of db.prepare("SELECT id FROM annotations WHERE motivation='clipping'").all()) indexClip(row.id);
       db.prepare("INSERT INTO app_state VALUES ('clips-search-indexed', ?)").run(new Date().toISOString());
-      db.exec("COMMIT");
-    } catch (error) { db.exec("ROLLBACK"); throw error; }
-  }
-  // Kept separate from direct_asset_topics (not a shared CTE) so asset_id filters push down.
-  const effectiveView = `CREATE VIEW effective_asset_topics AS
-    SELECT asset_id, topic_id FROM direct_asset_topics
-    UNION
-    SELECT d.asset_id, i.topic_id FROM direct_asset_topics d JOIN implied_topics i ON i.source_topic_id=d.topic_id`;
-  if (db.prepare("SELECT sql FROM sqlite_master WHERE type='view' AND name='effective_asset_topics'").get()?.sql !== effectiveView) {
-    db.exec("BEGIN IMMEDIATE");
-    try {
-      db.exec("DROP VIEW IF EXISTS effective_asset_topics");
-      db.exec(effectiveView);
       db.exec("COMMIT");
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   }
@@ -417,6 +406,8 @@ export function migrate() {
       db.exec("COMMIT");
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   }
+  // Last: it reads columns added by the migrations above.
+  migrateAssetTopics();
   // A title's own rating is the admin's choice, else its certification; an asset's own rating is the admin's
   // choice, else its title's. Folders and tags with a rating are minimums for everything in or under them: an
   // item's rating is the highest of its own, its folder's, and its rated tags' (including tags implied by topic
@@ -443,6 +434,82 @@ export function migrate() {
     db.exec(`DROP VIEW IF EXISTS ${name}`);
     db.exec(sql);
   }
+}
+
+// Every tag each asset carries: its own, its folder's, its title's (episodes), and the tags their rules imply.
+// effective_asset_topics_live computes it; effective_asset_topics stores the result in a table. Computing it inside
+// a query costs ~60ms with 5,000 videos, and restricted profiles needed it per video or per tag through
+// asset_ratings (search took 7 seconds, the Topics page 12). The triggers keep the table exact on every write
+// (from any process), so new imports still inherit folder tags and rules immediately and ratings never lag.
+// Rebuilt in full on every start (~0.1s), which also repairs anything written while the triggers were missing.
+const ASSET_TOPICS_LIVE = `CREATE VIEW effective_asset_topics_live AS
+    SELECT asset_id, topic_id FROM direct_asset_topics
+    UNION
+    SELECT d.asset_id, i.topic_id FROM direct_asset_topics d JOIN implied_topics i ON i.source_topic_id=d.topic_id`;
+const refreshAssets = ids => `DELETE FROM effective_asset_topics WHERE asset_id IN (${ids});
+      INSERT OR IGNORE INTO effective_asset_topics SELECT asset_id, topic_id FROM effective_asset_topics_live WHERE asset_id IN (${ids});`;
+const REFRESH_ALL = `DELETE FROM effective_asset_topics;
+      INSERT OR IGNORE INTO effective_asset_topics SELECT asset_id, topic_id FROM effective_asset_topics_live;`;
+const annotationAsset = row => `SELECT asset_id FROM annotations WHERE id=${row}.annotation_id`;
+const titleAssets = row => `SELECT id FROM assets WHERE title_id=${row}.title_id`;
+const ASSET_TOPIC_TRIGGERS = Object.entries({
+  // An asset's own path and title decide its folder and title tags. Updates that rewrite the same value (rescans
+  // do) are skipped.
+  assets_topics_insert: ["INSERT ON assets", refreshAssets("NEW.id")],
+  assets_topics_update: ["UPDATE OF id, file_path, title_id ON assets WHEN OLD.id IS NOT NEW.id OR OLD.file_path IS NOT NEW.file_path OR OLD.title_id IS NOT NEW.title_id", refreshAssets("OLD.id, NEW.id")],
+  assets_topics_delete: ["DELETE ON assets", "DELETE FROM effective_asset_topics WHERE asset_id=OLD.id;"],
+  files_topics_insert: ["INSERT ON files", refreshAssets("NEW.asset_id")],
+  files_topics_update: ["UPDATE OF asset_id, library_root_id, role ON files WHEN OLD.asset_id IS NOT NEW.asset_id OR OLD.library_root_id IS NOT NEW.library_root_id OR OLD.role IS NOT NEW.role", refreshAssets("OLD.asset_id, NEW.asset_id")],
+  // When the asset itself is being deleted (its files and tags go with it), there is nothing left to refresh.
+  files_topics_delete: ["DELETE ON files WHEN EXISTS(SELECT 1 FROM assets WHERE id=OLD.asset_id)", refreshAssets("OLD.asset_id")],
+  annotations_topics_update: ["UPDATE OF asset_id, motivation ON annotations WHEN OLD.asset_id IS NOT NEW.asset_id OR OLD.motivation IS NOT NEW.motivation", refreshAssets("OLD.asset_id, NEW.asset_id")],
+  annotations_topics_delete: ["DELETE ON annotations WHEN OLD.motivation!='clipping' AND EXISTS(SELECT 1 FROM assets WHERE id=OLD.asset_id)", refreshAssets("OLD.asset_id")],
+  // Tags on clips describe a time range, not the video, so they change nothing here.
+  annotation_topics_insert: ["INSERT ON annotation_topics WHEN EXISTS(SELECT 1 FROM annotations WHERE id=NEW.annotation_id AND motivation!='clipping')", refreshAssets(annotationAsset("NEW"))],
+  annotation_topics_update: ["UPDATE ON annotation_topics", refreshAssets(`${annotationAsset("OLD")} UNION ${annotationAsset("NEW")}`)],
+  annotation_topics_delete: ["DELETE ON annotation_topics WHEN EXISTS(SELECT 1 FROM annotations WHERE id=OLD.annotation_id AND motivation!='clipping')", refreshAssets(annotationAsset("OLD"))],
+  title_topics_insert: ["INSERT ON title_topics", refreshAssets(titleAssets("NEW"))],
+  title_topics_update: ["UPDATE ON title_topics", refreshAssets(`${titleAssets("OLD")} UNION ${titleAssets("NEW")}`)],
+  title_topics_delete: ["DELETE ON title_topics", refreshAssets(titleAssets("OLD"))],
+  // Folder tags and rules can reach thousands of assets; these are rare edits, so everything is recomputed.
+  folder_topics_topics_insert: ["INSERT ON folder_topics", REFRESH_ALL],
+  folder_topics_topics_update: ["UPDATE ON folder_topics", REFRESH_ALL],
+  folder_topics_topics_delete: ["DELETE ON folder_topics", REFRESH_ALL],
+  library_roots_topics_insert: ["INSERT ON library_roots", REFRESH_ALL],
+  library_roots_topics_update: ["UPDATE OF id, absolute_path ON library_roots WHEN OLD.id IS NOT NEW.id OR OLD.absolute_path IS NOT NEW.absolute_path", REFRESH_ALL],
+  library_roots_topics_delete: ["DELETE ON library_roots", REFRESH_ALL],
+  topic_rules_topics_insert: ["INSERT ON topic_rules", REFRESH_ALL],
+  topic_rules_topics_update: ["UPDATE ON topic_rules", REFRESH_ALL],
+  topic_rules_topics_delete: ["DELETE ON topic_rules", REFRESH_ALL],
+  topics_topics_delete: ["DELETE ON topics", "DELETE FROM effective_asset_topics WHERE topic_id=OLD.id;"],
+}).map(([name, [event, body]]) => [`${name}_eat`, `CREATE TRIGGER ${name}_eat AFTER ${event} BEGIN
+      ${body}
+    END`]);
+
+function migrateAssetTopics() {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='view' AND name='effective_asset_topics'").get()) db.exec("DROP VIEW effective_asset_topics");
+    if (db.prepare("SELECT sql FROM sqlite_master WHERE type='view' AND name='effective_asset_topics_live'").get()?.sql !== ASSET_TOPICS_LIVE) {
+      db.exec("DROP VIEW IF EXISTS effective_asset_topics_live");
+      db.exec(ASSET_TOPICS_LIVE);
+    }
+    db.exec(`CREATE TABLE IF NOT EXISTS effective_asset_topics (
+      asset_id TEXT NOT NULL, topic_id TEXT NOT NULL, PRIMARY KEY(asset_id, topic_id)
+    ) WITHOUT ROWID`);
+    db.exec("CREATE INDEX IF NOT EXISTS effective_asset_topics_topic_idx ON effective_asset_topics(topic_id, asset_id)");
+    const wanted = new Map(ASSET_TOPIC_TRIGGERS);
+    for (const { name } of db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE '%\\_eat' ESCAPE '\\'").all()) {
+      if (!wanted.has(name)) db.exec(`DROP TRIGGER ${name}`);
+    }
+    for (const [name, sql] of wanted) {
+      if (db.prepare("SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?").get(name)?.sql === sql) continue;
+      db.exec(`DROP TRIGGER IF EXISTS ${name}`);
+      db.exec(sql);
+    }
+    db.exec(REFRESH_ALL);
+    db.exec("COMMIT");
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
 }
 
 const now = () => new Date().toISOString();

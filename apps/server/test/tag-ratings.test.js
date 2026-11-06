@@ -7,7 +7,7 @@ import { join } from 'node:path';
 const directory = mkdtempSync(join(tmpdir(), 'kiwi-tag-ratings-'));
 process.env.KIWI_DATA_DIR = directory;
 const { app } = await import('../src/index.js');
-const { db, rebuildSearch } = await import('@kiwi/database');
+const { db, rebuildSearch, assetRating } = await import('@kiwi/database');
 after(async () => { await app.close(); db.close(); rmSync(directory, { recursive: true, force: true }); });
 
 const now = new Date().toISOString();
@@ -113,4 +113,57 @@ test('rating tags and their metadata are admin-only', async () => {
   assert.equal((await kid('GET', '/api/v1/assets/family-video')).statusCode, 404);
   await owner('PUT', '/api/v1/topics/family/rating', { rating: null });
   assert.equal((await kid('GET', '/api/v1/assets/family-video')).statusCode, 200);
+});
+
+test("a video's tags and rating stay exact through every kind of change", () => {
+  const level = id => db.prepare('SELECT level FROM asset_ratings WHERE asset_id=?').get(id).level;
+  // The stored tags must always equal what the live view computes from the source tables.
+  const exact = step => {
+    const extra = db.prepare('SELECT asset_id, topic_id FROM effective_asset_topics EXCEPT SELECT asset_id, topic_id FROM effective_asset_topics_live').all();
+    const missing = db.prepare('SELECT asset_id, topic_id FROM effective_asset_topics_live EXCEPT SELECT asset_id, topic_id FROM effective_asset_topics').all();
+    assert.deepEqual({ extra, missing }, { extra: [], missing: [] }, step);
+  };
+  exact('at start');
+  topic('beach', 'Beach'); topic('swim', 'Swimwear'); topic('swim-rated', 'Swim Rated', 4);
+  video('rule-video', 'Coast day'); tag('rule-video', 'beach');
+  exact('own tag');
+  db.prepare('INSERT INTO topic_rules VALUES (?,?,?)').run('beach', 'swim', now);
+  db.prepare('INSERT INTO topic_rules VALUES (?,?,?)').run('swim', 'swim-rated', now);
+  exact('rule chain');
+  topic('folder-rated', 'Folder Rated', 3);
+  db.prepare("INSERT INTO library_roots(id,name,absolute_path,created_at) VALUES ('root-tagged','Tagged','/media/tagged',?)").run(now);
+  db.prepare("INSERT INTO folder_topics VALUES ('root-tagged','folder-rated',?)").run(now);
+  // Imported after the folder was tagged: inherits it straight away, by path or by file record.
+  db.prepare("INSERT INTO assets(id,kind,title,file_path,duration_ms,added_at,updated_at) VALUES ('path-video','video','In folder','/media/tagged/a.mp4',1000,?,?)").run(now, now);
+  db.prepare("INSERT INTO assets(id,kind,title,file_path,duration_ms,added_at,updated_at) VALUES ('file-video','video','Registered','/elsewhere/b.mp4',1000,?,?)").run(now, now);
+  db.prepare("INSERT INTO files(id,asset_id,role,library_root_id,relative_path,created_at) VALUES ('file-b','file-video','original','root-tagged','b.mp4',?)").run(now);
+  exact('folder tags');
+  db.prepare("INSERT INTO titles(id,type,title,created_at,updated_at) VALUES ('show-tagged','show','Tagged Show',?,?)").run(now, now);
+  db.prepare("INSERT INTO assets(id,kind,title,title_id,season_number,episode_number,duration_ms,added_at,updated_at) VALUES ('episode','video','Pilot','show-tagged',1,1,1000,?,?)").run(now, now);
+  db.prepare("INSERT INTO title_topics VALUES ('show-tagged','beach',?)").run(now);
+  exact('series tag');
+  assert.deepEqual(['rule-video', 'path-video', 'file-video', 'episode', 'performer-video'].map(level), [4, 3, 3, 4, 5]);
+
+  // Undoing each one takes it away again.
+  db.prepare("DELETE FROM topic_rules WHERE source_topic_id='swim'").run();
+  assert.equal(level('rule-video'), null); exact('rule removed');
+  db.prepare("UPDATE assets SET file_path='/media/other/a.mp4' WHERE id='path-video'").run();
+  assert.equal(level('path-video'), null); exact('moved out of the folder');
+  db.prepare("UPDATE files SET role='derived' WHERE id='file-b'").run();
+  assert.equal(level('file-video'), null); exact('file record changed');
+  db.prepare("UPDATE files SET role='original' WHERE id='file-b'").run();
+  db.prepare("DELETE FROM folder_topics WHERE library_root_id='root-tagged'").run();
+  assert.equal(level('file-video'), null); exact('folder tag removed');
+  db.prepare("INSERT INTO folder_topics VALUES ('root-tagged','folder-rated',?)").run(now);
+  db.prepare("DELETE FROM files WHERE id='file-b'").run(); exact('file record removed');
+  db.prepare("DELETE FROM library_roots WHERE id='root-tagged'").run();
+  assert.equal(level('file-video'), null); exact('folder removed');
+  db.prepare("UPDATE assets SET title_id=NULL WHERE id='episode'").run(); exact('episode detached');
+  db.prepare("UPDATE assets SET title_id='show-tagged' WHERE id='episode'").run(); exact('episode attached');
+  db.prepare("DELETE FROM title_topics WHERE title_id='show-tagged'").run(); exact('series tag removed');
+  db.prepare("UPDATE annotations SET motivation='clipping' WHERE id='ann-rule-video-beach'").run(); exact('tag became a clip');
+  db.prepare("UPDATE annotations SET motivation='tagging' WHERE id='ann-rule-video-beach'").run(); exact('clip became a tag');
+  db.prepare("DELETE FROM annotations WHERE id='ann-rule-video-beach'").run(); exact('tag deleted');
+  db.prepare("DELETE FROM topics WHERE id='performer'").run(); exact('tag removed everywhere');
+  db.prepare("DELETE FROM assets WHERE id='performer-video'").run(); exact('video deleted');
 });

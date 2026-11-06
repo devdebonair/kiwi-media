@@ -85,7 +85,8 @@ const listAssets = (where = "1=1", params = [], limit = 60, offset = 0, orderBy 
   FROM assets a WHERE a.title_id IS NULL AND (${where}) AND ${assetVisibleSql("a")} ORDER BY ${orderBy} LIMIT ? OFFSET ?
 `).all(userId(), ...params, limit, offset).map(enrichAsset);
 
-const searchHits = (query, kind = "all") => {
+// `limit` stops once that many results are ready (the search box's suggestions need only a few).
+const searchHits = (query, kind = "all", limit = 80) => {
   const terms = query.split(/\s+/).filter(Boolean).map(term => `"${term.replaceAll('"', '')}"*`);
   if (!terms.length) return [];
   // Videos and clips also match through their tags, including tags implied by topic rules.
@@ -106,8 +107,13 @@ const searchHits = (query, kind = "all") => {
     if (seen.has(key)) return false;
     seen.add(key); return true;
   }).slice(0, 80);
-  const titleHits = new Set();
-  return hits.flatMap(hit => {
+  const titleHits = new Set(), results = [];
+  for (const hit of hits) {
+    if (results.length >= limit) break;
+    results.push(...resultFor(hit));
+  }
+  return results.slice(0, limit);
+  function resultFor(hit) {
     if (hit.entity_type === "title" || (hit.entity_type === "asset" && db.prepare("SELECT title_id FROM assets WHERE id=?").get(hit.entity_id)?.title_id)) {
       if (!["all", "titles", "movies", "shows"].includes(kind)) return [];
       const titleId = hit.entity_type === "title" ? hit.entity_id : db.prepare("SELECT title_id FROM assets WHERE id=?").get(hit.entity_id).title_id;
@@ -133,7 +139,7 @@ const searchHits = (query, kind = "all") => {
       return row && topicAllowed(row.id) ? [{ entityType: "topic", ...row, content_rating: ratingKey(row.content_rating) }] : [];
     }
     return [];
-  });
+  }
 };
 
 app.get("/api/v1/health", async () => ({ ok: true, service: "kiwi", database: "sqlite", time: new Date().toISOString() }));
@@ -241,17 +247,20 @@ app.get("/api/v1/assets/:id/file", async (req, reply) => {
 app.get("/api/v1/search", async req => {
   const query = String(req.query.q || "").trim();
   const kind = String(req.query.kind || "all");
+  const limit = Math.min(Math.max(Math.trunc(Number(req.query.limit)) || 80, 1), 80);
   if (!query) return [];
-  return searchHits(query, kind);
+  return searchHits(query, kind, limit);
 });
 
 // item_count is home media only; catalog titles (movies, shows, anime) are counted separately.
+// Each visible asset is decided once (`seen`), not once per tag it carries.
 app.get("/api/v1/topics", async () => db.prepare(`
+  WITH seen AS MATERIALIZED (SELECT a.id, a.title_id FROM assets a WHERE ${assetVisibleSql("a")})
   SELECT t.id, t.slug, t.name, t.summary, t.avatar_url, t.topic_type,
-    count(DISTINCT a.id) item_count,
-    (SELECT count(DISTINCT x.title_id) FROM effective_asset_topics e JOIN assets x ON x.id=e.asset_id WHERE e.topic_id=t.id AND x.title_id IS NOT NULL AND ${assetVisibleSql("x")}) title_count,
+    count(DISTINCT CASE WHEN s.title_id IS NULL THEN s.id END) item_count,
+    count(DISTINCT s.title_id) title_count,
     EXISTS(SELECT 1 FROM topic_follows f WHERE f.topic_id=t.id AND f.user_id=?) followed
-  FROM topics t LEFT JOIN effective_asset_topics et ON et.topic_id=t.id LEFT JOIN assets a ON a.id=et.asset_id AND a.title_id IS NULL AND ${assetVisibleSql("a")}
+  FROM topics t JOIN effective_asset_topics et ON et.topic_id=t.id JOIN seen s ON s.id=et.asset_id
   GROUP BY t.id HAVING item_count>0 OR title_count>0 ORDER BY item_count+title_count DESC
 `).all(userId()));
 
@@ -366,12 +375,11 @@ app.get("/api/v1/topics/:slug", async (req, reply) => {
   const topic = db.prepare(`SELECT t.*, EXISTS(SELECT 1 FROM topic_follows WHERE user_id=? AND topic_id=t.id) followed FROM topics t WHERE t.slug=?`).get(userId(), req.params.slug);
   if (!topic) return reply.code(404).send({ error: "Topic not found" });
   const assets = listAssets("EXISTS(SELECT 1 FROM effective_asset_topics et WHERE et.asset_id=a.id AND et.topic_id=?)", [topic.id]);
+  // Tags that share this tag's visible assets. Each asset's visibility, and each tag's, is decided once.
   const related = db.prepare(`
-    SELECT t.*, count(DISTINCT shared.asset_id) item_count FROM topics t
-    JOIN effective_asset_topics et ON et.topic_id=t.id
-    JOIN effective_asset_topics shared ON shared.asset_id=et.asset_id AND shared.topic_id=?
-    JOIN assets a ON a.id=et.asset_id
-    WHERE t.id != ? AND ${assetVisibleSql("a")} AND ${topicVisibleSql("t")} GROUP BY t.id ORDER BY item_count DESC LIMIT 8
+    WITH seen AS MATERIALIZED (SELECT et.asset_id FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND ${assetVisibleSql("a")}),
+      counts AS MATERIALIZED (SELECT et.topic_id, count(*) item_count FROM seen JOIN effective_asset_topics et ON et.asset_id=seen.asset_id WHERE et.topic_id != ? GROUP BY et.topic_id)
+    SELECT t.*, c.item_count FROM counts c JOIN topics t ON t.id=c.topic_id WHERE ${topicVisibleSql("t")} ORDER BY c.item_count DESC, t.id LIMIT 8
   `).all(topic.id, topic.id);
   const { item_count } = db.prepare(`SELECT count(*) item_count FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND a.title_id IS NULL AND ${assetVisibleSql("a")}`).get(topic.id);
   const titles = db.prepare(`SELECT t.* FROM titles t WHERE t.id IN (SELECT a.title_id FROM effective_asset_topics et JOIN assets a ON a.id=et.asset_id WHERE et.topic_id=? AND a.title_id IS NOT NULL AND ${assetVisibleSql("a")}) AND ${titleVisibleSql("t")}

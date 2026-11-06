@@ -49,6 +49,9 @@ test('folder tags are query-time inheritance across content, filters, counts and
   addAsset('folder-later', '/media/test_%/later.mp4');
   assert.equal((await get(`/api/v1/assets?topic=${topic.id}`)).length, 3);
   assert.equal((await get('/api/v1/search?q=Foldermagic&kind=videos')).length, 3);
+  // The search box asks for only a few; it gets the same leading results.
+  const all = (await get('/api/v1/search?q=Foldermagic&kind=videos')).map(a => a.id);
+  assert.deepEqual((await get('/api/v1/search?q=Foldermagic&kind=videos&limit=2')).map(a => a.id), all.slice(0, 2));
   // Direct tags and duplicate file records must not inflate counts or labels.
   await app.inject({ method: 'POST', url: '/api/v1/assets/folder-first/topics', payload: { topicId: topic.id } });
   await app.inject({ method: 'POST', url: '/api/v1/assets/folder-first/topics', payload: { name: 'Related folder tag' } });
