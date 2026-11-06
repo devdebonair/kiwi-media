@@ -483,3 +483,61 @@ test('opening a title page readies what Play points to, without adding torrents 
     assert.equal((await post('/api/v1/assets/nope/warm')).statusCode, 404);
   } finally { media.setMedia(saved); db.prepare("DELETE FROM assets WHERE id='warm-unseen'").run(); }
 });
+
+test("a release group that played well is nudged up for the rest of the series, but doesn't override quality", async () => {
+  const show = db.prepare("SELECT id FROM titles WHERE tmdb_id=100").get();
+  const ep = number => `${show.id}-s01e0${number}`;
+  const hash = (group, number) => `${group}${String(number).repeat(39)}`.slice(0, 40);
+  // Two instant releases of every episode: AAA's Blu-ray scores 2 points above BBB's web release.
+  const twoGroups = { id: 'torrentio', async search(query) {
+    return [
+      { infoHash: hash('a', query.episode), releaseName: `Test.Show.S01E0${query.episode}.1080p.BluRay.x264-AAA`, size: 1.5e9, seeders: 40, indexer: 'torrentio', idBased: true },
+      { infoHash: hash('b', query.episode), releaseName: `Test.Show.S01E0${query.episode}.1080p.WEB-DL.x264-BBB`, size: 1.5e9, seeders: 40, indexer: 'torrentio', idBased: true },
+    ];
+  } };
+  for (const number of [1, 2, 3]) torboxState.cached.add(hash('a', number)).add(hash('b', number));
+  db.prepare("DELETE FROM playback_sources WHERE asset_id IN (?,?,?)").run(ep(1), ep(2), ep(3));
+  db.prepare("UPDATE assets SET availability='unknown' WHERE id IN (?,?,?)").run(ep(1), ep(2), ep(3));
+  // Earlier tests watched episodes too; start this one from nothing.
+  db.prepare("DELETE FROM release_successes").run();
+  const saved = media.getMedia();
+  const sources = media.createSourceService({ torbox, indexers: [twoGroups], probeImpl: async () => probeInfo });
+  media.setMedia({ ...saved, sources });
+  const groups = id => sources.sources(id).map(source => source.group);
+  try {
+    // Episode 3 is found ahead of time, before anything has played.
+    assert.equal(await sources.check(ep(3)), 'available');
+    assert.deepEqual(groups(ep(3)), ['AAA', 'BBB']);
+
+    // Episode 1 plays from BBB (chosen by hand), but only halfway: not a signal yet.
+    const first = await sources.prepare(ep(1));
+    assert.match(first.fileName, /S01E01/);
+    const bbb = sources.sources(ep(1)).find(source => source.group === 'BBB');
+    await sources.select(ep(1), bbb.id);
+    const duration = db.prepare("SELECT duration_ms FROM assets WHERE id=?").get(ep(1)).duration_ms;
+    assert.equal((await put(`/api/v1/assets/${ep(1)}/progress`, { progressMs: Math.round(duration * 0.5) })).statusCode, 200);
+    assert.deepEqual(groups(ep(3)), ['AAA', 'BBB'], 'half an episode proves nothing');
+    // Watched most of the way: BBB is remembered for this show.
+    await put(`/api/v1/assets/${ep(1)}/progress`, { progressMs: Math.round(duration * 0.8) });
+    assert.deepEqual(db.prepare("SELECT scope, release_group FROM release_successes").all().map(row => ({ ...row })), [{ scope: `title:${show.id}`, release_group: 'BBB' }]);
+
+    // Releases found before the signal are reordered, with the reason shown.
+    const stored = sources.sources(ep(3));
+    assert.deepEqual(stored.map(source => source.group), ['BBB', 'AAA']);
+    assert.ok(stored[0].reasons.some(reason => reason.label === 'BBB played well before' && reason.points === 15));
+    assert.ok(stored[0].score > stored[1].score);
+    // And a fresh search ranks it first too; that is what plays.
+    const next = await sources.prepare(ep(2));
+    assert.equal(sources.sources(ep(2)).find(source => source.selected).group, 'BBB', next.fileName);
+
+    // It's a nudge: a lower resolution from the proven group still loses to a higher one.
+    const { scoreCandidate } = await import('@kiwi/media');
+    const context = media.rankingContext(db.prepare("SELECT * FROM titles WHERE id=?").get(show.id), { type: 'episode', season: 1, episode: 2, aliases: [] });
+    const score = name => scoreCandidate({ releaseName: name, cached: true, size: 1e9, idBased: true }, context).score;
+    assert.ok(score('Test.Show.S01E02.1080p.WEB-DL.x264-AAA') - score('Test.Show.S01E02.720p.WEB-DL.x264-BBB') > 15, 'one resolution step outweighs one good play');
+    assert.ok(media.provenPoints(1) === 15 && media.provenPoints(4) === 21 && media.provenPoints(100) === 25);
+
+    // Movies are their own scope: a show's signal doesn't reach them.
+    assert.equal(db.prepare("SELECT count(*) n FROM release_successes WHERE scope='movies'").get().n, 0);
+  } finally { media.setMedia(saved); }
+});

@@ -37,14 +37,40 @@ export function rankingContext(title, target) {
   };
 }
 
-export const describeSource = row => {
+// Release groups that have played well. When someone watches most of an episode or movie streamed from a release,
+// its group is remembered: for the rest of that series (episodes) or for every movie. Releases from a remembered
+// group get a nudge, not a rule: one good play is worth about as much as a group you prefer in Settings, and a
+// few are worth a little more than one step of resolution, so quality, language, and size still decide.
+export const WATCHED_SHARE = 0.75;
+const scopeOf = title => title.type === "movie" ? "movies" : `title:${title.id}`;
+export const provenPoints = plays => plays > 0 ? Math.min(25, 15 + 3 * Math.log2(plays)) : 0;
+function provenGroups(title) {
+  const groups = new Map();
+  if (!title) return groups;
+  for (const row of db.prepare("SELECT release_group, count(*) plays FROM release_successes WHERE scope=? GROUP BY lower(release_group)").all(scopeOf(title))) {
+    groups.set(row.release_group.toLowerCase(), { name: row.release_group, plays: row.plays });
+  }
+  return groups;
+}
+const titleOfAsset = assetId => db.prepare("SELECT t.* FROM titles t JOIN assets a ON a.title_id=t.id WHERE a.id=?").get(assetId);
+const groupOf = row => parse(row.parsed_json, {}).parsed?.group || null;
+// The nudge for one release, with the reason the player shows for it.
+function provenReason(group, proven) {
+  const found = group && proven.get(group.toLowerCase());
+  if (!found) return null;
+  const points = Math.round(provenPoints(found.plays) * 10) / 10;
+  return { label: `${found.name} played well before`, points };
+}
+
+export const describeSource = (row, proven = provenGroups(titleOfAsset(row.asset_id))) => {
   const stored = parse(row.parsed_json, {});
   const parsed = stored.parsed || {};
+  const nudge = provenReason(parsed.group, proven);
   return {
     id: row.id, status: row.status, selected: row.status === "selected", releaseName: row.release_name, fileName: row.file_name, size: row.file_size,
     resolution: parsed.resolution || null, source: parsed.source || null, codec: parsed.codec || null, group: parsed.group || null, hdr: parsed.hdr || (parsed.dolbyVision ? "dv" : null),
-    dualAudio: Boolean(parsed.dualAudio || parsed.multi), seeders: row.seeders, cached: Boolean(row.cached), indexer: row.indexer, score: row.score,
-    reasons: stored.reasons || [], failReason: row.fail_reason,
+    dualAudio: Boolean(parsed.dualAudio || parsed.multi), seeders: row.seeders, cached: Boolean(row.cached), indexer: row.indexer,
+    score: row.score + (nudge?.points || 0), reasons: [...(nudge ? [nudge] : []), ...(stored.reasons || [])], failReason: row.fail_reason,
   };
 };
 
@@ -100,9 +126,13 @@ export function createSourceService({ torbox, indexers = [], probeImpl = probeFi
     setStage(asset.id, `Checking ${preliminary.length} releases on TorBox…`);
     const cached = preliminary.length ? await torbox.checkCached(preliminary.map(candidate => candidate.infoHash)) : new Map();
     const checked = preliminary.map(candidate => ({ ...candidate, cached: cached.has(candidate.infoHash) }));
-    let { accepted } = rankCandidates(checked, context);
-    if (!accepted.length && context.rules.requireCached === false) accepted = [];
-    return { accepted: accepted.slice(0, MAX_STORED), considered: found.length, cachedCount: checked.filter(item => item.cached).length };
+    const { accepted } = rankCandidates(checked, context);
+    // Scores are stored without the nudge for proven groups; it is added whenever releases are ordered (see
+    // candidatesFor), so it also reaches releases found before the group proved itself.
+    const proven = provenGroups(title);
+    const nudge = candidate => provenReason(candidate.parsed?.group, proven)?.points || 0;
+    const best = proven.size ? [...accepted].sort((a, b) => (b.score + nudge(b)) - (a.score + nudge(a)) || (b.seeders ?? 0) - (a.seeders ?? 0)) : accepted;
+    return { accepted: best.slice(0, MAX_STORED), considered: found.length, cachedCount: checked.filter(item => item.cached).length };
   }
 
   function store(asset, accepted) {
@@ -118,7 +148,31 @@ export function createSourceService({ torbox, indexers = [], probeImpl = probeFi
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   }
 
-  const candidatesFor = assetId => db.prepare("SELECT * FROM playback_sources WHERE asset_id=? AND status IN ('candidate','selected') ORDER BY (status='selected') DESC, score DESC, seeders DESC").all(assetId);
+  // Stored releases, best first: the one in use, then by score including the nudge for groups that played well.
+  const candidatesFor = assetId => {
+    const rows = db.prepare("SELECT * FROM playback_sources WHERE asset_id=? AND status IN ('candidate','selected') ORDER BY (status='selected') DESC, score DESC, seeders DESC").all(assetId);
+    const proven = rows.length ? provenGroups(titleOfAsset(assetId)) : new Map();
+    if (!proven.size) return rows;
+    const total = row => row.score + (provenReason(groupOf(row), proven)?.points || 0);
+    return rows.sort((a, b) => (b.status === "selected") - (a.status === "selected") || total(b) - total(a) || (b.seeders ?? 0) - (a.seeders ?? 0));
+  };
+
+  // Called as playback progress is saved. Once most of a streamed episode or movie has been watched, the group of
+  // the release it played from is remembered for its series (or for all movies). One record per episode or movie,
+  // replaced if it is later watched from a different release.
+  function noteWatched(assetId, { progressMs = 0, completed = false } = {}) {
+    const asset = getAsset(assetId);
+    if (!asset?.title_id || (asset.file_path && existsSync(asset.file_path))) return false;
+    if (!completed && !(asset.duration_ms > 0 && progressMs >= asset.duration_ms * WATCHED_SHARE)) return false;
+    const row = db.prepare("SELECT * FROM playback_sources WHERE asset_id=? AND status='selected'").get(assetId);
+    const group = row && groupOf(row);
+    const title = getTitleRow(asset.title_id);
+    if (!group || !title) return false;
+    db.prepare(`INSERT INTO release_successes (asset_id, scope, release_group, info_hash, recorded_at) VALUES (?,?,?,?,?)
+      ON CONFLICT(asset_id) DO UPDATE SET scope=excluded.scope, release_group=excluded.release_group, info_hash=excluded.info_hash, recorded_at=excluded.recorded_at
+      WHERE release_successes.info_hash IS NOT excluded.info_hash`).run(assetId, scopeOf(title), group, row.info_hash, now());
+    return true;
+  }
   const isFresh = rows => rows.some(row => Date.now() - Date.parse(row.created_at) < CANDIDATE_TTL);
 
   async function resolveRow(asset, title, row, { allowUncached }) {
@@ -292,8 +346,8 @@ export function createSourceService({ torbox, indexers = [], probeImpl = probeFi
   }
 
   return {
-    prepare, check, streamUrl, input, linkFor, stage: assetId => stages.get(assetId) || null, isRunning: assetId => running.has(assetId),
-    sources: assetId => candidatesFor(assetId).map(describeSource),
+    prepare, check, noteWatched, streamUrl, input, linkFor, stage: assetId => stages.get(assetId) || null, isRunning: assetId => running.has(assetId),
+    sources: assetId => { const proven = provenGroups(titleOfAsset(assetId)); return candidatesFor(assetId).map(row => describeSource(row, proven)); },
     async select(assetId, sourceId, options) { return prepare(assetId, { ...options, sourceId }); },
     // Forget what was found so the next play searches again (e.g. after a bad release).
     reset(assetId) { recent.delete(assetId); db.prepare("DELETE FROM playback_sources WHERE asset_id=? AND status IN ('candidate','selected')").run(assetId); },

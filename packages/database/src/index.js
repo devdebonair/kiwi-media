@@ -207,6 +207,13 @@ export function migrate() {
       fail_reason TEXT, probe_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, verified_at TEXT
     );
     CREATE INDEX IF NOT EXISTS playback_sources_asset_idx ON playback_sources(asset_id, status);
+    -- Episodes and movies watched (most of the way) from a streamed release: its group is nudged up for the rest
+    -- of that series ('title:<id>') or for all movies ('movies'). See noteWatched in packages/media/src/sources.js.
+    CREATE TABLE IF NOT EXISTS release_successes (
+      asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE, scope TEXT NOT NULL,
+      release_group TEXT NOT NULL, info_hash TEXT, recorded_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS release_successes_scope_idx ON release_successes(scope, release_group);
     CREATE TABLE IF NOT EXISTS subtitle_tracks (
       id TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE, source_key TEXT,
       origin TEXT NOT NULL, language TEXT, label TEXT, codec TEXT, stream_index INTEGER,
@@ -408,6 +415,20 @@ export function migrate() {
   }
   // Last: it reads columns added by the migrations above.
   migrateAssetTopics();
+  // Once: episodes and movies already watched most of the way (75%, as in noteWatched) from a streamed release
+  // vouch for its group, so the history from before release_successes existed counts too.
+  if (!db.prepare("SELECT 1 FROM app_state WHERE key='release-successes-backfilled'").get()) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.prepare(`INSERT OR IGNORE INTO release_successes (asset_id, scope, release_group, info_hash, recorded_at)
+        SELECT a.id, CASE WHEN t.type='movie' THEN 'movies' ELSE 'title:' || t.id END, json_extract(p.parsed_json, '$.parsed.group'), p.info_hash, ?
+        FROM assets a JOIN titles t ON t.id=a.title_id JOIN playback_sources p ON p.asset_id=a.id AND p.status='selected'
+        WHERE json_extract(p.parsed_json, '$.parsed.group') IS NOT NULL
+          AND EXISTS(SELECT 1 FROM consumption_state cs WHERE cs.asset_id=a.id AND (cs.completed=1 OR cs.progress_ms >= a.duration_ms * 0.75))`).run(new Date().toISOString());
+      db.prepare("INSERT INTO app_state VALUES ('release-successes-backfilled', ?)").run(new Date().toISOString());
+      db.exec("COMMIT");
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
+  }
   // A title's own rating is the admin's choice, else its certification; an asset's own rating is the admin's
   // choice, else its title's. Folders and tags with a rating are minimums for everything in or under them: an
   // item's rating is the highest of its own, its folder's, and its rated tags' (including tags implied by topic

@@ -458,6 +458,9 @@ app.put("/api/v1/assets/:id/progress", async (req, reply) => {
   if (!Number.isSafeInteger(progress) || progress < 0) return reply.code(400).send({ error: "progressMs must be a nonnegative integer" });
   db.prepare(`INSERT INTO consumption_state (user_id,asset_id,progress_ms,completed,last_viewed_at,view_count) VALUES (?,?,?,?,?,0)
     ON CONFLICT(user_id,asset_id) DO UPDATE SET progress_ms=excluded.progress_ms,completed=excluded.completed,last_viewed_at=excluded.last_viewed_at`).run(userId(), req.params.id, progress, req.body?.completed ? 1 : 0, new Date().toISOString());
+  // A streamed episode or movie watched most of the way vouches for its release group (see sources.noteWatched).
+  try { getMedia().sources.noteWatched(req.params.id, { progressMs: progress, completed: Boolean(req.body?.completed) }); }
+  catch (error) { req.log.warn({ err: error }, "could not note the release that played"); }
   return { ok: true };
 });
 
