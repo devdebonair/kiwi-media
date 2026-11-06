@@ -104,6 +104,7 @@ button, a { transition: background-color .18s, color .18s, border-color .18s; }
 .watch-actions > button > svg { width: 20px; height: 20px; flex-shrink: 0; }
 .search-suggestions { position: absolute; z-index: 40; top: calc(100% + 10px); left: 0; right: 0; padding: 7px; border: 1px solid #ffffff16; border-radius: 18px; background: #1a191b; box-shadow: 0 16px 44px #0006; color: var(--text); }
 .search-suggestions-heading { padding: 9px 12px 12px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.search-suggestions-heading.is-divider { margin-top: 5px; padding-top: 12px; padding-bottom: 8px; border-top: 1px solid var(--line); }
 .search-suggestions-list { max-height: min(520px, 65dvh); overflow-y: auto; overscroll-behavior: contain; }
 .search .search-suggestion { display: flex; align-items: center; width: 100%; gap: 12px; padding: 10px 12px; border: 0; border-radius: 11px; background: transparent; text-align: left; color: var(--text); }
 .search .search-suggestion:hover, .search .search-suggestion[aria-selected="true"] { background: #b6df8310; }
