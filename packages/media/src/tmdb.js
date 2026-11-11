@@ -140,6 +140,11 @@ export function createTmdb({ fetchImpl, config = () => getProvider("tmdb").confi
       "vote_count.gte": minVotes ?? (sort.startsWith("vote_average") ? 300 : undefined),
       ...(type === "movie" ? { primary_release_year: releaseYear } : { first_air_date_year: releaseYear }), include_adult: false,
     }),
+    // What TMDB suggests to people who liked a title; titles too new or obscure for that fall back to "similar".
+    async recommendations(type, id) {
+      const found = await list(`/${typePath(type)}/${id}/recommendations`, type, { page: 1 }, DAY);
+      return found.results.length ? found : list(`/${typePath(type)}/${id}/similar`, type, { page: 1 }, DAY);
+    },
     genres: async type => (await client.json(`/genre/${typePath(type)}/list`, { ttl: 30 * DAY, swr: 30 * DAY })).genres || [],
     async details(type, id) {
       const append = type === "movie" ? "external_ids,credits,keywords,release_dates,watch/providers,alternative_titles,images" : "external_ids,credits,keywords,content_ratings,watch/providers,alternative_titles,images";

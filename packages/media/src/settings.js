@@ -42,6 +42,11 @@ export const providerDefinitions = {
     description: "Finds anime releases by title and episode number. Only used for anime.",
     fields: [{ key: "baseUrl", label: "Address", type: "url", default: "https://nyaa.si" }],
   },
+  theintrodb: {
+    id: "theintrodb", name: "TheIntroDB", kind: "segments", defaultEnabled: true,
+    description: "Times of intros, recaps, and credits, for the Skip buttons when a file has no chapters marking them.",
+    fields: [{ key: "apiKey", label: "API key (optional)", type: "secret", help: "Not needed. A key from theintrodb.org raises the daily limit of 5,000 lookups." }],
+  },
   opensubtitles: {
     id: "opensubtitles", name: "OpenSubtitles", kind: "subtitles",
     description: "Finds subtitles when a release has none in your language.",

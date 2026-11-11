@@ -461,11 +461,11 @@ function GuidePlayer({ api, channel, navigate, onLost, controls = null, actions 
     else sync();
   };
   const liveSeconds = () => Math.max(0, (Date.now() - program.start) / 1000);
-  const position = media => (plan.remux ? streamStart : 0) + media.currentTime;
+  const position = media => Math.max(0, (plan.remux ? streamOrigin : 0) + media.currentTime);
   // Moves to the live position inside the current stream. A repackaged stream can only go as far as it has
   // been made; returns false when the live position is past that.
   const reachLive = media => {
-    const target = liveSeconds() - (plan.remux ? streamStart : 0);
+    const target = liveSeconds() - (plan.remux ? streamOrigin : 0);
     if (plan.remux) {
       const end = media.seekable.length ? media.seekable.end(media.seekable.length - 1) : 0;
       if (target > end - 1) return false;
@@ -537,6 +537,19 @@ function GuidePlayer({ api, channel, navigate, onLost, controls = null, actions 
   const toggleFullscreen = () => document.fullscreenElement ? document.exitFullscreen() : fullscreenTarget()?.requestFullscreen?.();
   const base = program ? `/api/v1/assets/${program.id}/file` : "";
   const src = program && (plan.remux ? remuxUrl(base, plan, streamStart) : base);
+  // The moment of the program a repackaged stream's time 0 shows: copied video starts on a keyframe, a little
+  // before `streamStart`, and the server says where.
+  const [origin, setOrigin] = useState({ src: null, time: 0 });
+  const streamOrigin = origin.src === src ? origin.time : streamStart;
+  useEffect(() => {
+    if (!src || !plan.remux || !sessionReady) return;
+    const controller = new AbortController();
+    fetch(`${base.replace(/\/file$/, "")}/stream-start?start=${Math.max(0, Math.floor(streamStart))}&video=${plan.video}`, { signal: controller.signal })
+      .then(response => response.ok ? response.json() : null)
+      .then(body => { if (Number.isFinite(body?.origin)) setOrigin({ src, time: body.origin }); })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [src, sessionReady]);
   const tuning = program && session.phase === "loading";
   const unavailable = program && session.phase === "error" && !notice;
   const starting = showing && !playing;

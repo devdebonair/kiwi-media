@@ -7,6 +7,7 @@ import { TopicLabel } from "./topic-label.jsx";
 import { SetupNotice } from "./catalog-page.jsx";
 import { RatingSelect, useSession } from "./profiles.jsx";
 import { ListPicker } from "./lists.jsx";
+import { PosterCard, Rail } from "./poster-card.jsx";
 
 const runtime = minutes => minutes ? (minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60 ? `${minutes % 60}m` : ""}`.trim() : `${minutes}m`) : null;
 const clock = ms => { const total = Math.round(ms / 1000), h = Math.floor(total / 3600), m = Math.floor(total % 3600 / 60), s = total % 60; return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`; };
@@ -46,6 +47,16 @@ export function TitlePage({ reference, api, navigate, AppLink, Loading, Empty })
     }).catch(e => { if (active) setError(e.message); });
     return () => { active = false; };
   }, [load]);
+
+  // "More like this", loaded after the page itself.
+  const [similar, setSimilar] = useState([]);
+  useEffect(() => {
+    setSimilar([]);
+    if (!title?.id) return;
+    let active = true;
+    api(`/api/v1/titles/${title.id}/similar`).then(value => { if (active) setSimilar(value.items); }).catch(() => {});
+    return () => { active = false; };
+  }, [api, title?.id]);
 
   const loadEpisodes = useCallback(() => {
     if (!title || title.type !== "show" || season === null) return;
@@ -164,6 +175,8 @@ export function TitlePage({ reference, api, navigate, AppLink, Loading, Empty })
 
       {title.cast.length > 0 && <section className="cast-section" aria-labelledby="cast-heading"><div className="shelf-head"><h2 id="cast-heading">Cast</h2></div><div className="cast-row">{title.cast.map(person => <div key={person.name + person.character} className="cast-card">
         <div className="cast-photo">{person.profile ? <img src={person.profile} alt="" loading="lazy" /> : <span>{person.name[0]}</span>}</div><strong>{person.name}</strong><small>{person.character}</small></div>)}</div></section>}
+
+      {similar.length > 0 && <Rail title="More like this"><>{similar.map(item => <PosterCard key={item.ref} item={item} AppLink={AppLink} navigate={navigate} />)}</></Rail>}
     </div>
   </div>;
 }

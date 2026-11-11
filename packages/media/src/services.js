@@ -10,6 +10,7 @@ import { createSubtitleService, languageLabel } from "./subtitles.js";
 import { createTmdb } from "./tmdb.js";
 import { createTorbox } from "./torbox.js";
 import { chooseTracks, playbackPlan, probe } from "./tracks.js";
+import { createIntroDb, findSegments } from "./segments.js";
 
 let media;
 
@@ -32,10 +33,39 @@ export function getMedia() {
     },
     log: message => console.log(`[media] ${message}`),
   });
-  media = { tmdb, torbox, images, sources, subtitles, opensubs, streams };
+  media = { tmdb, torbox, images, sources, subtitles, opensubs, streams, introDb: createIntroDb() };
   return media;
 }
 export function setMedia(custom) { media = custom; }
+
+// The intro, recap, credits, and preview of the movie or episode as it is playing now (its local copy, or the
+// streamed release in use), for the player's Skip buttons. Kept for an hour per file.
+const segmentCache = new Map();
+export async function segmentsFor(assetId) {
+  const asset = db.prepare("SELECT * FROM assets WHERE id=?").get(assetId);
+  const title = asset?.title_id ? db.prepare("SELECT * FROM titles WHERE id=?").get(asset.title_id) : null;
+  if (!title) return [];
+  const local = asset.file_path && existsSync(asset.file_path);
+  const source = local ? null : db.prepare("SELECT id, probe_json FROM playback_sources WHERE asset_id=? AND status='selected'").get(assetId);
+  const key = local ? `file:${asset.file_path}` : source ? `source:${source.id}` : null;
+  if (!key) return [];
+  const cached = segmentCache.get(key);
+  if (cached && cached.expires > Date.now()) return cached.segments;
+  const { sources, introDb } = getMedia();
+  let info = local ? await probe(asset.file_path).catch(() => null) : JSON.parse(source.probe_json || "null");
+  // Streams probed before chapters were read: read them now, once, and keep them with the source.
+  if (!local && info && info.chapters === undefined) {
+    const fresh = await sources.input(assetId).then(({ url }) => probe(url, { timeoutMs: 20_000 })).catch(() => null);
+    if (fresh) {
+      info = { ...info, chapters: fresh.chapters };
+      db.prepare("UPDATE playback_sources SET probe_json=? WHERE id=?").run(JSON.stringify(info), source.id);
+    }
+  }
+  const segments = await findSegments({ title, asset, info, introDb, log: message => console.log(`[media] ${message}`) });
+  segmentCache.set(key, { segments, expires: Date.now() + 3_600_000 });
+  if (segmentCache.size > 500) segmentCache.delete(segmentCache.keys().next().value);
+  return segments;
+}
 
 // Tracks in your language order first, so the ones you are likely to want lead the menus.
 const rankIn = (languages, code) => { const index = languages.indexOf(code); return index === -1 ? languages.length : index; };

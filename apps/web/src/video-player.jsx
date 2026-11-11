@@ -16,7 +16,8 @@ const time = seconds => {
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
 };
 
-export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded, onMinimize, onPlay, onPrevious, onNext, onToggleTheater, theater = false, autoPlay = true, onMediaChange, onProgress, clipTools }) {
+// `overlay` is drawn over the picture (and stays visible in full screen): the Skip and Up next prompts.
+export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded, onMinimize, onPlay, onPrevious, onNext, onToggleTheater, theater = false, autoPlay = true, onMediaChange, onProgress, clipTools, overlay }) {
   // Switching sources is an admin action.
   const { isAdmin } = useSession();
   const catalog = Boolean(asset.catalog);
@@ -102,27 +103,44 @@ export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded,
   const total = remux && info?.durationMs ? info.durationMs / 1000 : duration;
   const src = remux ? remuxUrl(original, plan, offset) : compatible ? `${original}?compatible=1` : original;
 
+  // The moment of the movie a repackaged stream's time 0 shows. Copied video can only start on a keyframe,
+  // usually a little before the asked-for offset, so the server says where it really began; until it answers,
+  // the offset is close enough.
+  const [origin, setOrigin] = useState({ src: null, time: 0 });
+  const streamOrigin = remux ? (origin.src === src ? origin.time : offset) : 0;
+  useEffect(() => {
+    if (!remux || !ready) return;
+    const controller = new AbortController();
+    fetch(`/api/v1/assets/${asset.id}/stream-start?start=${Math.max(0, Math.floor(offset))}&video=${plan.video}`, { signal: controller.signal })
+      .then(response => response.ok ? response.json() : null)
+      .then(body => { if (Number.isFinite(body?.origin)) setOrigin({ src, time: body.origin }); })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [src, ready]);
+
   // Where playback is, in seconds of the whole movie or episode, for whoever needs to plan ahead.
   useEffect(() => { if (total > 0) onProgress?.(position, total); }, [position, total]);
 
   // Repackaged playback restarts at an offset; these let the rest of the app see real positions in the movie.
   const live = useRef({});
-  live.current = { remux, offset, total, position };
+  live.current = { remux, offset, origin: streamOrigin, total, position };
   const seekTo = useCallback(value => {
     const el = video.current, state = live.current;
     if (!el) return;
     const target = Math.max(0, Math.min(state.total || Infinity, value));
     setPosition(target);
     if (!state.remux) { el.currentTime = target; return; }
-    const plan = planSeek({ target, offset: state.offset, bufferedEnd: bufferedEndOf(el) });
+    const plan = planSeek({ target, offset: state.origin, bufferedEnd: bufferedEndOf(el) });
     if (plan.type === 'local') el.currentTime = plan.time;
+    // A target just past what has loaded, within the second the stream was asked to start at, is the same stream.
+    else if (Math.floor(plan.offset) === state.offset) el.currentTime = Math.max(0, target - state.origin);
     else { keepPlaying.current = true; setOffset(Math.floor(plan.offset)); }
   }, []);
   const attach = useCallback(node => {
     video.current = node;
     onMediaChange?.(Boolean(node));
     mediaRef.current = node ? createTimelineMedia(node, {
-      position: () => (live.current.remux ? live.current.offset : 0) + (video.current?.currentTime || 0),
+      position: () => Math.max(0, (live.current.remux ? live.current.origin : 0) + (video.current?.currentTime || 0)),
       duration: () => live.current.remux && live.current.total ? live.current.total : null,
       seek: value => seekTo(value),
     }) : null;
@@ -300,7 +318,7 @@ export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded,
         onClick={toggle} onDoubleClick={fullscreen}
         onPlay={() => { setPlaying(true); setClipEnded(null); onPlay?.(); }} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); onEnded?.(); }}
         onWaiting={() => setWaiting(true)} onPlaying={() => setWaiting(false)} onCanPlay={() => setWaiting(false)}
-        onTimeUpdate={event => setPosition((live.current.remux ? live.current.offset : 0) + event.currentTarget.currentTime)}
+        onTimeUpdate={event => setPosition(Math.max(0, (live.current.remux ? live.current.origin : 0) + event.currentTarget.currentTime))}
         onDurationChange={event => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
         onVolumeChange={event => { setVolume(event.currentTarget.volume); setMuted(event.currentTarget.muted); }}
         onLoadedMetadata={event => {
@@ -332,6 +350,7 @@ export function VideoPlayer({ asset, api, mediaRef, initialSeconds = 0, onEnded,
           <div><button onClick={() => { setClipEnded(null); clipTools.play(clipEnded, { preview: clipEnded.preview }); }}><Repeat size={16} /> Replay</button><button onClick={() => { setClipEnded(null); video.current?.play().catch(() => {}); }}><Play size={16} weight="fill" /> Keep watching</button></div></div>
         : ready && !playing ? <button className="kiwi-big-play" aria-label="Play video" onClick={toggle}><Play size={30} weight="fill" /></button>
         : waiting && <span className="kiwi-buffering" role="status">Buffering…</span>}
+      {screenReady && overlay}
     </div>
     <div className={`kiwi-controls ${isFullscreen && controlsVisible ? 'controls-visible' : ''}`}>
       {menu === 'subtitles' && <SubtitleMenu tracks={subtitleTracks} selectedId={subtitleId} status={subtitles.status} onSelect={chooseSubtitle} style={subtitleStyle} onStyle={updateSubtitleStyle} delay={subtitleDelay} onDelay={setSubtitleDelay}

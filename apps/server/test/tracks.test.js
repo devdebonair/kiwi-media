@@ -66,6 +66,26 @@ test('repackages a video with the chosen audio track, optionally from an offset'
   assert.equal(probe.streams.filter(stream => stream.codec_type === 'video')[0].codec_name, 'h264', 'video is copied untouched');
 });
 
+test('a stream started mid-file keeps sound and picture together, and says where it starts', { skip }, async () => {
+  // Keyframes every 2 seconds; a tone that starts at 2.5s. Asking for 3s must start on the keyframe at 2s.
+  const source = join(directory, 'sync.mkv');
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=duration=6:size=160x90:rate=15', '-f', 'lavfi', '-i', 'aevalsrc=sin(2*PI*440*t)*gte(t\\,2.5):s=48000:d=6',
+    '-c:v', 'libx264', '-g', '30', '-bf', '2', '-pix_fmt', 'yuv420p', '-c:a', 'ac3', source]);
+  db.prepare("INSERT INTO assets (id,kind,title,file_path,duration_ms,added_at,updated_at) VALUES ('sync','video','Sync',?,6000,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')").run(source);
+  const { origin } = (await app.inject('/api/v1/assets/sync/stream-start?start=3&video=copy')).json();
+  assert.ok(Math.abs(origin - (2 - 0.3 - 1024 / 48000)) < 0.002, `starts on the keyframe at 2s, with a lead-in (${origin})`);
+
+  const output = join(directory, 'sync.mp4');
+  writeFileSync(output, (await app.inject('/api/v1/assets/sync/file?remux=1&audio=0&video=copy&start=3')).rawPayload);
+  // Played back to back, as a browser does: the tone must begin at 2.5s of the movie.
+  const samples = new Float32Array(new Uint8Array(execFileSync('ffmpeg', ['-v', 'error', '-i', output, '-map', '0:a', '-ac', '1', '-f', 'f32le', '-'], { maxBuffer: 64 * 1024 * 1024 })).buffer);
+  const onset = samples.findIndex(value => Math.abs(value) > 0.2) / 48000;
+  assert.ok(Math.abs(origin + onset - 2.5) < 0.03, `tone heard at ${(origin + onset).toFixed(3)}s of the movie`);
+  // And the picture: the frame after the keyframe shows at 2s + 1/15 of the movie.
+  const times = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', output]).toString().trim().split('\n').map(Number).sort((a, b) => a - b);
+  assert.ok(Math.abs(origin + times[1] - (2 + 1 / 15)) < 0.01, `second frame at ${(origin + times[1]).toFixed(3)}s of the movie`);
+});
+
 test('picks up sidecar subtitle files named after the video', { skip }, async () => {
   writeFileSync(join(directory, 'sample.fr.srt'), '1\n00:00:00,000 --> 00:00:01,000\nBonjour\n');
   const result = (await app.inject('/api/v1/assets/clip/tracks')).json();

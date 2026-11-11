@@ -8,6 +8,7 @@ export * from "./titles.js";
 export * from "./indexers.js";
 export * from "./torbox.js";
 export * from "./tracks.js";
+export * from "./segments.js";
 export * from "./sources.js";
 export * from "./subtitles.js";
 export * from "./stream.js";

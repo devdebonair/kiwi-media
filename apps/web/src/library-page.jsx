@@ -11,7 +11,7 @@ import { OnNow, TopicsPanel } from "./side-list.jsx";
 const LIST_FILTERS = [["all", "All"], ["movie", "Movies"], ["show", "Series"], ["anime", "Anime"]];
 const listMatches = (item, filter) => filter === "all" || (filter === "anime" ? item.isAnime : !item.isAnime && item.type === filter);
 
-// Home: a featured banner, then what you're watching and your list, the catalog's trending rows, and your own
+// Home: a featured banner, then what you're watching and your list, picks for you, the catalog's trending rows, and your own
 // videos (shuffled, loading more as you scroll). The side column shows what's on the TV Guide and your topics.
 export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty, formatDuration }) {
   const [assets, setAssets] = useState(null);
@@ -30,6 +30,8 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty, format
   const [mine, setMine] = useState([]);
   const [listFilter, setListFilter] = useState("all");
   const [trending, setTrending] = useState([]);
+  // "Top picks for you" and "Because you watched …", from what this profile has watched.
+  const [forYou, setForYou] = useState([]);
   const [busy, setBusy] = useState(null);
   // Movies, shows, and anime stay in their own rows; they are never mixed into the home-video grid.
   const loadMine = useCallback(() => {
@@ -48,6 +50,11 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty, format
         return rail ? { id: kind, title: names[kind], href: `/${kind}`, items: rail.items } : null;
       }).filter(Boolean));
     });
+    return () => { active = false; };
+  }, [api]);
+  useEffect(() => {
+    let active = true;
+    api("/api/v1/catalog/for-you?kind=home").then(value => { if (active) setForYou(value.rails); }).catch(() => {});
     return () => { active = false; };
   }, [api]);
   useEffect(() => { api("/api/v1/topics").then(rows => setTopics(rows.filter(topic => topic.item_count > 0))).catch(() => {}); }, [api]);
@@ -84,6 +91,7 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty, format
       const updated = await api(`/api/v1/titles/${title.id}/library`, { method: "PUT", body: JSON.stringify({ inLibrary: !item.inLibrary }) });
       const patch = row => row.ref === item.ref || row.titleId === title.id ? { ...row, titleId: title.id, inLibrary: updated.inLibrary } : row;
       setTrending(rails => rails.map(rail => ({ ...rail, items: rail.items.map(patch) })));
+      setForYou(rails => rails.map(rail => ({ ...rail, items: rail.items.map(patch) })));
       loadMine();
     } catch { /* The button stays as it was. */ }
     finally { setBusy(null); }
@@ -100,6 +108,7 @@ export function Home({ navigate, api, AppLink, MediaCard, Loading, Empty, format
         {mine.length > 0 && <Rail title="Watch List" action={<><Segmented label="Filter Watch List" options={LIST_FILTERS.filter(([key]) => key === "all" || mine.some(item => listMatches(item, key)))} value={listFilter} onChange={setListFilter} /><AppLink href="/lists" navigate={navigate} className="shelf-link">See all</AppLink></>}>
           <>{shownMine.map(item => <PosterCard key={item.id} item={{ ...item, ref: item.id, titleId: item.id }} AppLink={AppLink} navigate={navigate} onToggle={toggle} busy={busy === item.id} />)}</>
         </Rail>}
+        {forYou.map(rail => <Rail key={rail.id} title={rail.title}><>{rail.items.map(card)}</></Rail>)}
         {trending.map(rail => <Rail key={rail.id} title={rail.title} action={<AppLink href={rail.href} navigate={navigate} className="shelf-link">View all</AppLink>}><>{rail.items.map(card)}</></Rail>)}
 
         <section className="home-videos" aria-labelledby="home-videos-heading">

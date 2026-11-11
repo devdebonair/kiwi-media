@@ -49,11 +49,13 @@ export function describeStreams(probe) {
     durationMs: Math.round(Number(probe.format?.duration || 0) * 1000) || null, container: probe.format?.format_name || null, bitRate: Number(probe.format?.bit_rate) || null,
     video: video ? { codec: video.codec_name, profile: video.profile || null, width: video.width, height: video.height, pixFmt: video.pix_fmt, bitDepth: /10/.test(video.pix_fmt || "") ? 10 : 8, hdr: /smpte2084|arib-std-b67/.test(video.color_transfer || "") } : null,
     audio, subtitles,
+    // Named chapters can mark the intro and credits (see segments.js).
+    chapters: (probe.chapters || []).map(chapter => ({ title: chapter.tags?.title || null, startMs: Math.round(Number(chapter.start_time || 0) * 1000), endMs: Math.round(Number(chapter.end_time || 0) * 1000) || null })),
   };
 }
 
 export async function probe(input, { timeoutMs = 45_000 } = {}) {
-  const args = ["-v", "error", "-print_format", "json", "-show_streams", "-show_format"];
+  const args = ["-v", "error", "-print_format", "json", "-show_streams", "-show_format", "-show_chapters"];
   if (/^https?:/i.test(input)) args.push("-user_agent", "Kiwi/1.0", "-rw_timeout", "30000000");
   const { stdout } = await exec("ffprobe", [...args, input], { timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 8 * 1024 * 1024 });
   return describeStreams(JSON.parse(stdout));

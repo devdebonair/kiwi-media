@@ -98,7 +98,11 @@ a.service-badge:hover { background: #ffffff1c; }
 
 /* Watching an episode */
 .player-shell { position: relative; }
-.up-next { position: absolute; z-index: 6; right: 16px; bottom: 96px; display: flex; gap: 12px; padding: 10px; width: min(420px, calc(100% - 32px)); background: #16171cf2; border: 1px solid #ffffff1a; border-radius: 12px; box-shadow: 0 18px 50px #000a; }
+.up-next { position: absolute; z-index: 6; right: 16px; bottom: 16px; display: flex; gap: 12px; padding: 10px; width: min(420px, calc(100% - 32px)); background: #16171cf2; border: 1px solid #ffffff1a; border-radius: 12px; box-shadow: 0 18px 50px #000a; }
+/* Skip intro / Skip recap: bottom right of the picture, like the Up next prompt. */
+.skip-segment { position: absolute; z-index: 6; right: 16px; bottom: 16px; height: 42px; padding: 0 20px; border: 1px solid #ffffffb3; border-radius: 8px; background: #16171ce6; color: #fff; font-size: 14px; font-weight: 600; text-transform: capitalize; cursor: pointer; box-shadow: 0 10px 30px #0008; }
+.skip-segment:hover { background: #fff; color: #111; }
+.kiwi-player:fullscreen .skip-segment, .kiwi-player:fullscreen .up-next { bottom: 120px; right: 32px; }
 .up-next img { width: 124px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; flex: 0 0 auto; align-self: flex-start; }
 .up-next > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .up-next span { font-size: 11px; color: var(--green); text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }
@@ -157,7 +161,8 @@ a.service-badge:hover { background: #ffffff1c; }
   .episode-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 22px 14px; }
   .catalog-toolbar h1 { flex: 1 0 100%; font-size: 24px; }
   .catalog-search { flex: 1; width: auto; }
-  .up-next { bottom: 74px; right: 8px; width: calc(100% - 16px); } .up-next img { width: 90px; }
+  .up-next { bottom: 8px; right: 8px; width: calc(100% - 16px); } .up-next img { width: 90px; }
+  .skip-segment { right: 8px; bottom: 8px; height: 36px; padding: 0 14px; }
 }
 @media (max-width: 680px) {
   .series-card { grid-template-columns: 48px minmax(0, 1fr); padding: 12px; }

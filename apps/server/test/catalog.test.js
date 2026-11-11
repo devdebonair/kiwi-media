@@ -60,6 +60,13 @@ const tmdbFetch = async (target) => {
     id: 300, title: 'Test Movie', release_date: '1999-03-31', runtime: 100, original_language: 'en', genres: [{ id: 28, name: 'Action' }], overview: 'A movie.', poster_path: '/poster300abc.jpg',
     imdb_id: 'tt3000003', external_ids: { imdb_id: 'tt3000003' }, release_dates: { results: [{ iso_3166_1: 'US', release_dates: [{ certification: 'R' }] }] },
   });
+  // Recommendations: five comedies and the show itself (which must never recommend itself), and one anime.
+  if (/^\/tv\/100\/recommendations$/.test(path)) return json({ page: 1, total_pages: 1, results: [
+    ...[501, 502, 503, 504, 505].map(id => ({ id, media_type: 'tv', name: `Comedy ${id}`, first_air_date: '2019-01-01', genre_ids: [35], original_language: 'en', poster_path: `/p${id}abcdef.jpg` })),
+    { id: 100, media_type: 'tv', name: 'Test Show', first_air_date: '2020-01-01', genre_ids: [35], original_language: 'en' },
+    { id: 200, media_type: 'tv', name: 'Anime Show', first_air_date: '2023-09-29', genre_ids: [16], original_language: 'ja', origin_country: ['JP'] },
+  ] });
+  if (/^\/(tv|movie)\/\d+\/(recommendations|similar)$/.test(path)) return json({ page: 1, total_pages: 1, results: [] });
   if (path === '/configuration') return json({});
   return new Response('{}', { status: 404 });
 };
@@ -540,4 +547,51 @@ test("a release group that played well is nudged up for the rest of the series, 
     // Movies are their own scope: a show's signal doesn't reach them.
     assert.equal(db.prepare("SELECT count(*) n FROM release_successes WHERE scope='movies'").get().n, 0);
   } finally { media.setMedia(saved); }
+});
+
+
+test("rows for you come from what the profile watched, leave out what it started, and fit each page", async () => {
+  const show = db.prepare("SELECT id FROM titles WHERE tmdb_id=100").get();
+  const anime = db.prepare("SELECT id FROM titles WHERE tmdb_id=200").get();
+  db.prepare("DELETE FROM consumption_state").run();
+  // Nothing watched and an empty Watch List: no rows.
+  db.prepare("DELETE FROM list_items").run();
+  assert.deepEqual((await get('/api/v1/catalog/for-you?kind=home')).json().rails, []);
+  // Watching most of an episode makes the show a seed.
+  const episode = `${show.id}-s01e01`;
+  const duration = db.prepare("SELECT duration_ms FROM assets WHERE id=?").get(episode).duration_ms;
+  await put(`/api/v1/assets/${episode}/progress`, { progressMs: Math.round(duration * 0.9) });
+  const home = (await get('/api/v1/catalog/for-you?kind=home')).json().rails;
+  // One show watched: its suggestions all lead "Top picks", so a "Because you watched" row would only repeat them.
+  assert.deepEqual(home.map(rail => rail.title), ['Top picks for you']);
+  const picks = home[0].items.map(item => item.title);
+  assert.ok(picks.includes('Comedy 501') && picks.includes('Anime Show'));
+  assert.ok(!picks.includes('Test Show'), 'never the show itself');
+  // Something the profile has started is not suggested.
+  await put(`/api/v1/assets/${anime.id}-s01e01/progress`, { progressMs: 1000 });
+  assert.ok(!(await get('/api/v1/catalog/for-you?kind=home')).json().rails[0].items.some(item => item.title === 'Anime Show'));
+  // Each page keeps to its kind: the anime page has no seed of its own here, so no rows.
+  assert.deepEqual((await get('/api/v1/catalog/for-you?kind=anime')).json().rails, []);
+  assert.ok((await get('/api/v1/catalog/for-you?kind=shows')).json().rails[0].items.every(item => !item.isAnime && item.type === 'show'));
+  assert.equal((await get('/api/v1/catalog/for-you?kind=nope')).statusCode, 400);
+});
+
+test('a title page offers more like it, never itself', async () => {
+  const show = db.prepare("SELECT id FROM titles WHERE tmdb_id=100").get();
+  const similar = (await get(`/api/v1/titles/${show.id}/similar`)).json();
+  assert.deepEqual(similar.items.map(item => item.title).slice(0, 5), ['Comedy 501', 'Comedy 502', 'Comedy 503', 'Comedy 504', 'Comedy 505']);
+  assert.ok(!similar.items.some(item => item.title === 'Test Show'));
+  assert.equal((await get('/api/v1/titles/nope/similar')).statusCode, 404);
+});
+
+test("skip times come from the playing file's named chapters", async () => {
+  const show = db.prepare("SELECT id FROM titles WHERE tmdb_id=100").get();
+  const assetId = `${show.id}-s01e02`;
+  const row = db.prepare("SELECT id, probe_json FROM playback_sources WHERE asset_id=? AND status='selected'").get(assetId);
+  assert.ok(row, 'an earlier test played this episode');
+  const info = { ...JSON.parse(row.probe_json), durationMs: 1_800_000, chapters: [{ title: 'Intro', startMs: 0, endMs: 61_000 }, { title: 'Part 1', startMs: 61_000, endMs: 1_700_000 }, { title: 'Credits', startMs: 1_700_000, endMs: 1_800_000 }] };
+  db.prepare("UPDATE playback_sources SET probe_json=? WHERE id=?").run(JSON.stringify(info), row.id);
+  const { segments } = (await get(`/api/v1/assets/${assetId}/segments`)).json();
+  assert.deepEqual(segments.map(segment => [segment.type, segment.startMs, segment.endMs]), [['intro', 0, 61_000], ['credits', 1_700_000, 1_800_000]]);
+  assert.equal((await get('/api/v1/assets/nope/segments')).statusCode, 404);
 });

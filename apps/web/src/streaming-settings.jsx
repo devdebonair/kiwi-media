@@ -33,6 +33,8 @@ function ProviderCard({ provider, api, reload }) {
   const [config, setConfig] = useState(provider.config), [clear, setClear] = useState([]), [enabled, setEnabled] = useState(provider.enabled);
   const [state, setState] = useState({ busy: "", message: "", error: "" });
   const indexer = provider.kind === "indexer";
+  // Indexers and optional helpers (TheIntroDB) can be switched off without removing their settings.
+  const switchable = indexer || provider.kind === "segments";
   const save = async () => {
     setState({ busy: "save", message: "", error: "" });
     try { await api(`/api/v1/media/providers/${provider.id}`, { method: "PUT", body: JSON.stringify({ config, clearSecrets: clear, enabled }) }); setClear([]); await reload(); setState({ busy: "", message: "Saved.", error: "" }); }
@@ -49,7 +51,7 @@ function ProviderCard({ provider, api, reload }) {
       <div><strong>{provider.name}<span className={`pill ${ready && provider.enabled ? "accent" : ""}`}>{ready ? (provider.enabled ? "On" : "Off") : "Not set up"}</span></strong><small>{provider.description}</small></div>
     </div>
     <ConfigFields fields={provider.fields} values={config} secrets={provider.secrets} onChange={setConfig} cleared={clear} onClear={setClear} api={api} disabled={state.busy !== ""} />
-    {indexer && <Toggle checked={enabled} onChange={setEnabled} label="Use this indexer" />}
+    {switchable && <Toggle checked={enabled} onChange={setEnabled} label={indexer ? "Use this indexer" : `Use ${provider.name}`} />}
     <div className="provider-actions">
       <button className="primary-button" disabled={state.busy !== ""} onClick={save}>{state.busy === "save" ? <SpinnerGap className="spin" /> : <FloppyDisk />}Save</button>
       <button className="outline-button" disabled={state.busy !== "" || !ready} onClick={test}>{state.busy === "test" ? <SpinnerGap className="spin" /> : null}Test connection</button>

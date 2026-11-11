@@ -2,14 +2,14 @@ import { randomUUID } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import mime from "mime-types";
-import { db, currentUserId, certificationLevel, currentProfile, isUnrestricted, assetVisibleSql, levelAllowed, ratingKey, ratingLevel, generatedDir, reindexTitleSearch } from "@kiwi/database";
+import { db, currentUserId, certificationLevel, currentProfile, isUnrestricted, assetVisibleSql, titleVisibleSql, levelAllowed, ratingKey, ratingLevel, generatedDir, reindexTitleSearch } from "@kiwi/database";
 import { titleAllowed } from "./profiles.js";
 import { join } from "node:path";
 import { ConfigError, destinationFor, downloadBlocker } from "@kiwi/downloads";
 import {
   LANGUAGES, MEDIA_DOWNLOADER_ID, MEDIA_SCHEME, SourceError, assetSummary, cacheSummary, clearHttpCache, continueWatching, defaultRules, describeLocalTracks, describePrepared,
   getDownloadSettings, getMedia, getPlayback, getProvider, getRules, getTitle, imageUrl, inMyList, libraryTitles, nextUp, openTitle, providerDefinitions,
-  publicProvider, publicSeasons, publicTitle, resetRules, saveDownloadSettings, savePlayback, saveProvider, saveRules, setAnime, setLibrary, startRemux, createHlsSessions, ensureSeason, ensureAllSeasons, playbackPlan,
+  publicProvider, publicSeasons, publicTitle, resetRules, segmentsFor, saveDownloadSettings, savePlayback, saveProvider, saveRules, setAnime, setLibrary, startRemux, planStart, createHlsSessions, ensureSeason, ensureAllSeasons, playbackPlan,
 } from "@kiwi/media";
 
 const userId = currentUserId;
@@ -114,6 +114,71 @@ export function registerMedia(app, { resolveTopic }) {
     const items = await visible(cards(result.results));
     const kind = req.query.kind;
     return { page: result.page, totalPages: result.totalPages, items: kind === "anime" ? items.filter(item => item.isAnime) : kind === "movies" || kind === "shows" ? items.filter(item => !item.isAnime && item.type === (kind === "movies" ? "movie" : "show")) : items };
+  }));
+
+  // --------------------------------------------------------------------------------------------
+  // Recommendations: what TMDB suggests to people who liked what this profile watched.
+
+  // Titles watched far enough to say something about taste (finished, ten minutes, or half), most recent first.
+  const watchedTitles = () => db.prepare(`SELECT t.*, max(cs.last_viewed_at) last_viewed FROM consumption_state cs
+    JOIN assets a ON a.id=cs.asset_id JOIN titles t ON t.id=a.title_id
+    WHERE cs.user_id=? AND t.tmdb_id IS NOT NULL AND (cs.completed=1 OR cs.progress_ms>=600000 OR cs.progress_ms>=a.duration_ms*0.5) AND ${titleVisibleSql("t")}
+    GROUP BY t.id ORDER BY last_viewed DESC`).all(userId());
+  // Anything the profile has started is not suggested to it again.
+  const startedTitles = () => new Set(db.prepare("SELECT DISTINCT a.title_id FROM consumption_state cs JOIN assets a ON a.id=cs.asset_id WHERE cs.user_id=? AND a.title_id IS NOT NULL").all(userId()).map(row => row.title_id));
+  const fitsKind = (kind, type) => item => kind === "home" ? true
+    : kind === "anime" ? item.isAnime && (!type || item.type === type)
+    : !item.isAnime && item.type === (kind === "movies" ? "movie" : "show");
+
+  // Rows for Home and the Movies, TV Shows, and Anime pages: "Top picks for you" (suggested by several things you
+  // watched, recent ones counting more), then "Because you watched …" for the two most recent. With no history
+  // yet, picks come from the Watch List instead. Empty when nothing fits or TMDB isn't set up.
+  app.get("/api/v1/catalog/for-you", handle(async req => {
+    const kind = req.query.kind || "home";
+    if (kind !== "home" && !KINDS.includes(kind)) throw new ConfigError("kind must be home, movies, shows, or anime.");
+    if (!getProvider("tmdb").configured) return { rails: [] };
+    const type = ["movie", "show"].includes(req.query.type) ? req.query.type : null;
+    const fits = fitsKind(kind, type);
+    const asItem = title => ({ isAnime: Boolean(title.is_anime), type: title.type });
+    let seeds = watchedTitles().filter(title => fits(asItem(title))).slice(0, 8);
+    const fromList = !seeds.length;
+    if (fromList) seeds = libraryTitles({ limit: 40 }).filter(title => title.tmdb_id && fits(asItem(title))).slice(0, 6);
+    if (!seeds.length) return { rails: [] };
+    const started = startedTitles(), seedIds = new Set(seeds.map(seed => seed.id));
+    const settled = await Promise.allSettled(seeds.map(seed => media().tmdb.recommendations(seed.type, seed.tmdb_id)));
+    const perSeed = seeds.map((seed, index) => ({
+      seed, items: settled[index].status === "fulfilled" ? cards(settled[index].value.results).filter(item => fits(item) && !started.has(item.titleId) && !seedIds.has(item.titleId)) : [],
+    }));
+    const scores = new Map();
+    perSeed.forEach(({ items }, seedIndex) => items.forEach((item, rank) => {
+      const entry = scores.get(item.ref) || { item, score: 0 };
+      entry.score += 1 / (1 + seedIndex * 0.35) / Math.sqrt(rank + 1);
+      scores.set(item.ref, entry);
+    }));
+    const picks = await visible([...scores.values()].sort((a, b) => b.score - a.score).map(entry => entry.item).slice(0, 24));
+    const rails = [];
+    if (picks.length >= 4) rails.push({ id: "picks", title: "Top picks for you", items: picks.slice(0, 20) });
+    if (!fromList) {
+      // Each "Because you watched" row leaves out what is already near the front of the rows above it.
+      const shown = new Set(picks.slice(0, 10).map(item => item.ref));
+      for (const { seed, items } of perSeed.slice(0, 2)) {
+        const own = (await visible(items.filter(item => !shown.has(item.ref)).slice(0, 24))).slice(0, 20);
+        if (own.length < 4) continue;
+        rails.push({ id: `because-${seed.id}`, title: `Because you watched ${seed.title}`, items: own });
+        own.slice(0, 10).forEach(item => shown.add(item.ref));
+      }
+    }
+    return { rails };
+  }));
+
+  // "More like this" on a title's page.
+  app.get("/api/v1/titles/:id/similar", handle(async (req, reply) => {
+    const title = db.prepare("SELECT * FROM titles WHERE id=?").get(req.params.id);
+    if (!title) return reply.code(404).send({ error: "Not found" });
+    if (!title.tmdb_id || !getProvider("tmdb").configured) return { items: [] };
+    const found = await media().tmdb.recommendations(title.type, title.tmdb_id);
+    const items = cards(found.results).filter(item => item.titleId !== title.id && !(item.tmdbId === title.tmdb_id && item.type === title.type));
+    return { items: (await visible(items.slice(0, 24))).slice(0, 20) };
   }));
 
   // The banner at the top of Home and the Movies, TV Shows, and Anime pages: what you are in the middle of first
@@ -345,6 +410,12 @@ export function registerMedia(app, { resolveTopic }) {
     return { sources: media().sources.sources(req.params.id) };
   }));
 
+  // Skippable parts (intro, recap, credits, preview) of what is playing. The player asks once playback has started.
+  app.get("/api/v1/assets/:id/segments", handle(async (req, reply) => {
+    if (!db.prepare("SELECT 1 FROM assets WHERE id=?").get(req.params.id)) return reply.code(404).send({ error: "Not found" });
+    return { segments: await segmentsFor(req.params.id) };
+  }));
+
   app.get("/api/v1/assets/:id/tracks", handle(async (req, reply) => {
     const result = await describeLocalTracks(req.params.id, { caps: String(req.query.caps || "").split(",").filter(Boolean) });
     if (!result) return reply.code(404).send({ error: "This video has no local file to read." });
@@ -367,18 +438,45 @@ export function registerMedia(app, { resolveTopic }) {
     return reply.send(createReadStream(path));
   });
 
+  // Where each repackaged stream really starts (see planStart). The player asks for it alongside the stream
+  // itself, so both share one keyframe lookup.
+  const starts = new Map();
+  const startPlan = async (assetId, start, video) => {
+    const input = await sourceInput(assetId);
+    const key = [input, start, video].join("|");
+    let entry = starts.get(key);
+    if (!entry || entry.expires < Date.now()) {
+      entry = { plan: planStart({ input, start, video }), expires: Date.now() + 30 * 60_000 };
+      starts.set(key, entry);
+      for (const [old, value] of starts) if (starts.size > 300 || value.expires < Date.now()) starts.delete(old); else break;
+    }
+    return { input, plan: await entry.plan };
+  };
+  const streamQuery = query => ({
+    start: Math.max(0, Math.round((Number(query.start) || 0) * 1000) / 1000),
+    video: query.video === "transcode" ? "transcode" : "copy",
+  });
+
+  // The moment of the movie that a repackaged stream's time 0 shows, so the player can keep its clock (and
+  // subtitles, and the progress bar) on the movie rather than on the stream.
+  app.get("/api/v1/assets/:id/stream-start", handle(async (req, reply) => {
+    if (!db.prepare("SELECT 1 FROM assets WHERE id=?").get(req.params.id)) return reply.code(404).send({ error: "Not found" });
+    const { start, video } = streamQuery(req.query);
+    const { plan } = await startPlan(req.params.id, start, video);
+    return { origin: Math.round(plan.origin * 1000) / 1000 };
+  }));
+
   // Repackaged playback: chosen audio track and/or re-encoded video, starting at `start` seconds.
   async function remux(req, reply, assetId) {
-    const start = Math.max(0, Number(req.query.start) || 0);
+    const { start, video } = streamQuery(req.query);
     const audio = Math.max(0, Math.min(Number(req.query.audio) || 0, 31));
-    const video = req.query.video === "transcode" ? "transcode" : "copy";
-    const input = await sourceInput(assetId);
+    const { input, plan } = await startPlan(assetId, start, video);
     if (req.query.hls === "1") {
       const codec = req.query.codec === "hevc" ? "hevc" : undefined;
-      const session = await hls.start({ input, start, audioPosition: audio, video, videoCodec: codec, key: [assetId, Math.floor(start), audio, video, codec || ""].join("|") });
+      const session = await hls.start({ input, plan, audioPosition: audio, video, videoCodec: codec, key: [assetId, start, audio, video, codec || ""].join("|") });
       return reply.header("Cache-Control", "no-store").redirect(`/api/v1/hls/${session.id}/index.m3u8`, 302);
     }
-    const job = startRemux({ input, start, audioPosition: audio, video, videoCodec: req.query.codec === "hevc" ? "hevc" : undefined });
+    const job = startRemux({ input, plan, audioPosition: audio, video, videoCodec: req.query.codec === "hevc" ? "hevc" : undefined });
     reply.raw.on("close", () => job.stop());
     reply.header("Content-Type", "video/mp4").header("Cache-Control", "no-store").header("X-Accel-Buffering", "no");
     return reply.send(job.stream);
@@ -492,6 +590,7 @@ export function registerMedia(app, { resolveTopic }) {
       if (id === "torbox") { torbox.client.resetBreaker(); const account = await torbox.account(); return { ok: true, message: `Connected to TorBox${account.plan !== undefined ? ` (plan ${account.plan})` : ""}.` }; }
       if (id === "torrentio") { const base = (provider.config.baseUrl || "https://torrentio.strem.fun").replace(/\/+$/, ""); const response = await fetch(`${base}/manifest.json`, { signal: AbortSignal.timeout(15_000) }); return response.ok ? { ok: true, message: "Torrentio is reachable." } : reply.code(502).send({ error: `Torrentio responded ${response.status}.` }); }
       if (id === "nyaa") { const base = (provider.config.baseUrl || "https://nyaa.si").replace(/\/+$/, ""); const response = await fetch(`${base}/?page=rss&q=test`, { signal: AbortSignal.timeout(15_000) }); return response.ok ? { ok: true, message: "Nyaa is reachable." } : reply.code(502).send({ error: `Nyaa responded ${response.status}.` }); }
+      if (id === "theintrodb") { const found = await media().introDb.lookup({ tmdbId: 1396, type: "show", season: 1, episode: 1 }); return { ok: true, message: found.length ? "TheIntroDB is reachable." : "TheIntroDB answered, but had no times for the test episode." }; }
       if (id === "opensubtitles") { await opensubs.search({ imdbId: "tt0133093", language: "eng" }); return { ok: true, message: "OpenSubtitles accepted the key." }; }
     } catch (error) { return reply.code(error.statusCode === 401 ? 401 : 502).send({ error: error.message }); }
     return { ok: true };

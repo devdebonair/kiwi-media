@@ -31,6 +31,7 @@ export function CatalogPage({ kind, api, navigate, AppLink, Loading, Empty, form
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const [home, setHome] = useState(null);
+  const [forYou, setForYou] = useState([]);
   const [mine, setMine] = useState([]);
   const [continuing, setContinuing] = useState([]);
   const [browse, setBrowse] = useState(null);
@@ -57,6 +58,8 @@ export function CatalogPage({ kind, api, navigate, AppLink, Loading, Empty, form
     api(`/api/v1/catalog/home?kind=${kind}`).then(value => { if (active) setHome(value.rails.filter(visible)); })
       .catch(e => { if (active) setError(e.message); });
     api(`/api/v1/catalog/genres?kind=${kind}${animeType ? `&type=${animeType}` : ""}`).then(value => { if (active) setGenres(value); }).catch(() => {});
+    setForYou([]);
+    api(`/api/v1/catalog/for-you?kind=${kind}${animeType ? `&type=${animeType}` : ""}`).then(value => { if (active) setForYou(value.rails); }).catch(() => {});
     return () => { active = false; };
   }, [api, kind, animeType]);
 
@@ -92,6 +95,7 @@ export function CatalogPage({ kind, api, navigate, AppLink, Loading, Empty, form
       const updated = await api(`/api/v1/titles/${title.id}/library`, { method: "PUT", body: JSON.stringify({ inLibrary: !item.inLibrary }) });
       const patch = row => row.ref === item.ref || row.titleId === title.id ? { ...row, titleId: title.id, ref: row.ref, inLibrary: updated.inLibrary } : row;
       setHome(rails => rails && rails.map(rail => ({ ...rail, items: rail.items.map(patch) })));
+      setForYou(rails => rails.map(rail => ({ ...rail, items: rail.items.map(patch) })));
       setBrowse(value => value && { ...value, items: value.items.map(patch) });
       loadMine();
     } catch (e) { setError(e.message); }
@@ -122,6 +126,7 @@ export function CatalogPage({ kind, api, navigate, AppLink, Loading, Empty, form
         : <>
           {continuing.length > 0 && <Rail title="Continue watching"><>{continuing.map(entry => <ContinueCard key={entry.title.id} entry={entry} AppLink={AppLink} navigate={navigate} />)}</></Rail>}
           {mine.length > 0 && <Rail title="Watch List" subtitle={`${mine.length} ${mine.length === 1 ? "title" : "titles"}`} action={<AppLink href="/lists" navigate={navigate} className="shelf-link">See all</AppLink>}><>{mine.map(item => <PosterCard key={item.id} item={{ ...item, ref: item.id, titleId: item.id }} AppLink={AppLink} navigate={navigate} onToggle={toggle} busy={busy === item.id} />)}</></Rail>}
+          {forYou.map(rail => <Rail key={rail.id} title={rail.title}><>{rail.items.map(card)}</></Rail>)}
           {home === null && !error ? <Loading /> : error ? <div className="error-notice" role="alert"><span>{error}</span></div> : home.map(rail => <Rail key={rail.id} title={rail.title}><>{rail.items.map(card)}</></Rail>)}
           {home && !home.length && !mine.length && <Empty title="Nothing to show yet" message="The catalog returned no titles. Try again in a moment." />}
         </>}

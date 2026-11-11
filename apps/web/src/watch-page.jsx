@@ -28,6 +28,10 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
   const [saving, setSaving] = useState(false);
   const [theater, setTheater] = useState(false);
   const [upNext, setUpNext] = useState(null);
+  // The intro, recap, credits, and preview of a movie or episode, and the one playing now (for the Skip buttons).
+  const [segments, setSegments] = useState([]);
+  const [activeSegment, setActiveSegment] = useState(null);
+  const creditsShown = useRef(null);
   // Streamed items open their source before the <video> exists, so tracking waits for it.
   const [mediaReady, setMediaReady] = useState(false);
   const [saveNote, setSaveNote] = useState("");
@@ -86,6 +90,16 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
     clipTools.play(clip);
   }, [clipTools.clips, mini]);
 
+  // Skippable parts are looked up once the stream is open (they belong to the file being played).
+  const isCatalog = Boolean(asset?.catalog);
+  useEffect(() => {
+    setSegments([]); setActiveSegment(null);
+    if (!isCatalog || mini || !mediaReady) return;
+    let active = true;
+    api(`/api/v1/assets/${id}/segments`).then(value => { if (active) setSegments(value.segments || []); }).catch(() => {});
+    return () => { active = false; };
+  }, [id, isCatalog, mediaReady, mini, api]);
+
   // When an episode ends, the next one starts after a short countdown that can be cancelled.
   useEffect(() => {
     if (!upNext) return;
@@ -116,7 +130,22 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
     warming.current = { id: next.id, controller };
     warmPlayback({ id: next.id, titleId: asset.catalog.titleId }, { signal: controller.signal, startStream }).catch(() => {});
   };
-  const progress = (position, total) => { if (position >= total * 0.75 || total - position <= 300) warmNext(); };
+  const progress = (position, total) => {
+    const next = asset?.catalog?.next;
+    if (next && (position >= total * 0.75 || total - position <= 300)) warmNext();
+    const ms = position * 1000;
+    const current = segments.find(segment => ms >= segment.startMs && ms < segment.endMs - 500) || null;
+    setActiveSegment(previous => previous?.type === current?.type && previous?.startMs === current?.startMs ? previous : current);
+    // End credits (or the preview after them) start the countdown to the next episode, once per episode. Only in the
+    // second half, so a mislabelled early segment can't cut an episode short.
+    const ending = current && (current.type === "credits" || current.type === "preview") && current.startMs >= total * 500;
+    if (ending && next && !mini && creditsShown.current !== id) {
+      creditsShown.current = id;
+      setUpNext(value => value || { episode: next, seconds: 10, credits: true });
+      warmNext(true);
+    }
+  };
+  const skipSegment = segment => { if (mediaRef.current) mediaRef.current.currentTime = segment.endMs / 1000; };
 
   const finish = () => {
     if (asset?.catalog) {
@@ -129,6 +158,15 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
   };
 
   const episodeLink = episode => episode ? () => navigate(`/watch/${episode.id}`) : undefined;
+  const skippable = activeSegment && (activeSegment.type === "intro" || activeSegment.type === "recap") && !upNext ? activeSegment : null;
+  const overlay = <>
+    {skippable && <button className="skip-segment" onClick={() => skipSegment(skippable)}>Skip {skippable.type}</button>}
+    {upNext && <div className="up-next" role="status">
+      {upNext.episode.thumbnail && <img src={upNext.episode.thumbnail} alt="" />}
+      <div><span>{upNext.credits ? "Next episode" : "Up next"} · starting in {upNext.seconds}s</span><strong>S{upNext.episode.season} · E{upNext.episode.episode} — {upNext.episode.title}</strong>
+        <div><button className="primary-button" onClick={() => navigate(`/watch/${upNext.episode.id}`)}><Play weight="fill" size={16} /> Play now</button><button className="outline-button" onClick={() => setUpNext(null)}>{upNext.credits ? "Watch credits" : "Cancel"}</button></div></div>
+    </div>}
+  </>;
   const queueIndex = playlist.items.findIndex(item => item.id === id);
   const goToQueueItem = item => {
     playlist.dispatch({ type: "play", asset: item });
@@ -169,16 +207,11 @@ export function WatchPage({ id, navigate, api, AppLink, MediaCard, Loading, form
     <div className={`watch-layout ${hasAside ? "" : "without-related"}`} style={playerHeight ? { "--player-height": `${playerHeight}px` } : undefined}>
       <div className="watch-primary">
         <div className="player-shell" ref={playerRef}>
-          {hasFile && asset.kind === "video" ? <VideoPlayer key={asset.id} asset={asset} api={api} mediaRef={mediaRef} onMediaChange={setMediaReady} onProgress={catalog?.next ? progress : undefined} clipTools={mini ? undefined : clipTools} initialSeconds={initialSeconds} autoPlay={!suspended} onEnded={finish} onPlay={() => { if (!catalog) playlist.dispatch({ type: "play", asset }); }}
+          {hasFile && asset.kind === "video" ? <VideoPlayer key={asset.id} asset={asset} api={api} mediaRef={mediaRef} onMediaChange={setMediaReady} onProgress={catalog ? progress : undefined} overlay={overlay} clipTools={mini ? undefined : clipTools} initialSeconds={initialSeconds} autoPlay={!suspended} onEnded={finish} onPlay={() => { if (!catalog) playlist.dispatch({ type: "play", asset }); }}
             onPrevious={catalog ? episodeLink(catalog.previous) : previous} onNext={catalog ? episodeLink(catalog.next) : next} theater={theater} onToggleTheater={mini ? undefined : () => setTheater(value => !value)}
             onMinimize={mini || catalog ? undefined : () => { playlist.dispatch({ type: "play", asset }); navigate("/"); }} />
             : hasFile && asset.kind === "audio" ? <div className="audio-player">{asset.thumbnail_url && <img src={asset.thumbnail_url} alt="" />}<audio ref={mediaRef} src={src} controls autoPlay onError={() => setPlaybackError(true)} /></div>
             : <div className="poster-player">{(asset.kind === "image" && hasFile) || asset.thumbnail_url ? <img src={asset.kind === "image" && hasFile ? src : asset.thumbnail_url} alt={asset.title} /> : <div className="media-unavailable">No preview available</div>}{hasFile && asset.kind !== "image" && <a className="outline-button original-link" href={src} download><DownloadSimple size={18} /> Open original</a>}</div>}
-          {upNext && <div className="up-next" role="status">
-            {upNext.episode.thumbnail && <img src={upNext.episode.thumbnail} alt="" />}
-            <div><span>Up next · starting in {upNext.seconds}s</span><strong>S{upNext.episode.season} · E{upNext.episode.episode} — {upNext.episode.title}</strong>
-              <div><button className="primary-button" onClick={() => navigate(`/watch/${upNext.episode.id}`)}><Play weight="fill" size={16} /> Play now</button><button className="outline-button" onClick={() => setUpNext(null)}>Cancel</button></div></div>
-          </div>}
         </div>
         {!catalog && !playlistBeside && <PlaylistQueue navigate={navigate} mini={mini} formatDuration={formatDuration}/>}
         {playbackError && <p className="error-notice" role="alert">This media could not play in this browser. <a href={src} download>Download the original</a> to play it in another player.</p>}

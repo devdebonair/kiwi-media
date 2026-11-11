@@ -32,6 +32,7 @@ export const SETTINGS_GROUPS = [
         { label: "TorBox", target: "provider-torbox", keywords: "debrid api key streams instant" },
         { label: "Torrentio", target: "provider-torrentio", keywords: "indexer torrents releases address" },
         { label: "Nyaa", target: "provider-nyaa", keywords: "anime indexer torrents releases address" },
+        { label: "TheIntroDB", target: "provider-theintrodb", keywords: "skip intro credits recap opening ending timestamps" },
         { label: "OpenSubtitles", target: "provider-opensubtitles", keywords: "subtitles captions login api key username password" },
       ] },
       { id: "source-rules", title: "Source rules", keywords: "ranking releases quality", items: [
