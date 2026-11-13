@@ -349,6 +349,10 @@ http://<server-tailscale-ip>:4173
 
 The default Docker Compose setup exposes Caddy on port 80 instead. Access control is currently delegated to Tailscale; do not expose the development server directly to the public internet.
 
+## Apple TV and iPhone apps
+
+`apps/apple` holds native clients for Apple TV and for iPhone and iPad. Both have a profile picker, Netflix-style browsing, title pages, search and playback. The two apps share one SwiftUI codebase (`Shared/`) and one Xcode project, generated from `apps/apple/project.yml` with XcodeGen. It isn't an npm workspace. On a Mac with Xcode, run `npm run apple:project` and open `apps/apple/Kiwi.xcodeproj`. See [apps/apple/README.md](apps/apple/README.md) for details.
+
 ## Data and backups
 
 - SQLite database: `data/kiwi.db`

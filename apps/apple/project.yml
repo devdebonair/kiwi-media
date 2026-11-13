@@ -1,0 +1,164 @@
+# Kiwi's Apple clients: Apple TV and iPhone/iPad. Generate the Xcode project with `xcodegen generate`.
+# Both apps compile Shared/ (API client, models, playback, feeds, app state) plus their own UI folder.
+name: Kiwi
+options:
+  bundleIdPrefix: wild.fennec
+  deploymentTarget:
+    tvOS: "26.0"
+    iOS: "26.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # Both apps are built as the "Kiwi" module so the shared unit tests can `@testable import Kiwi`.
+    PRODUCT_NAME: Kiwi
+    PRODUCT_MODULE_NAME: Kiwi
+targets:
+  KiwiTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: Shared
+      - path: TV
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: wild.fennec.KiwiTV
+        ASSETCATALOG_COMPILER_APPICON_NAME: App Icon & Top Shelf Image
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    info:
+      path: TV/Info.plist
+      properties:
+        CFBundleDisplayName: Kiwi
+        UILaunchScreen: {}
+        UIUserInterfaceStyle: Dark
+        UIRequiredDeviceCapabilities: [arm64]
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: Kiwi connects to your Kiwi media server on your network.
+
+  KiwiiOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Shared
+      - path: iOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: wild.fennec.KiwiMedia
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    info:
+      path: iOS/Info.plist
+      properties:
+        CFBundleDisplayName: Kiwi
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIUserInterfaceStyle: Dark
+        UIBackgroundModes: [audio]
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: Kiwi connects to your Kiwi media server on your network.
+
+  KiwiTVTests:
+    type: bundle.unit-test
+    platform: tvOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: KiwiTV
+    settings:
+      base:
+        PRODUCT_NAME: KiwiTVTests
+        PRODUCT_MODULE_NAME: KiwiTVTests
+        PRODUCT_BUNDLE_IDENTIFIER: wild.fennec.KiwiTVTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Kiwi.app/Kiwi"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+  KiwiiOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: KiwiiOS
+    settings:
+      base:
+        PRODUCT_NAME: KiwiiOSTests
+        PRODUCT_MODULE_NAME: KiwiiOSTests
+        PRODUCT_BUNDLE_IDENTIFIER: wild.fennec.KiwiMediaTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Kiwi.app/Kiwi"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+  KiwiTVUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    sources:
+      - path: TVUITests
+    dependencies:
+      - target: KiwiTV
+    settings:
+      base:
+        PRODUCT_NAME: KiwiTVUITests
+        PRODUCT_MODULE_NAME: KiwiTVUITests
+        PRODUCT_BUNDLE_IDENTIFIER: wild.fennec.KiwiTVUITests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: KiwiTV
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+
+  KiwiiOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: iOSUITests
+    dependencies:
+      - target: KiwiiOS
+    settings:
+      base:
+        PRODUCT_NAME: KiwiiOSUITests
+        PRODUCT_MODULE_NAME: KiwiiOSUITests
+        PRODUCT_BUNDLE_IDENTIFIER: wild.fennec.KiwiMediaUITests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: KiwiiOS
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+
+schemes:
+  KiwiTV:
+    build:
+      targets:
+        KiwiTV: all
+        KiwiTVTests: [test]
+        KiwiTVUITests: [test]
+    test:
+      targets:
+        - KiwiTVTests
+        - KiwiTVUITests
+  KiwiiOS:
+    build:
+      targets:
+        KiwiiOS: all
+        KiwiiOSTests: [test]
+        KiwiiOSUITests: [test]
+    test:
+      targets:
+        - KiwiiOSTests
+        - KiwiiOSUITests

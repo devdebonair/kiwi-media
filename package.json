@@ -11,7 +11,10 @@
     "metadata": "node apps/scanner/src/cli.js",
     "profiles:enrich": "node --env-file-if-exists=.env apps/scanner/src/profile-enrichment.js",
     "metadata:build-phasher": "npm run build:phasher -w @kiwi/scanner",
-    "migrate:library-roots": "node --env-file-if-exists=.env scripts/migrate-library-roots.mjs"
+    "migrate:library-roots": "node --env-file-if-exists=.env scripts/migrate-library-roots.mjs",
+    "apple:project": "cd apps/apple && xcodegen generate",
+    "apple:build": "cd apps/apple && xcodegen generate && xcodebuild build -project Kiwi.xcodeproj -scheme KiwiiOS -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -derivedDataPath build/DerivedData && xcodebuild build -project Kiwi.xcodeproj -scheme KiwiTV -destination 'platform=tvOS Simulator,name=Apple TV 4K (4th generation)' -derivedDataPath build/DerivedData",
+    "apple:test": "cd apps/apple && xcodegen generate && xcodebuild test -project Kiwi.xcodeproj -scheme KiwiiOS -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -derivedDataPath build/DerivedData -only-testing:KiwiiOSTests && xcodebuild test -project Kiwi.xcodeproj -scheme KiwiTV -destination 'platform=tvOS Simulator,name=Apple TV 4K (4th generation)' -derivedDataPath build/DerivedData -only-testing:KiwiTVTests"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

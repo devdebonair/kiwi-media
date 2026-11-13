@@ -11,3 +11,16 @@ design-qa.md
 media/**/*.webm
 media/**/*.ogg
 /downloads/
+
+# Apple apps (apps/apple): the Xcode project is generated from project.yml by XcodeGen
+apps/apple/*.xcodeproj/
+apps/apple/*.xcworkspace/
+apps/apple/build/
+DerivedData/
+.swiftpm/
+xcuserdata/
+*.xcresult
+*.ipa
+*.dSYM/
+*.dSYM.zip
+.DS_Store
