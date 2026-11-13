@@ -28,3 +28,12 @@ test("re-encoded video is cut exactly; an unreadable file falls back to cutting 
   const unknown = await planStart({ input: "x", start: 600, probe: async () => null });
   assert.deepEqual(unknown, { seek: 600, accurate: true, firstPts: null, origin: 600 });
 });
+
+test("a growing HLS playlist tells the player to start at its first segment, once", async () => {
+  const { startAtBeginning } = await import("../src/stream.js");
+  const playlist = "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:4\n#EXT-X-PLAYLIST-TYPE:EVENT\n#EXTINF:4.0,\nseg00000.m4s\n";
+  const started = startAtBeginning(playlist);
+  assert.equal(started.split("\n")[1], "#EXT-X-START:TIME-OFFSET=0,PRECISE=YES");
+  assert.equal(started.replace("#EXT-X-START:TIME-OFFSET=0,PRECISE=YES\n", ""), playlist);
+  assert.equal(startAtBeginning(started), started);
+});

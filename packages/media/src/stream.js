@@ -77,6 +77,15 @@ export function startRemux({ input, plan = { seek: 0, accurate: true, firstPts: 
   return { child, stream: child.stdout, errors: () => errors, stop: () => { if (!child.killed) child.kill("SIGKILL"); } };
 }
 
+// The HLS playlist grows while ffmpeg works (an EVENT playlist). Without a start point, AVPlayer joins such a playlist
+// a few segments from its newest one, the way it joins a live broadcast. Repackaging runs far faster than playback,
+// so that skipped minutes of the video (from the resume point on) and the episode seemed to end early. Every stream
+// is cut to begin where it should be watched from, so players are told to start at its first segment.
+export function startAtBeginning(playlist) {
+  if (/^#EXT-X-START:/m.test(playlist)) return playlist;
+  return playlist.replace(/^#EXTM3U[^\S\n]*\r?\n/, line => `${line}#EXT-X-START:TIME-OFFSET=0,PRECISE=YES\n`);
+}
+
 // Apple browsers (every browser on iOS) refuse a progressive stream that cannot be range-requested, so they
 // get the same repackaged video as HLS: ffmpeg writes a growing playlist and fragments into a session folder,
 // served to the player until it has been idle for a while.

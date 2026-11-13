@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import mime from "mime-types";
 import { db, currentUserId, certificationLevel, currentProfile, isUnrestricted, assetVisibleSql, titleVisibleSql, levelAllowed, ratingKey, ratingLevel, generatedDir, reindexTitleSearch } from "@kiwi/database";
@@ -9,7 +10,7 @@ import { ConfigError, destinationFor, downloadBlocker } from "@kiwi/downloads";
 import {
   LANGUAGES, MEDIA_DOWNLOADER_ID, MEDIA_SCHEME, SourceError, assetSummary, cacheSummary, clearHttpCache, continueWatching, defaultRules, describeLocalTracks, describePrepared,
   getDownloadSettings, getMedia, getPlayback, getProvider, getRules, getTitle, imageUrl, inMyList, libraryTitles, nextUp, openTitle, providerDefinitions,
-  publicProvider, publicSeasons, publicTitle, resetRules, segmentsFor, saveDownloadSettings, savePlayback, saveProvider, saveRules, setAnime, setLibrary, startRemux, planStart, createHlsSessions, ensureSeason, ensureAllSeasons, playbackPlan,
+  publicProvider, publicSeasons, publicTitle, resetRules, segmentsFor, saveDownloadSettings, savePlayback, saveProvider, saveRules, setAnime, setLibrary, startRemux, planStart, createHlsSessions, startAtBeginning, ensureSeason, ensureAllSeasons, playbackPlan,
 } from "@kiwi/media";
 
 const userId = currentUserId;
@@ -435,7 +436,7 @@ export function registerMedia(app, { resolveTopic }) {
     if (!path) return reply.code(404).send({ error: "Stream not found" });
     const playlist = req.params.file.endsWith(".m3u8");
     reply.header("Content-Type", playlist ? "application/vnd.apple.mpegurl" : "video/mp4").header("Cache-Control", playlist ? "no-store" : "private, max-age=3600");
-    return reply.send(createReadStream(path));
+    return reply.send(playlist ? startAtBeginning(await readFile(path, "utf8")) : createReadStream(path));
   });
 
   // Where each repackaged stream really starts (see planStart). The player asks for it alongside the stream
