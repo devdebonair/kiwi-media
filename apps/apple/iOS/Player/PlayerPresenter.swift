@@ -15,6 +15,11 @@ final class PlayerPresenter: NSObject, AVPlayerViewControllerDelegate {
 
     func present(_ request: PlayRequest, api: APIClient, onClose: @escaping () -> Void) {
         finish()
+        if VLCSpike.isEnabled, case let .asset(id, startOver) = request.source {
+            OrientationLock.allowsLandscape = true
+            Self.topViewController()?.present(VLCPlayerController(api: api, assetId: id, startOver: startOver, onClose: onClose), animated: true)
+            return
+        }
         let session = PlayerSession(api: api, request: request)
         let controller = AVPlayerViewController()
         controller.delegate = self
@@ -168,6 +173,12 @@ enum OrientationLock {
 }
 
 final class KiwiAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // Saves a `-KiwiVLCSpike` launch argument right away, so it sticks even if nothing is played this launch.
+        _ = VLCSpike.isEnabled
+        return true
+    }
+
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         OrientationLock.supported
     }

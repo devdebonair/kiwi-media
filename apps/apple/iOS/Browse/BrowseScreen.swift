@@ -192,6 +192,7 @@ struct HeroCard: View {
 /// The current profile's avatar; opens profile switching and server settings.
 struct ProfileMenu: View {
     @Environment(AppModel.self) private var app
+    @State private var showsSettings = false
 
     var body: some View {
         if let profile = app.currentProfile {
@@ -204,10 +205,12 @@ struct ProfileMenu: View {
                         app.changeServer()
                     }
                 }
+                Button("Settings", systemImage: "gearshape") { showsSettings = true }
             } label: {
                 ProfileAvatar(profile: profile, size: 32)
             }
             .accessibilityLabel("Profile")
+            .sheet(isPresented: $showsSettings) { SettingsScreen() }
         }
     }
 }

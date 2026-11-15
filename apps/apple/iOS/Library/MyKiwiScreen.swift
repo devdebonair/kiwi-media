@@ -7,6 +7,7 @@ struct MyKiwiScreen: View {
 
     @Environment(AppModel.self) private var app
     @State private var model = BrowseModel(load: Feeds.myList)
+    @State private var showsSettings = false
 
     var body: some View {
         ScrollView(.vertical) {
@@ -17,6 +18,7 @@ struct MyKiwiScreen: View {
                     Menu {
                         Button("Switch Profile", systemImage: "person.2") { Task { await app.switchProfile() } }
                         Button("Change Server", systemImage: "server.rack") { app.changeServer() }
+                        Button("Settings", systemImage: "gearshape") { showsSettings = true }
                     } label: {
                         HStack(spacing: 4) {
                             Text(app.serverDescription).lineLimit(1)
@@ -39,6 +41,7 @@ struct MyKiwiScreen: View {
             .padding(.bottom, 32)
         }
         .background { TintedBackground(path: model.feed.shelves.first?.items.first?.backdrop) }
+        .sheet(isPresented: $showsSettings) { SettingsScreen() }
         .navigationTitle("My Kiwi")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.refresh(app.api, quietly: true) }

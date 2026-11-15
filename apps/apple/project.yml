@@ -21,6 +21,11 @@ settings:
     # Both apps are built as the "Kiwi" module so the shared unit tests can `@testable import Kiwi`.
     PRODUCT_NAME: Kiwi
     PRODUCT_MODULE_NAME: Kiwi
+packages:
+  # VLCKit 4 plays files directly (MKV, HEVC, any audio). On iPhone it's behind the VLC spike switch.
+  VLCKit:
+    url: https://code.videolan.org/videolan/VLCKit.git
+    exactVersion: 4.0.0-a26
 targets:
   KiwiTV:
     type: application
@@ -50,6 +55,8 @@ targets:
     sources:
       - path: Shared
       - path: iOS
+    dependencies:
+      - package: VLCKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: wild.fennec.KiwiMedia
