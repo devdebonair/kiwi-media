@@ -33,11 +33,6 @@ struct MainView: View {
             } label: {
                 Text("Home")
             }
-            Tab(value: "clips") {
-                TabSection { ClipsScreen(isSelected: tab == "clips") }
-            } label: {
-                Text("Clips")
-            }
             Tab(value: "live") {
                 TabSection { GuideScreen() }
             } label: {
@@ -57,11 +52,6 @@ struct MainView: View {
                 TabSection { BrowseScreen(emptyMessage: "Anime needs a TMDB key in Kiwi's settings.", model: BrowseModel { await Feeds.catalog($0, kind: "anime") }) }
             } label: {
                 Text("Anime")
-            }
-            Tab(value: "videos") {
-                TabSection { BrowseScreen(emptyMessage: "No library videos are available to this profile.", model: BrowseModel(load: Feeds.videos)) }
-            } label: {
-                Text("Videos")
             }
             // The profile's own space, like "My Netflix": account actions, then Continue Watching, Liked, My List.
             Tab(value: "me") {
