@@ -42,8 +42,14 @@ struct CatalogCard: Decodable, Hashable {
     let overview: String?
     let poster: String?
     let backdrop: String?
+    /// Only for titles the server already knows; ask `APIClient.logo(ref:)` for the rest.
+    let logo: String?
     let isAnime: Bool?
     let inLibrary: Bool?
+}
+
+struct LogoResponse: Decodable {
+    let logo: String?
 }
 
 struct Rail: Decodable {

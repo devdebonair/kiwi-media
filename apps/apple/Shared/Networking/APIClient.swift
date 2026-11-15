@@ -183,6 +183,12 @@ extension APIClient {
         try await get("/api/v1/search?q=\(Self.query(query))&kind=all&limit=60")
     }
 
+    /// A title's logo, for catalog cards, which only carry one when the server already knows the title. Unlike
+    /// `title(_:)`, it doesn't save the title on the server. `ref` is a local id or `tmdb:movie:603`.
+    func logo(ref: String) async throws -> String? {
+        try await get("/api/v1/catalog/logo?ref=\(Self.query(ref))", as: LogoResponse.self).logo
+    }
+
     func title(_ ref: String) async throws -> Title {
         try await get("/api/v1/titles/\(Self.segment(ref))")
     }

@@ -20,7 +20,7 @@ struct TileItem: Identifiable, Hashable {
     /// Wide artwork for the page background (and the TV billboard) while the card has focus.
     var backdrop: String?
     var progress: Double?
-    /// Title logo artwork, shown instead of the name in billboards.
+    /// Title logo artwork, shown instead of the name in billboards and over the TV's wide card in focus.
     var logo: String?
     /// "2019 · TV-MA · Drama, Crime" under the billboard title.
     var metadata: String?
@@ -64,6 +64,7 @@ extension TileItem {
             overview: card.overview,
             artwork: card.poster,
             backdrop: card.backdrop.map { $0.replacingOccurrences(of: "/w780/", with: "/w1280/") },
+            logo: card.logo,
             metadata: [card.year.map(String.init), kind, card.rating.flatMap { $0 > 0 ? String(format: "★ %.1f", $0) : nil }]
                 .compactMap { $0 }.joined(separator: "  ·  "),
             detailRef: card.titleId ?? card.ref,

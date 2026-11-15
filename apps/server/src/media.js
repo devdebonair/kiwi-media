@@ -41,13 +41,13 @@ export function registerMedia(app, { resolveTopic }) {
   // --------------------------------------------------------------------------------------------
   // Catalog browsing (live from the provider, cached)
 
-  const lookup = db.prepare("SELECT id FROM titles WHERE type=? AND tmdb_id=?");
+  const lookup = db.prepare("SELECT id, type, tmdb_id, logo_path FROM titles WHERE type=? AND tmdb_id=?");
   const card = summary => {
     const local = lookup.get(summary.type, summary.tmdbId);
     return {
       ref: local?.id || `tmdb:${summary.type}:${summary.tmdbId}`, titleId: local?.id || null, type: summary.type, tmdbId: summary.tmdbId, title: summary.title, year: summary.year,
       rating: summary.rating, overview: summary.overview, poster: imageUrl(summary.posterPath, "w342"), backdrop: imageUrl(summary.backdropPath, "w780"),
-      isAnime: summary.isAnime, inLibrary: inMyList(local?.id),
+      logo: imageUrl(local?.logo_path, "w500"), isAnime: summary.isAnime, inLibrary: inMyList(local?.id),
     };
   };
   const cards = results => results.map(card);
@@ -86,6 +86,22 @@ export function registerMedia(app, { resolveTopic }) {
     const built = await Promise.all(rails.map(async ([id, title], index) => settled[index].status === "fulfilled"
       ? { id, title, items: (await visible(cards(kind === "anime" ? settled[index].value.results : only(kind, settled[index].value.results)))).slice(0, 20) } : null));
     return { rails: built.filter(rail => rail?.items.length) };
+  }));
+
+  // A title's logo, for the Apple TV app to lay over the wide artwork of the card in focus. TMDB's lists carry no
+  // logos, so cards have one only for titles already known here; the app asks for the rest one at a time, as their
+  // cards open up. Read-only: unlike /titles/:ref, it never saves the title.
+  const localTitle = db.prepare("SELECT id, type, tmdb_id, logo_path FROM titles WHERE id=?");
+  app.get("/api/v1/catalog/logo", handle(async req => {
+    const ref = String(req.query.ref || "");
+    const match = /^tmdb:(movie|show):(\d+)$/.exec(ref);
+    const local = match ? lookup.get(match[1], Number(match[2])) : localTitle.get(ref);
+    if (local && !titleAllowed(local.id) || !local && !match) throw new ConfigError("Title not found.", 404);
+    if (local && (local.logo_path || !local.tmdb_id)) return { logo: imageUrl(local.logo_path, "w500") };
+    tmdbReady();
+    const detail = await media().tmdb.details(local?.type ?? match[1], local?.tmdb_id ?? Number(match[2]));
+    if (!local && !levelAllowed(certificationLevel(detail.certification))) throw new ConfigError("Title not found.", 404);
+    return { logo: imageUrl(detail.logoPath, "w500") };
   }));
 
   app.get("/api/v1/catalog/genres", handle(async req => {

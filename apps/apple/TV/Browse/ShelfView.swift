@@ -310,6 +310,9 @@ private struct StageCard: View {
     /// Which side the title came from: 1 right, -1 left, 0 neither.
     let direction: CGFloat
 
+    @Environment(APIClient.self) private var api
+    @Environment(\.isFocused) private var isFocused
+
     /// How far the artwork slides in, matching the text under the row.
     private static let slide: CGFloat = 40
 
@@ -338,11 +341,8 @@ private struct StageCard: View {
                                         removal: .opacity.animation(.linear(duration: 0.01).delay(0.5))))
                 .frame(width: size.width, height: size.height)
             LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .center, endPoint: .bottom)
-            Text(item.title)
-                .font(.system(size: 30, weight: .bold))
-                .lineLimit(2)
-                .shadow(radius: 6)
-                .padding(24)
+            StageTitle(item: item)
+                .padding(28)
                 .padding(.bottom, item.progress == nil ? 0 : 14)
                 .id(cursor)
                 .transition(.opacity)
@@ -355,6 +355,53 @@ private struct StageCard: View {
         .frame(width: size.width, height: size.height)
         .clipShape(shape)
         .overlay { shape.strokeBorder(.white, lineWidth: 5) }
+        // The neighbours' logos too, while the row has focus.
+        .task(id: isFocused ? cursor : nil) {
+            guard isFocused else { return }
+            async let following = LogoStore.shared.image(for: next, api: api)
+            async let preceding = LogoStore.shared.image(for: previous, api: api)
+            _ = await (following, preceding)
+        }
+    }
+}
+
+/// The title over the wide card: its logo, as on the billboard, or its name when it has none. Nothing shows while
+/// the logo is on its way, so the name doesn't flash up first; the neighbours' logos are fetched ahead, so moving
+/// along a row rarely waits.
+private struct StageTitle: View {
+    let item: TileItem
+
+    @Environment(APIClient.self) private var api
+    @State private var logo: UIImage?
+    @State private var settled: Bool
+
+    init(item: TileItem) {
+        self.item = item
+        _settled = State(initialValue: LogoStore.shared.knownToHaveNone(item))
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            if let logo = logo ?? LogoStore.shared.cachedImage(for: item, api: api) {
+                Image(uiImage: logo)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: 420, maxHeight: 150, alignment: .bottomLeading)
+                    .shadow(color: .black.opacity(0.5), radius: 12)
+            } else if settled {
+                Text(item.title)
+                    .font(.system(size: 30, weight: .bold))
+                    .lineLimit(2)
+                    .shadow(radius: 6)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .bottomLeading)
+        .animation(.easeOut(duration: 0.2), value: settled)
+        .task(id: item.id) {
+            guard LogoStore.shared.cachedImage(for: item, api: api) == nil else { return }
+            logo = await LogoStore.shared.image(for: item, api: api)
+            settled = true
+        }
     }
 }
 

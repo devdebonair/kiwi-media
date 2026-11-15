@@ -42,6 +42,7 @@ const tmdbFetch = async (target) => {
     networks: [{ name: 'Netflix', logo_path: '/netflixlogo1.png' }, { name: 'Local TV Station', logo_path: '/localtvlogo1.png' }],
     seasons: [{ season_number: 1, episode_count: 3, name: 'Season 1' }, { season_number: 2, episode_count: 2, name: 'Season 2' }], credits: { cast: [{ name: 'Actor One', character: 'Hero', profile_path: '/actor1profile.jpg' }] },
     'watch/providers': { results: { US: { flatrate: [{ provider_name: 'Hulu', logo_path: '/hululogo123.png' }] } } },
+    images: { logos: [{ iso_639_1: 'en', file_path: '/logo100abcd.png' }] },
   });
   if (path === '/tv/100/season/1') return json({ season_number: 1, episodes: [episode(1, 1), episode(1, 2), episode(1, 3)] });
   if (path === '/tv/100/season/2') return json({ season_number: 2, episodes: [episode(2, 1), episode(2, 2, { air_date: '2999-01-01' })] });
@@ -59,6 +60,7 @@ const tmdbFetch = async (target) => {
   if (path === '/movie/300') return json({
     id: 300, title: 'Test Movie', release_date: '1999-03-31', runtime: 100, original_language: 'en', genres: [{ id: 28, name: 'Action' }], overview: 'A movie.', poster_path: '/poster300abc.jpg',
     imdb_id: 'tt3000003', external_ids: { imdb_id: 'tt3000003' }, release_dates: { results: [{ iso_3166_1: 'US', release_dates: [{ certification: 'R' }] }] },
+    images: { logos: [{ iso_639_1: 'fr', file_path: '/logo300french.png' }, { iso_639_1: 'en', file_path: '/logo300abcd.png' }] },
   });
   // Recommendations: five comedies and the show itself (which must never recommend itself), and one anime.
   if (/^\/tv\/100\/recommendations$/.test(path)) return json({ page: 1, total_pages: 1, results: [
@@ -129,10 +131,24 @@ test('catalog rails return cards with a stable ref and keep anime out of the mov
   assert.deepEqual(search.items.map(item => item.title), ['Test Show'], 'people are not results');
 });
 
+test("a catalog card's logo is looked up on request without saving the title", async () => {
+  const logo = await get('/api/v1/catalog/logo?ref=tmdb:movie:300');
+  assert.equal(logo.statusCode, 200);
+  assert.equal(logo.json().logo, '/api/v1/images/tmdb/w500/logo300abcd.png', 'the English logo');
+  assert.equal(db.prepare("SELECT count(*) n FROM titles WHERE tmdb_id=300").get().n, 0, 'browsing saves nothing');
+  // A show TMDB has no logo for, and refs that aren't titles.
+  assert.equal((await get('/api/v1/catalog/logo?ref=tmdb:show:200')).json().logo, null);
+  assert.equal((await get('/api/v1/catalog/logo?ref=nope')).statusCode, 404);
+  assert.equal((await get('/api/v1/catalog/logo')).statusCode, 404);
+});
+
 test('opening a show creates the title, tags its genres and services, and loads episodes on demand', async () => {
   const title = (await get('/api/v1/titles/tmdb:show:100')).json();
   assert.equal(title.title, 'Test Show');
   assert.equal(title.inLibrary, false);
+  // Once a title is known here, its cards carry its logo, and the logo lookup answers from the database.
+  assert.equal((await get('/api/v1/catalog/search?q=test')).json().items[0].logo, '/api/v1/images/tmdb/w500/logo100abcd.png');
+  assert.equal((await get(`/api/v1/catalog/logo?ref=${title.id}`)).json().logo, '/api/v1/images/tmdb/w500/logo100abcd.png');
   assert.deepEqual(title.genres, ['Comedy']);
   assert.deepEqual(title.services.map(service => service.name).sort(), ['Hulu', 'Netflix'], 'broadcasters are not services');
   assert.deepEqual(title.topics.map(topic => `${topic.name}:${topic.topic_type}`).sort(), ['Comedy:genre', 'Hulu:service', 'Netflix:service']);
