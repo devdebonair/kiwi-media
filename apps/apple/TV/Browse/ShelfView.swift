@@ -15,6 +15,9 @@ struct ShelfView: View {
     @State private var handoff: String?
     /// The last card in this row to have focus.
     @State private var lastFocused: String?
+    /// The card described under the row, and which side its text comes in from (1 right, -1 left, 0 neither).
+    @State private var described: TileItem?
+    @State private var detailsDirection: CGFloat = 0
     /// How far along the row artwork loads: a few cards past the furthest one that has come on screen.
     @State private var reach = 8
 
@@ -85,18 +88,28 @@ struct ShelfView: View {
             }
 
             // What the card in focus is, under its row.
-            if let focused {
-                FocusedDetails(item: focused)
-                    .padding(.horizontal, inset)
-                    .transition(.opacity)
-            }
+            SlidingDetails(item: described, token: described?.id, direction: detailsDirection)
+                .padding(.horizontal, inset)
         }
         .animation(.easeOut(duration: 0.3), value: focused?.id)
         .onChange(of: focused?.id) { _, new in
-            guard let new else { return }
-            if let old = lastFocused, old != new { handoff = old }
+            guard let new else {
+                withAnimation(.easeOut(duration: 0.3)) { described = nil }
+                return
+            }
+            // The text comes in from the side the row is moving toward; it just fades when focus first lands here.
+            detailsDirection = 0
+            if let old = lastFocused, old != new {
+                handoff = old
+                if described != nil,
+                   let from = shelf.items.firstIndex(where: { $0.id == old }),
+                   let to = shelf.items.firstIndex(where: { $0.id == new }) {
+                    detailsDirection = to > from ? 1 : -1
+                }
+            }
             lastFocused = new
             anchored = new
+            withAnimation(Self.move) { described = focused }
         }
         .focusSection()
     }
@@ -104,27 +117,52 @@ struct ShelfView: View {
     static func focusKey(_ shelf: Shelf, _ item: TileItem) -> String { "\(shelf.id)|\(item.id)" }
 }
 
-/// Year, rating and kind, then a couple of lines of story: the focused card's facts under its row.
+/// Year, rating and kind, then the story in full: the focused card's facts under its row.
 private struct FocusedDetails: View {
     let item: TileItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             if let metadata = item.metadata, !metadata.isEmpty {
                 Text(metadata)
-                    .font(.system(size: 23, weight: .semibold))
+                    .font(.system(size: 28, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
             }
             if let overview = item.overview ?? item.subtitle, !overview.isEmpty, item.metadata?.contains(overview) != true {
                 Text(overview)
-                    .font(.system(size: 23))
+                    .font(.system(size: 28))
+                    .lineSpacing(4)
                     .foregroundStyle(Theme.secondaryText)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .frame(maxWidth: 1100, alignment: .leading)
-        .frame(height: 84, alignment: .topLeading)
+        .frame(maxWidth: 1500, alignment: .leading)
+        // Room for the facts and three lines of story, so most titles don't move the rows below; longer
+        // stories take the space they need.
+        .frame(minHeight: 164, alignment: .topLeading)
+    }
+}
+
+/// The details under a row. When the row moves to another card, the new text fades in while sliding a short
+/// way from the side the card came from; the old text fades out quickly underneath.
+private struct SlidingDetails<Token: Hashable>: View {
+    let item: TileItem?
+    let token: Token
+    let direction: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if let item {
+                FocusedDetails(item: item)
+                    .id(token)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .offset(x: direction * 40)),
+                        removal: .opacity.animation(.easeOut(duration: 0.12))
+                    ))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 
@@ -151,6 +189,8 @@ private struct StageShelf: View {
 
     /// How many times the row has moved, either way.
     @State private var moves = 0
+    /// Which way the row last moved: 1 when the title came from the right, -1 from the left, 0 not yet.
+    @State private var direction: CGFloat = 0
 
     private var key: String { "\(shelf.id)|stage" }
     private var isFocused: Bool { focus.wrappedValue == key }
@@ -206,13 +246,14 @@ private struct StageShelf: View {
             .frame(height: Theme.posterSize.height, alignment: .topLeading)
             .padding(.vertical, 22)
 
-            if isFocused {
-                FocusedDetails(item: current)
-                    .padding(.horizontal, inset)
-                    .transition(.opacity)
-            }
+            SlidingDetails(item: isFocused ? current : nil, token: moves, direction: direction)
+                .padding(.horizontal, inset)
         }
         .animation(ShelfView.move, value: isFocused)
+        // The text just fades in when focus next lands on this row.
+        .onChange(of: isFocused) { _, focused in
+            if !focused { direction = 0 }
+        }
         .focusSection()
     }
 
@@ -225,6 +266,7 @@ private struct StageShelf: View {
         }
         let target = cursor + change
         guard loops || shelf.items.indices.contains(target) else { return }
+        direction = CGFloat(change)
         withAnimation(Self.slide) {
             cursor = target
             moves += 1
