@@ -234,7 +234,7 @@ private struct StageShelf: View {
                 Button {
                     openItem(current)
                 } label: {
-                    StageCard(item: current, next: item(cursor + 1), previous: item(cursor - 1), cursor: cursor, moves: moves)
+                    StageCard(item: current, next: item(cursor + 1), previous: item(cursor - 1), cursor: cursor, moves: moves, direction: direction)
                 }
                 .buttonStyle(StageButtonStyle())
                 .focused(focus, equals: key)
@@ -307,6 +307,11 @@ private struct StageCard: View {
     let cursor: Int
     /// How many times the row has moved; newer artwork is drawn above older.
     let moves: Int
+    /// Which side the title came from: 1 right, -1 left, 0 neither.
+    let direction: CGFloat
+
+    /// How far the artwork slides in, matching the text under the row.
+    private static let slide: CGFloat = 40
 
     /// Wide artwork, sharp enough for a 4K screen; the poster when a title has none.
     private static func art(_ item: TileItem) -> String? {
@@ -322,12 +327,16 @@ private struct StageCard: View {
             RemoteImage(path: Self.art(next)).frame(width: 1, height: 1).opacity(0)
             RemoteImage(path: Self.art(previous)).frame(width: 1, height: 1).opacity(0)
             // A cross fade: the new artwork fades in over the old, which stays solid underneath until it's
-            // covered, so the card never dims in between.
+            // covered, so the card never dims in between. Like the text under the row, it slides a short way in
+            // from the side its title came from; it's drawn a little wider than the card so that slide never
+            // uncovers an edge.
             RemoteImage(path: Self.art(item))
+                .frame(width: size.width + Self.slide * 2, height: size.height)
                 .id(moves)
                 .zIndex(Double(moves))
-                .transition(.asymmetric(insertion: .opacity,
+                .transition(.asymmetric(insertion: .opacity.combined(with: .offset(x: direction * Self.slide)),
                                         removal: .opacity.animation(.linear(duration: 0.01).delay(0.5))))
+                .frame(width: size.width, height: size.height)
             LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .center, endPoint: .bottom)
             Text(item.title)
                 .font(.system(size: 30, weight: .bold))
