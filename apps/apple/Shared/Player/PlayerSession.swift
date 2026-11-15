@@ -26,6 +26,8 @@ final class PlayerSession {
     private(set) var myLikes = 0
     /// "103 Comedy" while watching a channel.
     private(set) var channelLabel: String?
+    /// The channel being watched, nil for assets.
+    private(set) var channelKey: String?
 
     var isLive: Bool {
         if case .channel = source { return true }
@@ -56,6 +58,7 @@ final class PlayerSession {
     init(api: APIClient, request: PlayRequest) {
         self.api = api
         self.source = request.source
+        if case let .channel(key) = request.source { channelKey = key }
     }
 
     func start() {
@@ -108,10 +111,17 @@ final class PlayerSession {
             guard !channelKeys.isEmpty else { return }
             let index = channelKeys.firstIndex(of: key) ?? 0
             let next = channelKeys[(index + step + channelKeys.count) % channelKeys.count]
-            saveProgress(completed: false)
-            source = .channel(next)
-            start()
+            tune(to: next)
         }
+    }
+
+    /// Switches to another channel and tunes in. Does nothing while playing an asset.
+    func tune(to key: String) {
+        guard isLive else { return }
+        saveProgress(completed: false)
+        source = .channel(key)
+        channelKey = key
+        start()
     }
 
     // MARK: Loading

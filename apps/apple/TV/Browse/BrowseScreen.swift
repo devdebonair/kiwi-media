@@ -1,75 +1,82 @@
 import SwiftUI
 
-extension BrowseModel {
-    func item(forFocusKey key: String?) -> TileItem? {
-        guard let key else { return nil }
-        for shelf in feed.shelves {
-            for item in shelf.items where ShelfView.focusKey(shelf, item) == key { return item }
-        }
-        return nil
-    }
-}
-
-/// A browse page in the style of Netflix's 2025 TV redesign: a large inset billboard at the top that always
-/// describes the card in focus, rows of cards beneath it, and a page tinted to match the artwork.
+/// A browse page with the feel of Peacock's and Netflix's TV apps. The featured title fills the screen: its
+/// artwork runs edge to edge behind its logo, story and Play button, with the first row resting over the bottom
+/// of it. Moving into the rows lets the billboard go, lifts the row in focus to the top, and the artwork behind
+/// the page becomes that of the card in focus; that card opens up wide and its details appear under its row.
 struct BrowseScreen: View {
     let emptyMessage: String
     @State var model: BrowseModel
-    /// Shown above the billboard (the profile tab's account bar).
+    /// Shown at the top instead of a billboard (the profile tab's account bar).
     var header: AnyView?
 
     @Environment(AppModel.self) private var app
     @FocusState private var focusKey: String?
-    /// The card the billboard describes. Stays put while focus is on the billboard's own buttons.
-    @State private var shown: TileItem?
-    /// The row in focus, kept at the top of the rows area so its heading stays visible.
-    @State private var focusedShelf: String?
+    /// The row in focus, scrolled to the top of the screen; `top` while focus is on the billboard.
+    @State private var scrolledTo: String?
 
-    private var displayed: TileItem? {
-        shown ?? model.feed.featured.map(TileItem.init(featured:)) ?? model.feed.shelves.first?.items.first
+    private static let top = "top"
+
+    private var atTop: Bool { scrolledTo == nil || scrolledTo == Self.top }
+
+    private var featured: TileItem? { model.feed.featured.map(TileItem.init(featured:)) }
+
+    /// Full-size artwork behind the billboard. Once focus moves down into the rows the page goes black, so the
+    /// cards stand out on their own, as on Netflix.
+    private var backdropPath: String? {
+        guard atTop else { return nil }
+        if let featured { return featured.backdrop?.replacingOccurrences(of: "/w1280/", with: "/original/") }
+        return model.feed.shelves.first?.items.first.flatMap { $0.backdrop ?? $0.artwork }
     }
 
     var body: some View {
         ZStack {
+            CinematicBackdrop(path: backdropPath, subdued: !atTop || featured == nil)
             switch model.state {
             case .loading:
                 ProgressView().controlSize(.large)
             case .empty:
                 ContentUnavailableView("Nothing here yet", systemImage: "film.stack", description: Text(emptyMessage))
             case .loaded:
-                VStack(alignment: .leading, spacing: 20) {
-                    if let header { header }
-                    if let displayed {
-                        BillboardPanel(item: displayed)
-                            .frame(height: header == nil ? 500 : 400)
-                            .focusSection()
-                    }
-                    ScrollView(.vertical) {
-                        // Not lazy: the focus engine can only move down to rows that exist, and only one row fits
-                        // below the billboard. Each row's cards are still built lazily.
-                        VStack(alignment: .leading, spacing: 26) {
-                            ForEach(model.feed.shelves) { shelf in
-                                ShelfView(shelf: shelf, focus: $focusKey)
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 36) {
+                        Group {
+                            if let header {
+                                header.padding(.horizontal, Theme.pageInset)
+                            } else if let featured {
+                                HeroBillboard(item: featured)
+                                    .frame(height: 620, alignment: .bottomLeading)
+                                    .padding(.horizontal, Theme.pageInset)
                             }
                         }
-                        .scrollTargetLayout()
-                        .padding(.top, 10)
-                        .padding(.bottom, 80)
+                        .focusSection()
+                        // Gone once focus moves into the rows, as on Netflix. Faded while drawing rather than
+                        // with `.opacity`: a fully transparent view can't take focus, so Up from the first row would
+                        // have nowhere to go (not even the tab bar).
+                        .visualEffect { content, _ in content.opacity(atTop ? 1 : 0) }
+                        .animation(.easeInOut(duration: 0.3), value: atTop)
+                        .id(Self.top)
+
+                        // Not lazy: the focus engine can only move down to rows that exist. Each row's cards are
+                        // still built lazily.
+                        ForEach(model.feed.shelves) { shelf in
+                            ShelfView(shelf: shelf, focus: $focusKey, inset: Theme.pageInset)
+                                .id(shelf.id)
+                        }
                     }
-                    .scrollPosition(id: $focusedShelf, anchor: .top)
-                    // Clipped, so rows scroll under the billboard's edge rather than over it; rows themselves
-                    // leave room for a focused card's lift.
+                    .scrollTargetLayout()
+                    .padding(.bottom, 500)
                 }
+                .scrollPosition(id: $scrolledTo, anchor: .top)
+                .scrollClipDisabled()
+                .ignoresSafeArea(edges: .horizontal)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background { TintedBackground(path: displayed?.backdrop ?? displayed?.artwork, height: 1100) }
         .onChange(of: focusKey) { _, key in
-            if let item = model.item(forFocusKey: key) {
-                withAnimation(.easeInOut(duration: 0.3)) { shown = item }
-            }
-            if let shelf = key?.split(separator: "|").first.map(String.init), shelf != focusedShelf {
-                withAnimation(.easeInOut(duration: 0.3)) { focusedShelf = shelf }
+            let shelf = key?.split(separator: "|").first.map(String.init) ?? Self.top
+            if shelf != scrolledTo {
+                withAnimation(.easeInOut(duration: 0.35)) { scrolledTo = shelf }
             }
         }
         .task {
@@ -81,69 +88,79 @@ struct BrowseScreen: View {
     }
 }
 
-/// The billboard: wide artwork fading into the title's logo, facts, synopsis and actions.
-struct BillboardPanel: View {
+/// The featured title over its own artwork: logo, facts, story and actions, in the lower left.
+struct HeroBillboard: View {
     let item: TileItem
 
     @Environment(AppModel.self) private var app
     @Environment(\.openItem) private var openItem
+    /// My List changes made from this billboard, by title, until the page reloads.
+    @State private var listChanges: [String: Bool] = [:]
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            Color.black.opacity(0.35)
-            RemoteImage(path: item.backdrop ?? item.artwork)
-                .id(item.backdrop ?? item.artwork)
-                .transition(.opacity)
-                .mask(
-                    LinearGradient(
-                        stops: [.init(color: .clear, location: 0.05), .init(color: .black.opacity(0.85), location: 0.5), .init(color: .black, location: 1)],
-                        startPoint: .leading, endPoint: .trailing
-                    )
-                )
-            LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
-
-            VStack(alignment: .leading, spacing: 16) {
-                if case .tune = item.action { LiveBadge() }
-                TitleTreatment(title: item.title, logo: item.logo, maxWidth: 560, maxHeight: 150, fontSize: 64, textMaxWidth: 900)
-                    .id(item.id)
-                if let metadata = item.metadata, !metadata.isEmpty {
-                    Text(metadata)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(Theme.secondaryText)
-                }
-                if let overview = item.overview ?? item.subtitle, !overview.isEmpty {
-                    Text(overview)
-                        .font(.callout)
-                        .lineLimit(2)
-                        .frame(maxWidth: 860, alignment: .leading)
-                }
-                HStack(spacing: 20) {
-                    Button(action: play) {
-                        Label(playLabel, systemImage: isLive ? "dot.radiowaves.left.and.right" : "play.fill")
-                    }
-                    .primaryAction()
-                    if let ref = item.detailRef {
-                        Button {
-                            openItem(TileItem(id: ref, title: item.title, action: .title(ref: ref)))
-                        } label: {
-                            Label("More Info", systemImage: "info.circle")
-                        }
-                        .secondaryAction()
-                    }
-                }
-                .padding(.top, 6)
+        VStack(alignment: .leading, spacing: 16) {
+            if case .tune = item.action { LiveBadge() }
+            TitleTreatment(title: item.title, logo: item.logo, maxWidth: 560, maxHeight: 170, fontSize: 72, textMaxWidth: 900)
+                .padding(.bottom, 4)
+            if let metadata = item.metadata, !metadata.isEmpty {
+                Text(metadata)
+                    .font(.system(size: 25, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
             }
-            .padding(48)
+            if let overview = item.overview ?? item.subtitle, !overview.isEmpty {
+                Text(overview)
+                    .font(.system(size: 27))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(3)
+                    .lineSpacing(3)
+                    .frame(maxWidth: 760, alignment: .leading)
+            }
+            HStack(spacing: 18) {
+                Button(action: play) {
+                    Label(playLabel, systemImage: isLive ? "dot.radiowaves.left.and.right" : "play.fill")
+                }
+                .buttonStyle(PillButtonStyle(prominent: true))
+                if let ref = item.detailRef {
+                    Button {
+                        openItem(TileItem(id: ref, title: item.title, action: .title(ref: ref)))
+                    } label: {
+                        Text("More Info")
+                    }
+                    .secondaryAction()
+                }
+                if let titleId = item.titleId {
+                    Button {
+                        Task { await toggleList(titleId) }
+                    } label: {
+                        Label("My List", systemImage: isInList(titleId) ? "checkmark" : "plus")
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    .secondaryAction()
+                }
+            }
+            .padding(.top, 10)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 36, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 36, style: .continuous).strokeBorder(.white.opacity(0.08)))
-        .animation(.easeInOut(duration: 0.35), value: item.id)
+        .shadow(color: .black.opacity(0.4), radius: 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var isLive: Bool {
         if case .tune = item.action { return true }
         return false
+    }
+
+    private func isInList(_ titleId: String) -> Bool {
+        listChanges[titleId] ?? item.inLibrary ?? false
+    }
+
+    private func toggleList(_ titleId: String) async {
+        let target = !isInList(titleId)
+        listChanges[titleId] = target
+        if let updated = try? await app.api.setInWatchList(titleId: titleId, target) {
+            listChanges[titleId] = updated.inLibrary ?? target
+        } else {
+            listChanges[titleId] = !target
+        }
     }
 
     private var playLabel: String {

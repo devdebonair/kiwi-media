@@ -25,7 +25,7 @@ struct TitleDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            BackdropView(path: model.title?.backdrop)
+            CinematicBackdrop(path: model.title?.backdrop?.replacingOccurrences(of: "/w1280/", with: "/original/"))
         }
         .toolbar(.hidden, for: .navigationBar)
         .task { await model.load(app.api) }
@@ -58,25 +58,28 @@ struct TitleDetailView: View {
     // MARK: Header
 
     private func header(_ title: Title) -> some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 18) {
             Spacer(minLength: 0)
-            TitleTreatment(title: title.title, logo: title.logo, maxHeight: 200)
+            TitleTreatment(title: title.title, logo: title.logo, maxWidth: 560, maxHeight: 170, fontSize: 72, textMaxWidth: 900)
             Text(metadata(title))
-                .font(.callout)
+                .font(.system(size: 25, weight: .semibold))
                 .foregroundStyle(Theme.secondaryText)
             if let next = title.nextUp, title.isShow, let label = next.episodeLabel {
                 Text([label, next.title].compactMap { $0 }.joined(separator: " · "))
-                    .font(.headline)
+                    .font(.system(size: 27, weight: .semibold))
             }
             if let overview = title.overview, !overview.isEmpty {
                 Text(overview)
+                    .font(.system(size: 27))
+                    .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(4)
-                    .frame(maxWidth: 1000, alignment: .leading)
+                    .lineSpacing(3)
+                    .frame(maxWidth: 900, alignment: .leading)
             }
             if let progress = title.nextUp?.progressFraction, title.nextUp?.resume == true {
                 ProgressBar(value: progress).frame(width: 420)
             }
-            HStack(spacing: 24) {
+            HStack(spacing: 18) {
                 if let next = title.nextUp {
                     Button {
                         app.play(next.id)
@@ -280,12 +283,12 @@ struct SeasonButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .font(.callout.weight(selected ? .bold : .medium))
-                .padding(.horizontal, 28)
-                .padding(.vertical, 14)
+                .font(.system(size: 25, weight: selected ? .bold : .medium))
+                .padding(.horizontal, 26)
+                .padding(.vertical, 12)
                 .foregroundStyle(isFocused ? Color.black : (selected ? Color.white : Theme.secondaryText))
                 .background(Capsule().fill(isFocused ? Color.white : (selected ? Color.white.opacity(0.22) : Color.clear)))
-                .scaleEffect(isFocused ? 1.06 : 1)
+                .scaleEffect(isFocused ? 1.03 : 1)
                 .animation(.easeOut(duration: 0.18), value: isFocused)
         }
     }

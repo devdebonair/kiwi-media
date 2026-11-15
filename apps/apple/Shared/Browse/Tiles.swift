@@ -28,6 +28,9 @@ struct TileItem: Identifiable, Hashable {
     var detailRef: String?
     /// A shortcut that plays this card from a billboard (a featured title's resume point).
     var playAssetId: String?
+    /// The local title this card stands for, when it can go on My List; `inLibrary` is whether it's there now.
+    var titleId: String?
+    var inLibrary: Bool?
     let action: Action
 }
 
@@ -64,6 +67,8 @@ extension TileItem {
             metadata: [card.year.map(String.init), kind, card.rating.flatMap { $0 > 0 ? String(format: "★ %.1f", $0) : nil }]
                 .compactMap { $0 }.joined(separator: "  ·  "),
             detailRef: card.titleId ?? card.ref,
+            titleId: card.titleId,
+            inLibrary: card.inLibrary,
             action: .title(ref: card.titleId ?? card.ref)
         )
     }
@@ -80,6 +85,8 @@ extension TileItem {
             logo: title.logo,
             metadata: title.metadataLine,
             detailRef: title.id,
+            titleId: title.id,
+            inLibrary: title.inLibrary,
             action: .title(ref: title.id)
         )
     }
@@ -96,6 +103,8 @@ extension TileItem {
             metadata: featured.metadataLine,
             detailRef: featured.titleId ?? featured.ref,
             playAssetId: featured.play?.id,
+            titleId: featured.titleId,
+            inLibrary: featured.inLibrary,
             action: .title(ref: featured.titleId ?? featured.ref)
         )
     }

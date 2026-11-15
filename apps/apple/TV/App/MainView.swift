@@ -2,14 +2,28 @@ import SwiftUI
 
 /// The signed-in app: a top navigation bar of sections (as in Netflix's 2025 TV redesign), each with its own
 /// navigation stack.
+///
+/// Channels always play through the Live tab's player (tuning from another tab switches to Live), so going
+/// back from full screen lands on the guide with the channel still playing. Everything else plays full screen
+/// in the VLC player.
 struct MainView: View {
     let profile: Profile
 
     @Environment(AppModel.self) private var app
     @State private var tab = "home"
+    @State private var live = LivePlayer()
+
+    /// Asset requests only; channel requests go to the Live tab's player instead.
+    private var assetRequest: Binding<PlayRequest?> {
+        Binding {
+            if case .asset = app.playRequest?.source { app.playRequest } else { nil }
+        } set: {
+            app.playRequest = $0
+        }
+    }
 
     var body: some View {
-        @Bindable var app = app
+        @Bindable var live = live
         TabView(selection: $tab) {
             Tab(value: "search", role: .search) {
                 TabSection { SearchScreen() }
@@ -18,6 +32,11 @@ struct MainView: View {
                 TabSection { BrowseScreen(emptyMessage: "Add a library folder or a few titles to your list from the web app.", model: BrowseModel(load: Feeds.home)) }
             } label: {
                 Text("Home")
+            }
+            Tab(value: "clips") {
+                TabSection { ClipsScreen(isSelected: tab == "clips") }
+            } label: {
+                Text("Clips")
             }
             Tab(value: "live") {
                 TabSection { GuideScreen() }
@@ -57,9 +76,33 @@ struct MainView: View {
                 Text(profile.name)
             }
         }
-        .fullScreenCover(item: $app.playRequest, onDismiss: app.playerClosed) { request in
-            PlayerScreen(api: app.api, request: request)
+        .environment(live)
+        .fullScreenCover(item: assetRequest, onDismiss: app.playerClosed) { request in
+            if case let .asset(id, startOver) = request.source {
+                VLCPlayerScreen(api: app.api, assetId: id, startOver: startOver)
+            }
         }
+        .fullScreenCover(isPresented: $live.isFullscreen) {
+            if let session = live.session {
+                LivePlayerScreen(session: session)
+            }
+        }
+        .onChange(of: app.playRequest) { _, request in
+            guard let request else { return }
+            if case let .channel(key) = request.source {
+                app.playRequest = nil
+                tab = "live"
+                live.tune(key, api: app.api)
+                live.isFullscreen = true
+            } else {
+                live.stop()
+            }
+        }
+        .onChange(of: tab) { _, tab in
+            // Live plays on its own tab only.
+            if tab != "live" { live.stop() }
+        }
+        .onDisappear { live.stop() }
     }
 }
 

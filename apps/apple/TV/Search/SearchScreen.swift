@@ -13,7 +13,11 @@ struct SearchScreen: View {
             LazyVStack(alignment: .leading, spacing: 36) {
                 if isSearching && shelves.isEmpty {
                     ProgressView().frame(maxWidth: .infinity)
-                } else if shelves.isEmpty && !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                } else if query.trimmingCharacters(in: .whitespaces).isEmpty {
+                    ContentUnavailableView("Search Kiwi", systemImage: "magnifyingglass", description: Text("Movies, series, anime and your videos."))
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 60)
+                } else if shelves.isEmpty {
                     ContentUnavailableView.search(text: query)
                 }
                 ForEach(shelves) { shelf in

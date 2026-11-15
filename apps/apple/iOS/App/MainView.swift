@@ -2,14 +2,19 @@ import SwiftUI
 
 /// The signed-in app, laid out like Netflix's 2026 iPhone app: Home, Clips (a vertical feed), Live, the
 /// profile's own space, and Search — each tab with its own navigation stack.
+///
+/// Channels always play in the Live tab's inline player (tuning from another tab switches to Live); everything
+/// else plays in the modal system player.
 struct MainView: View {
     let profile: Profile
 
     @Environment(AppModel.self) private var app
+    @State private var tab: MainTab = .home
+    @State private var live = LivePlayer()
 
     var body: some View {
-        TabView {
-            Tab("Home", systemImage: "house.fill") {
+        TabView(selection: $tab) {
+            Tab("Home", systemImage: "house.fill", value: MainTab.home) {
                 TabSection {
                     BrowseScreen(
                         title: "Home",
@@ -19,28 +24,50 @@ struct MainView: View {
                     )
                 }
             }
-            Tab("Clips", systemImage: "play.square.stack.fill") {
+            Tab("Clips", systemImage: "play.square.stack.fill", value: MainTab.clips) {
                 TabSection { ClipsScreen() }
             }
-            Tab("Live", systemImage: "dot.radiowaves.left.and.right") {
+            Tab("Live", systemImage: "dot.radiowaves.left.and.right", value: MainTab.live) {
                 TabSection { LiveScreen() }
             }
-            Tab(profile.name, systemImage: "person.crop.circle.fill") {
+            Tab(profile.name, systemImage: "person.crop.circle.fill", value: MainTab.profile) {
                 TabSection { MyKiwiScreen(profile: profile) }
             }
-            Tab(role: .search) {
+            Tab(value: MainTab.search, role: .search) {
                 TabSection { SearchScreen() }
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
+        .environment(live)
         .onChange(of: app.playRequest) { _, request in
             guard let request else { return }
+            if case let .channel(key) = request.source {
+                app.playRequest = nil
+                tab = .live
+                live.tune(key, api: app.api)
+                return
+            }
+            live.stop()
             PlayerPresenter.shared.present(request, api: app.api) {
                 app.playRequest = nil
                 app.playerClosed()
             }
         }
+        .onChange(of: tab) { _, tab in
+            live.isOnScreen = tab == .live
+            // Live keeps playing on other tabs only in Picture in Picture.
+            if tab != .live, !live.isPictureInPicture { live.stop() }
+        }
+        .onAppear {
+            live.isOnScreen = tab == .live
+            live.onRestore = { tab = .live }
+        }
+        .onDisappear { live.stop() }
     }
+}
+
+private enum MainTab: Hashable {
+    case home, clips, live, profile, search
 }
 
 /// One tab: a navigation stack whose cards open title pages, start playback, or tune in.
