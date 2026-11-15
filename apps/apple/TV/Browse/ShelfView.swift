@@ -340,16 +340,22 @@ private struct StageCard: View {
                 .transition(.asymmetric(insertion: .opacity.combined(with: .offset(x: direction * Self.slide)),
                                         removal: .opacity.animation(.linear(duration: 0.01).delay(0.5))))
                 .frame(width: size.width, height: size.height)
-            LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .center, endPoint: .bottom)
-            StageTitle(item: item)
-                .padding(28)
-                .padding(.bottom, item.progress == nil ? 0 : 14)
-                .id(cursor)
-                .transition(.opacity)
-            if let progress = item.progress {
-                ProgressBar(value: progress, height: 6)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 14)
+        }
+        // Over the artwork, whose stacking order rises with every move. Inside the stack, these went under the
+        // artwork after the first move, leaving the card with no title.
+        .overlay(alignment: .bottomLeading) {
+            ZStack(alignment: .bottomLeading) {
+                LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .center, endPoint: .bottom)
+                StageTitle(item: item)
+                    .padding(28)
+                    .padding(.bottom, item.progress == nil ? 0 : 14)
+                    .id(cursor)
+                    .transition(.opacity)
+                if let progress = item.progress {
+                    ProgressBar(value: progress, height: 6)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 14)
+                }
             }
         }
         .frame(width: size.width, height: size.height)
