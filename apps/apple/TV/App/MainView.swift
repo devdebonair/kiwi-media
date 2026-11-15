@@ -3,6 +3,9 @@ import SwiftUI
 /// The signed-in app: a top navigation bar of sections (as in Netflix's 2025 TV redesign), each with its own
 /// navigation stack.
 ///
+/// The profile tab's Switch Profile opens a quick switcher over the page, like the menu under Netflix's profile
+/// icon; a locked profile asks for its PIN on the way.
+///
 /// Channels always play through the Live tab's player (tuning from another tab switches to Live), so going
 /// back from full screen lands on the guide with the channel still playing. Everything else plays full screen
 /// in the VLC player.
@@ -12,6 +15,9 @@ struct MainView: View {
     @Environment(AppModel.self) private var app
     @State private var tab = "home"
     @State private var live = LivePlayer()
+    @State private var switcherOpen = false
+    /// A locked profile picked in the switcher, waiting for its PIN.
+    @State private var pinProfile: Profile?
 
     /// Asset requests only; channel requests go to the Live tab's player instead.
     private var assetRequest: Binding<PlayRequest?> {
@@ -59,12 +65,35 @@ struct MainView: View {
                     BrowseScreen(
                         emptyMessage: "Titles you add to My List and videos you like show up here.",
                         model: BrowseModel(load: Feeds.myList),
-                        header: AnyView(AccountBar(profile: profile))
+                        header: AnyView(AccountBar(profile: profile, switcherOpen: $switcherOpen))
                     )
                 }
             } label: {
                 Text(profile.name)
             }
+        }
+        // While the switcher is open, focus stays in it.
+        .disabled(switcherOpen)
+        .overlay(alignment: .topTrailing) {
+            if switcherOpen {
+                ZStack(alignment: .topTrailing) {
+                    Color.black.opacity(0.5).ignoresSafeArea()
+                    ProfileSwitcher(current: profile) { locked in
+                        switcherOpen = false
+                        pinProfile = locked
+                    } onClose: {
+                        switcherOpen = false
+                    }
+                    .padding(.top, 110)
+                    .padding(.trailing, Theme.pageInset)
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: switcherOpen)
+        // A right PIN switches profiles, which replaces this whole view; Back returns to the switcher.
+        .fullScreenCover(item: $pinProfile, onDismiss: { switcherOpen = true }) { profile in
+            PinEntryView(profile: profile)
         }
         .environment(live)
         .fullScreenCover(item: assetRequest, onDismiss: app.playerClosed) { request in
@@ -125,8 +154,10 @@ private struct TabSection<Content: View>: View {
 /// Who's signed in, with profile and server switching.
 struct AccountBar: View {
     let profile: Profile
+    @Binding var switcherOpen: Bool
 
     @Environment(AppModel.self) private var app
+    @FocusState private var switchFocused: Bool
 
     var body: some View {
         HStack(spacing: 28) {
@@ -139,11 +170,12 @@ struct AccountBar: View {
             }
             Spacer()
             Button {
-                Task { await app.switchProfile() }
+                switcherOpen = true
             } label: {
                 Label("Switch Profile", systemImage: "person.2")
             }
             .secondaryAction()
+            .focused($switchFocused)
             Button {
                 app.changeServer()
             } label: {
@@ -152,5 +184,9 @@ struct AccountBar: View {
             .secondaryAction()
         }
         .focusSection()
+        // Back where it was when the switcher closes without switching.
+        .onChange(of: switcherOpen) { _, open in
+            if !open { switchFocused = true }
+        }
     }
 }

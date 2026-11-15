@@ -36,7 +36,16 @@ struct BrowseScreen: View {
             case .loading:
                 ProgressView().controlSize(.large)
             case .empty:
-                ContentUnavailableView("Nothing here yet", systemImage: "film.stack", description: Text(emptyMessage))
+                VStack(alignment: .leading, spacing: 0) {
+                    // The account bar stays reachable on an empty profile page.
+                    if let header {
+                        header
+                            .padding(.horizontal, Theme.pageInset)
+                            .padding(.top, 60)
+                    }
+                    ContentUnavailableView("Nothing here yet", systemImage: "film.stack", description: Text(emptyMessage))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             case .loaded:
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 36) {
