@@ -1,10 +1,8 @@
 import SwiftUI
 
-/// A row of cards in the style of Netflix's 2025 TV app: posters sit side by side, and the one in focus opens up
-/// into a wide card showing the title's artwork. The card in focus stays at the left edge and the row moves
-/// under it; the card that loses focus slides away *under* the one opening, in either direction, and cards
-/// that have moved past the edge fade out. What the card is (year, rating, a line or two of story) appears
-/// under the row in focus, so the page needs no billboard that follows focus around.
+/// A row of cards. Poster rows work like Netflix's TV app (see `StageShelf`); episode, video and Top 10 rows
+/// scroll, with the card in focus held at the left edge. What the card in focus is (year, rating, a line or two
+/// of story) appears under its row, so the page needs no billboard that follows focus around.
 struct ShelfView: View {
     let shelf: Shelf
     var focus: FocusState<String?>.Binding
@@ -17,6 +15,8 @@ struct ShelfView: View {
     @State private var handoff: String?
     /// The last card in this row to have focus.
     @State private var lastFocused: String?
+    /// How far along the row artwork loads: a few cards past the furthest one that has come on screen.
+    @State private var reach = 8
 
     /// How the row and its cards move when focus changes. Shared, so the slide and the card resizing land together.
     static let move = Animation.smooth(duration: 0.65)
@@ -28,8 +28,16 @@ struct ShelfView: View {
     }
 
     var body: some View {
+        if shelf.style == .poster {
+            StageShelf(shelf: shelf, focus: focus, inset: inset)
+        } else {
+            scrolling
+        }
+    }
+
+    private var scrolling: some View {
         let focused = focusedItem
-        VStack(alignment: .leading, spacing: 0) {
+        return VStack(alignment: .leading, spacing: 0) {
             Text(shelf.title)
                 .font(.system(size: 30, weight: .bold))
                 .foregroundStyle(focused != nil ? .white : .white.opacity(0.75))
@@ -37,16 +45,22 @@ struct ShelfView: View {
                 .padding(.leading, inset)
             ScrollViewReader { reader in
             ScrollView(.horizontal) {
-                LazyHStack(alignment: .top, spacing: shelf.style == .ranked ? 18 : Theme.shelfSpacing) {
+                // Not lazy: a lazy row shifts its scroll position when a card before the visible ones opens,
+                // which makes the row jump before it slides. Cards past `reach` don't load their artwork yet.
+                HStack(alignment: .top, spacing: shelf.style == .ranked ? 18 : Theme.shelfSpacing) {
                     ForEach(Array(shelf.items.enumerated()), id: \.element.id) { index, item in
                         Group {
                             switch shelf.style {
                             case .ranked: RankedCard(item: item, rank: index + 1)
-                            case .poster: PosterCard(item: item)
+                            case .poster: EmptyView()
                             case .landscape: LandscapeCard(item: item)
                             }
                         }
                         .focused(focus, equals: Self.focusKey(shelf, item))
+                        .environment(\.loadsRemoteImages, index < reach)
+                        .onScrollVisibilityChange(threshold: 0.01) { visible in
+                            if visible, index + 5 > reach { reach = index + 5 }
+                        }
                         // The card opening covers the one closing, which moves along with the row underneath it.
                         .zIndex(item.id == focused?.id ? 2 : (item.id == handoff ? 1 : 0))
                         // Cards that have moved past the left edge fade out as they go (and back in as they return).
@@ -59,7 +73,6 @@ struct ShelfView: View {
                         }
                     }
                 }
-                .scrollTargetLayout()
                 .padding(.vertical, 22)
             }
             // A content margin rather than padding, so the card held at the leading edge sits at the page margin.
@@ -117,55 +130,113 @@ private struct FocusedDetails: View {
 
 // MARK: - Cards
 
-/// A poster that widens into the title's artwork while it has focus.
-struct PosterCard: View {
-    let item: TileItem
+/// A poster row the way Netflix's TV app does it. One wide card, the stage, sits still on top of the row and
+/// shows the title in focus. The posters run behind it with a gap reserved where it sits; moving left or right
+/// slides the whole row one place, so the next poster goes in under the stage while the stage's artwork fades
+/// to the new title. A sliver of the previous poster shows
+/// to the stage's left. Long rows wrap around, so there's no first or last poster.
+///
+/// The row is a single focus target: the remote's left and right move the row, not the focus.
+private struct StageShelf: View {
+    let shelf: Shelf
+    var focus: FocusState<String?>.Binding
+    let inset: CGFloat
 
     @Environment(\.openItem) private var openItem
+    /// Which poster is on the stage, counted along the row without wrapping (so it can go past either end).
+    @State private var cursor = 0
+
+    /// How the row moves a place: off quickly, then settling, so posters snap into position.
+    private static let slide = Animation.timingCurve(0.16, 0.9, 0.3, 1, duration: 0.5)
+
+    /// How many times the row has moved, either way.
+    @State private var moves = 0
+
+    private var key: String { "\(shelf.id)|stage" }
+    private var isFocused: Bool { focus.wrappedValue == key }
+    /// Short rows stop at their ends: wrapping would show the same poster twice at once.
+    private var loops: Bool { shelf.items.count >= 8 }
+    private var step: CGFloat { Theme.posterSize.width + Theme.shelfSpacing }
+
+    private func item(_ place: Int) -> TileItem {
+        let count = shelf.items.count
+        return shelf.items[((place % count) + count) % count]
+    }
+
+    /// The places drawn: two behind the stage's left edge to a few past the right edge of the screen.
+    private var places: [Int] {
+        let range = (cursor - 2)...(cursor + 7)
+        return loops ? Array(range) : range.filter { shelf.items.indices.contains($0) }
+    }
+
+    /// Where a poster sits: in line up to the stage, then past the gap the stage takes up while the row has focus.
+    private func position(_ place: Int) -> CGFloat {
+        let offset = place - cursor
+        if offset <= 0 { return inset + CGFloat(offset) * step }
+        let gap = isFocused ? Theme.openPosterSize.width + Theme.shelfSpacing : step
+        return inset + gap + CGFloat(offset - 1) * step
+    }
 
     var body: some View {
-        Button {
-            openItem(item)
-        } label: {
-            PosterCardLabel(item: item)
+        let current = item(cursor)
+        VStack(alignment: .leading, spacing: 0) {
+            Text(shelf.title)
+                .font(.system(size: 30, weight: .bold))
+                .foregroundStyle(isFocused ? .white : .white.opacity(0.75))
+                .shadow(color: .black.opacity(0.5), radius: 8)
+                .padding(.leading, inset)
+            ZStack(alignment: .topLeading) {
+                ForEach(places, id: \.self) { place in
+                    StagePoster(item: item(place))
+                        .offset(x: position(place))
+                        .transition(.identity)
+                }
+                Button {
+                    openItem(current)
+                } label: {
+                    StageCard(item: current, next: item(cursor + 1), previous: item(cursor - 1), cursor: cursor, moves: moves)
+                }
+                .buttonStyle(StageButtonStyle())
+                .focused(focus, equals: key)
+                .onMoveCommand(perform: move)
+                .accessibilityLabel(current.title)
+                .padding(.leading, inset)
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(height: Theme.posterSize.height, alignment: .topLeading)
+            .padding(.vertical, 22)
+
+            if isFocused {
+                FocusedDetails(item: current)
+                    .padding(.horizontal, inset)
+                    .transition(.opacity)
+            }
         }
-        // The label draws its own ring and rounding, around whichever face is showing.
-        .buttonStyle(FocusRingStyle(drawsFrame: false))
-        .accessibilityLabel(item.title)
+        .animation(ShelfView.move, value: isFocused)
+        .focusSection()
+    }
+
+    private func move(_ command: MoveCommandDirection) {
+        let change: Int
+        switch command {
+        case .left: change = -1
+        case .right: change = 1
+        default: return
+        }
+        let target = cursor + change
+        guard loops || shelf.items.indices.contains(target) else { return }
+        withAnimation(Self.slide) {
+            cursor = target
+            moves += 1
+        }
     }
 }
 
-private struct PosterCardLabel: View {
+/// A poster in the row behind the stage.
+private struct StagePoster: View {
     let item: TileItem
-    @Environment(\.isFocused) private var isFocused
-
-    /// Wide artwork for the open card, sharp enough for a 4K screen.
-    private var wideArt: String? {
-        item.backdrop.map { $0.replacingOccurrences(of: "/w780/", with: "/w1280/") }
-    }
-
-    private var posterArt: String? { item.withSharpPoster.artwork }
 
     var body: some View {
-        let open = isFocused && wideArt != nil
-        // Each face is drawn at its own fixed size, so the card never visibly stretches: the wide face
-        // fades in over the poster, and only the room the card takes up in the row changes, which slides
-        // its neighbours along.
-        ZStack(alignment: .topLeading) {
-            poster
-            if open {
-                wide
-                    // Out quickly, so a closing card's artwork doesn't hang over the posters beside it.
-                    .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.3)),
-                                            removal: .opacity.animation(.easeOut(duration: 0.15))))
-            }
-        }
-        .frame(width: open ? Theme.openPosterSize.width : Theme.posterSize.width,
-               height: Theme.posterSize.height, alignment: .topLeading)
-        .animation(ShelfView.move, value: open)
-    }
-
-    private var poster: some View {
         ZStack(alignment: .bottomLeading) {
             Theme.placeholder
             Text(item.title)
@@ -174,16 +245,47 @@ private struct PosterCardLabel: View {
                 .foregroundStyle(Theme.secondaryText)
                 .padding(18)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            RemoteImage(path: posterArt)
-            progress
+            RemoteImage(path: item.withSharpPoster.artwork)
+            if let progress = item.progress {
+                ProgressBar(value: progress, height: 6)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 14)
+            }
         }
-        .face(Theme.posterSize, ring: isFocused && wideArt == nil)
+        .frame(width: Theme.posterSize.width, height: Theme.posterSize.height)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+/// The wide card that stays put over a poster row, showing the title in focus.
+private struct StageCard: View {
+    let item: TileItem
+    let next: TileItem
+    let previous: TileItem
+    let cursor: Int
+    /// How many times the row has moved; newer artwork is drawn above older.
+    let moves: Int
+
+    /// Wide artwork, sharp enough for a 4K screen; the poster when a title has none.
+    private static func art(_ item: TileItem) -> String? {
+        item.backdrop.map { $0.replacingOccurrences(of: "/w780/", with: "/w1280/") } ?? item.withSharpPoster.artwork
     }
 
-    private var wide: some View {
+    var body: some View {
+        let size = Theme.openPosterSize
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         ZStack(alignment: .bottomLeading) {
             Theme.placeholder
-            RemoteImage(path: wideArt)
+            // The neighbours' artwork, fetched ahead so the next move fades straight to it.
+            RemoteImage(path: Self.art(next)).frame(width: 1, height: 1).opacity(0)
+            RemoteImage(path: Self.art(previous)).frame(width: 1, height: 1).opacity(0)
+            // A cross fade: the new artwork fades in over the old, which stays solid underneath until it's
+            // covered, so the card never dims in between.
+            RemoteImage(path: Self.art(item))
+                .id(moves)
+                .zIndex(Double(moves))
+                .transition(.asymmetric(insertion: .opacity,
+                                        removal: .opacity.animation(.linear(duration: 0.01).delay(0.5))))
             LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .center, endPoint: .bottom)
             Text(item.title)
                 .font(.system(size: 30, weight: .bold))
@@ -191,32 +293,38 @@ private struct PosterCardLabel: View {
                 .shadow(radius: 6)
                 .padding(24)
                 .padding(.bottom, item.progress == nil ? 0 : 14)
-            progress
+                .id(cursor)
+                .transition(.opacity)
+            if let progress = item.progress {
+                ProgressBar(value: progress, height: 6)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 14)
+            }
         }
-        .face(Theme.openPosterSize, ring: true)
-    }
-
-    @ViewBuilder private var progress: some View {
-        if let progress = item.progress {
-            ProgressBar(value: progress, height: 6)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 14)
-        }
+        .frame(width: size.width, height: size.height)
+        .clipShape(shape)
+        .overlay { shape.strokeBorder(.white, lineWidth: 5) }
     }
 }
 
-private extension View {
-    /// One face of a poster card: a fixed size, rounded, with the focus ring when it's the face in focus.
-    func face(_ size: CGSize, ring: Bool) -> some View {
-        frame(width: size.width, height: size.height)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(.white, lineWidth: 5)
-                    .padding(-8)
-                    .opacity(ring ? 1 : 0)
-                    .animation(.easeOut(duration: 0.25), value: ring)
-            }
+/// Shows the stage only while its row has focus. Faded while drawing rather than with `.opacity`, since a fully
+/// transparent view can't take focus.
+private struct StageButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        StageBody(configuration: configuration)
+    }
+
+    private struct StageBody: View {
+        let configuration: ButtonStyleConfiguration
+        @Environment(\.isFocused) private var isFocused
+
+        var body: some View {
+            configuration.label
+                .scaleEffect(configuration.isPressed ? 0.98 : 1)
+                .shadow(color: .black.opacity(0.55), radius: 20, y: 12)
+                .visualEffect { [isFocused] content, _ in content.opacity(isFocused ? 1 : 0) }
+                .animation(.easeOut(duration: 0.3), value: isFocused)
+        }
     }
 }
 
@@ -270,42 +378,31 @@ struct RankedCard: View {
     }
 }
 
-/// Netflix's focus treatment: a white ring and a small lift, instead of the system's tilting card.
+/// Netflix's focus treatment: a white ring on the card's edge, instead of the system's tilting card. Nothing grows
+/// past the card, so the gap to its neighbours stays the same in and out of focus.
 struct FocusRingStyle: ButtonStyle {
     var cornerRadius: CGFloat = 12
-    /// Whether to round the label and ring it; off when the label does that itself.
-    var drawsFrame = true
 
     func makeBody(configuration: Configuration) -> some View {
-        RingBody(configuration: configuration, cornerRadius: cornerRadius, drawsFrame: drawsFrame)
+        RingBody(configuration: configuration, cornerRadius: cornerRadius)
     }
 
     private struct RingBody: View {
         let configuration: ButtonStyleConfiguration
         let cornerRadius: CGFloat
-        let drawsFrame: Bool
         @Environment(\.isFocused) private var isFocused
 
         var body: some View {
-            framed
-                .scaleEffect(configuration.isPressed ? 0.97 : (isFocused ? 1.03 : 1))
+            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            configuration.label
+                .clipShape(shape)
+                .overlay {
+                    shape.strokeBorder(.white, lineWidth: 5)
+                        .opacity(isFocused ? 1 : 0)
+                }
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
                 .shadow(color: .black.opacity(isFocused ? 0.55 : 0), radius: 20, y: 12)
                 .animation(.easeOut(duration: 0.25), value: isFocused)
-        }
-
-        @ViewBuilder private var framed: some View {
-            if drawsFrame {
-                configuration.label
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: cornerRadius + 4, style: .continuous)
-                            .strokeBorder(.white, lineWidth: 5)
-                            .padding(-8)
-                            .opacity(isFocused ? 1 : 0)
-                    }
-            } else {
-                configuration.label
-            }
         }
     }
 }

@@ -8,10 +8,11 @@ struct RemoteImage: View {
     var contentMode: ContentMode = .fill
 
     @Environment(APIClient.self) private var api
+    @Environment(\.loadsRemoteImages) private var loads
     @State private var image: UIImage?
 
     var body: some View {
-        let url = api.url(path)
+        let url = loads ? api.url(path) : nil
         // Drawn in an overlay on a clear view so the image always takes exactly the size it's offered,
         // never its own aspect-filled size (which would push surrounding layout around).
         Color.clear
@@ -38,6 +39,12 @@ struct RemoteImage: View {
             }
         }
     }
+}
+
+extension EnvironmentValues {
+    /// Off for artwork that's built but not near the screen yet, such as cards far along a row; `RemoteImage`
+    /// waits until it's on.
+    @Entry var loadsRemoteImages = true
 }
 
 final class ImageCache {
