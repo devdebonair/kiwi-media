@@ -99,14 +99,19 @@ export function upsertTitle(details) {
 
 export function ensureMovieAsset(title) {
   const id = movieAssetId(title.id), timestamp = now();
-  const duration = (title.runtime_min || 100) * 60_000;
+  const runtime = (title.runtime_min || 100) * 60_000;
   const thumbnail = imageUrl(title.backdrop_path, "w780") || imageUrl(title.poster_path, "w500");
-  if (db.prepare("SELECT 1 FROM assets WHERE id=?").get(id)) {
-    db.prepare("UPDATE assets SET title=?,description=?,thumbnail_url=?,duration_ms=?,still_path=?,air_date=?,updated_at=? WHERE id=?")
-      .run(title.title, title.overview, thumbnail, duration, title.backdrop_path, title.first_air_date, timestamp, id);
+  const existing = db.prepare("SELECT metadata_json FROM assets WHERE id=?").get(id);
+  // The length of the file that plays wins over TMDB's runtime once it's known (the TV guide schedules by it).
+  // TMDB's runtime is kept as `runtime` to tell a real release from a sample.
+  const stored = existing ? parse(existing.metadata_json, {}) : {};
+  const metadata = JSON.stringify({ ...stored, runtime: title.runtime_min ? runtime : undefined });
+  if (existing) {
+    db.prepare("UPDATE assets SET title=?,description=?,thumbnail_url=?,duration_ms=?,still_path=?,air_date=?,metadata_json=?,updated_at=? WHERE id=?")
+      .run(title.title, title.overview, thumbnail, stored.probedDuration || runtime, title.backdrop_path, title.first_air_date, metadata, timestamp, id);
   } else {
-    db.prepare("INSERT INTO assets (id,kind,title,description,thumbnail_url,duration_ms,added_at,updated_at,visibility,title_id,still_path,air_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
-      .run(id, "video", title.title, title.overview, thumbnail, duration, timestamp, timestamp, "private", title.id, title.backdrop_path, title.first_air_date);
+    db.prepare("INSERT INTO assets (id,kind,title,description,thumbnail_url,duration_ms,added_at,updated_at,visibility,title_id,still_path,air_date,metadata_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run(id, "video", title.title, title.overview, thumbnail, runtime, timestamp, timestamp, "private", title.id, title.backdrop_path, title.first_air_date, metadata);
   }
   return id;
 }
@@ -137,11 +142,11 @@ export function upsertSeasonEpisodes(titleId, season, numbering = {}) {
       const absolute = offset === null ? null : offset + episode.number;
       const availability = !aired ? "unaired" : existing && existing.availability !== "unaired" ? existing.availability : "unknown";
       const args = [episode.name, episode.overview, thumbnail, probed || runtime, season.number, episode.number, absolute, episode.airDate, episode.stillPath, availability];
-      if (existing) {
-        update.run(...args, timestamp, id);
-        if (alias || stored.numbering) db.prepare("UPDATE assets SET metadata_json=? WHERE id=?").run(JSON.stringify({ ...stored, numbering: alias || undefined }), id);
-      } else insert.run(id, "video", ...args.slice(0, 3), args[3], timestamp, timestamp, "private", titleId, season.number, episode.number, absolute, episode.airDate, episode.stillPath, availability);
-      if (!existing && alias) db.prepare("UPDATE assets SET metadata_json=? WHERE id=?").run(JSON.stringify({ numbering: alias }), id);
+      if (existing) update.run(...args, timestamp, id);
+      else insert.run(id, "video", ...args.slice(0, 3), args[3], timestamp, timestamp, "private", titleId, season.number, episode.number, absolute, episode.airDate, episode.stillPath, availability);
+      // TMDB's runtime, to tell a real release from a sample once a file's length is known.
+      const known = episode.runtimeMin || title.runtime_min ? runtime : undefined;
+      db.prepare("UPDATE assets SET metadata_json=? WHERE id=?").run(JSON.stringify({ ...stored, numbering: alias || undefined, runtime: known }), id);
     }
     const metadata = parse(getTitle(titleId).metadata_json, {});
     metadata.seasonsSynced = { ...(metadata.seasonsSynced || {}), [season.number]: timestamp };

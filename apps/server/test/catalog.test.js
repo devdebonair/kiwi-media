@@ -611,3 +611,46 @@ test("skip times come from the playing file's named chapters", async () => {
   assert.deepEqual(segments.map(segment => [segment.type, segment.startMs, segment.endMs]), [['intro', 0, 61_000], ['credits', 1_700_000, 1_800_000]]);
   assert.equal((await get('/api/v1/assets/nope/segments')).statusCode, 404);
 });
+
+test('a release far shorter than the episode is turned down, and the file that plays sets its length', async () => {
+  const title = db.prepare("SELECT id FROM titles WHERE tmdb_id=100").get();
+  const assetId = `${title.id}-s01e03`;
+  db.prepare("DELETE FROM playback_sources WHERE asset_id=?").run(assetId);
+  db.prepare("UPDATE assets SET availability='unknown' WHERE id=?").run(assetId);
+  assert.equal(JSON.parse(db.prepare("SELECT metadata_json FROM assets WHERE id=?").get(assetId).metadata_json).runtime, 30 * 60_000, "TMDB's runtime is kept");
+  const pair = { id: 'torrentio', async search() { return [
+    { infoHash: '1'.repeat(40), releaseName: 'Test.Show.S01E03.1080p.WEB-DL.x264-GRP', size: 1.5e9, seeders: 30, indexer: 'torrentio', idBased: true },
+    { infoHash: '2'.repeat(40), releaseName: 'Test.Show.S01E03.1080p.WEB-DL.x264-OTHER', size: 1.4e9, seeders: 20, indexer: 'torrentio', idBased: true },
+  ]; } };
+  torboxState.cached.add('1'.repeat(40));
+  torboxState.cached.add('2'.repeat(40));
+  // The first release opened is a one-minute sample; the second is the episode, 30 seconds short of TMDB's runtime.
+  let probes = 0;
+  const sources = media.createSourceService({ torbox, indexers: [pair], probeImpl: async () => ({ ...probeInfo, durationMs: probes++ === 0 ? 60_000 : 1_770_000 }) });
+  const saved = media.getMedia();
+  try {
+    media.setMedia({ ...saved, sources });
+    const response = await post(`/api/v1/assets/${assetId}/stream`, { caps: [] });
+    assert.equal(response.statusCode, 200, response.body);
+    assert.equal(probes, 2);
+    const failed = db.prepare("SELECT fail_reason FROM playback_sources WHERE asset_id=? AND status='failed'").all(assetId);
+    assert.equal(failed.length, 1);
+    assert.match(failed[0].fail_reason, /only 1 min, expected about 30/);
+    const row = db.prepare("SELECT duration_ms, metadata_json FROM assets WHERE id=?").get(assetId);
+    assert.equal(row.duration_ms, 1_770_000, 'even a 30-second difference gives the episode the length of its file');
+    assert.equal(JSON.parse(row.metadata_json).probedDuration, 1_770_000);
+  } finally { media.setMedia(saved); }
+});
+
+test('a movie keeps the length of its file when its details are synced again', async () => {
+  const movie = await media.openTitle('movie', 300, media.getMedia().tmdb);
+  const assetId = db.prepare("SELECT id FROM assets WHERE title_id=?").get(movie.id).id;
+  const read = () => db.prepare("SELECT duration_ms, metadata_json FROM assets WHERE id=?").get(assetId);
+  assert.equal(read().duration_ms, 100 * 60_000);
+  assert.equal(JSON.parse(read().metadata_json).runtime, 100 * 60_000);
+  // What playing it records (see notePlayable).
+  db.prepare("UPDATE assets SET duration_ms=5940000, metadata_json=json_set(metadata_json,'$.probedDuration',5940000) WHERE id=?").run(assetId);
+  media.ensureMovieAsset(media.getTitle(movie.id));
+  assert.equal(read().duration_ms, 5_940_000, "TMDB's runtime no longer replaces it");
+  assert.equal(JSON.parse(read().metadata_json).runtime, 100 * 60_000);
+});
