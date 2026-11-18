@@ -177,7 +177,8 @@ function anchorIn(lineup, row, order) {
     let rank = null;
     try { rank = JSON.parse(row.rank_json); } catch {}
     // A channel whose order was changed ranks by something else; start its lineup over at the anchor.
-    index = Array.isArray(rank) && typeof rank[0] === typeof lineup[0].rank[0] ? Math.max(0, lineup.findIndex(item => compareRank(item.rank, rank, order) > 0)) : 0;
+    // (An equal rank is the episode that moved up into its place in a block.)
+    index = Array.isArray(rank) && typeof rank[0] === typeof lineup[0].rank[0] ? Math.max(0, lineup.findIndex(item => compareRank(item.rank, rank, order) >= 0)) : 0;
   }
   return { index, start: row.start_ms };
 }
