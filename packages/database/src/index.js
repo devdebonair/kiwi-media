@@ -137,6 +137,13 @@ export function migrate() {
       order_mode TEXT NOT NULL DEFAULT 'shuffle' CHECK(order_mode IN ('shuffle','in_order','newest')),
       episode_block INTEGER NOT NULL DEFAULT 2 CHECK(episode_block IN (0,1,2,4))
     );
+    -- Where each channel's loop stands for each profile: the program airing when the guide was last asked and when
+    -- it started (epoch ms). rank_json places it in the channel's order if that video leaves. See apps/server/src/guide.js.
+    CREATE TABLE IF NOT EXISTS guide_anchors (
+      profile_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, channel_key TEXT NOT NULL,
+      asset_id TEXT NOT NULL, rank_json TEXT NOT NULL, start_ms INTEGER NOT NULL, updated_at TEXT NOT NULL,
+      PRIMARY KEY(profile_id, channel_key)
+    );
     CREATE TABLE IF NOT EXISTS user_settings (
       user_id TEXT PRIMARY KEY REFERENCES users(id), shorts_max_seconds INTEGER NOT NULL DEFAULT 90
     );

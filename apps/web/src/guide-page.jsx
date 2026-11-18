@@ -384,16 +384,28 @@ function GuidePlayer({ api, channel, navigate, onLost, controls = null, actions 
   const [buffering, setBuffering] = useState(false);
   const [needsTap, setNeedsTap] = useState(false);
   const [notice, setNotice] = useState(null);
-  const shell = useRef(null), video = useRef(null), counted = useRef(null), skipped = useRef(new Set()), reopened = useRef(0);
-  // Fetches the channel from now on and starts whatever is airing.
-  const sync = useCallback(() => {
+  // When the program's file ended before its slot did: hold on its artwork until then (epoch ms).
+  const [holdUntil, setHoldUntil] = useState(null);
+  const shell = useRef(null), video = useRef(null), counted = useRef(null), skipped = useRef(new Set()), reopened = useRef(0), current = useRef(null), brokeOff = useRef(0);
+  // Fetches the channel from now on and plays whatever the server says is airing. `ended`: the program on screen
+  // has reached the end of its file. If the server still has it on (its file is shorter than its slot), hold
+  // until the slot ends rather than starting the next program early, ahead of the guide.
+  const sync = useCallback(({ ended = false } = {}) => {
     let active = true;
     api(`/api/v1/guide?channel=${encodeURIComponent(channel.key)}&start=${Date.now()}&hours=3&limit=1`).then(value => {
       if (!active) return;
       if (!value.total) { onLost(); return; }
       const programs = value.channels[0]?.programs || [];
-      setLineup(programs); setAiringStart(airing(programs, Date.now())?.start ?? null);
-    }).catch(() => { if (active) setLineup([]); });
+      const live = airing(programs, Date.now()), shown = current.current;
+      setLineup(programs);
+      if (ended && live && shown && live.id === shown.id && live.start === shown.start) { setHoldUntil(live.end); return; }
+      setHoldUntil(null); setAiringStart(live?.start ?? null);
+    }).catch(() => {
+      if (!active) return;
+      setLineup(lineup => lineup || []);
+      // Couldn't ask after a program ended: try again shortly instead of sitting on its last frame.
+      if (ended) setHoldUntil(Date.now() + 5_000);
+    });
     return () => { active = false; };
   }, [api, channel.key, onLost]);
   useEffect(() => { setLineup(null); setFailed(false); return sync(); }, [sync]);
@@ -414,7 +426,14 @@ function GuidePlayer({ api, channel, navigate, onLost, controls = null, actions 
     return () => document.removeEventListener("fullscreenchange", update);
   }, [fullscreenRoot]);
   const program = lineup?.find(item => item.start === airingStart) || null;
-  useEffect(() => { setFailed(false); setTranscode(false); setRestart(0); setTime(0); reopened.current = 0; }, [program?.id, program?.start]);
+  current.current = program;
+  useEffect(() => { setFailed(false); setTranscode(false); setRestart(0); setTime(0); setHoldUntil(null); reopened.current = 0; brokeOff.current = 0; }, [program?.id, program?.start]);
+  // At the end of a hold, ask again: normally the next program is on by then.
+  useEffect(() => {
+    if (holdUntil == null) return;
+    const timer = setTimeout(() => sync({ ended: true }), Math.max(0, holdUntil - Date.now()) + 250);
+    return () => clearTimeout(timer);
+  }, [holdUntil, sync]);
   useEffect(() => { setPlaying(false); setBuffering(false); setNeedsTap(false); }, [program?.id, program?.start, restart, transcode]);
 
   const guideAsset = useMemo(() => ({ id: program?.id || "none", kind: "video", catalog: program?.catalog ? { titleId: program.title_id } : undefined }), [program?.id, program?.catalog, program?.title_id]);
@@ -453,12 +472,18 @@ function GuidePlayer({ api, channel, navigate, onLost, controls = null, actions 
     return () => { clearTimeout(timer); setNotice(null); };
   }, [code, program?.id, sync]);
 
-  // Stay on the broadcast clock: after a program ends (or playback fell behind), play what is airing now.
-  const advance = () => {
-    const live = lineup && airing(lineup, Date.now());
-    if (live && live.start !== airingStart) setAiringStart(live.start);
-    else if (program && lineup.some(item => item.start === program.end)) setAiringStart(program.end);
-    else sync();
+  // Stay on the broadcast clock: when a program's file ends, the server says what is on now. (The lineup fetched at
+  // tune-in can be out of date by then: the server corrects a program's slot to the length of its file.)
+  // A repackaged stream that stops well short of the file's end broke off (its encode stopped): pick it up again at
+  // the live position, twice at most, instead of treating it as the end.
+  const ended = event => {
+    const media = event?.currentTarget, total = info?.durationMs ? info.durationMs / 1000 : media?.duration;
+    if (media && Number.isFinite(total) && position(media) < total - 30 && brokeOff.current < 2) {
+      brokeOff.current++;
+      setRestart(value => value + 1);
+      return;
+    }
+    sync({ ended: true });
   };
   const liveSeconds = () => Math.max(0, (Date.now() - program.start) / 1000);
   const position = media => Math.max(0, (plan.remux ? streamOrigin : 0) + media.currentTime);
@@ -481,15 +506,16 @@ function GuidePlayer({ api, channel, navigate, onLost, controls = null, actions 
   const start = event => {
     const media = event.currentTarget;
     const total = plan.remux && info?.durationMs ? info.durationMs / 1000 : media.duration;
-    if (Number.isFinite(total) && liveSeconds() >= total - 1) { advance(); return; }
+    if (Number.isFinite(total) && liveSeconds() >= total - 1) { ended(); return; }
     reachLive(media);
     playMuted(media);
   };
   // Phones pause video while the browser is in the background; on return, rejoin the broadcast where it is now.
   const catchUp = () => {
+    if (holdUntil != null) { sync({ ended: true }); return; }
     const live = lineup && airing(lineup, Date.now());
-    if (!live) { if (lineup) sync(); return; }
-    if (live.start !== airingStart) { setAiringStart(live.start); return; }
+    // Another program is due: ask the server rather than trusting the lineup from tune-in.
+    if (!live || live.start !== airingStart) { if (lineup) sync(); return; }
     const media = video.current;
     if (!media || media.readyState < 1) return;
     if (reachLive(media)) playMuted(media); else setRestart(value => value + 1);
@@ -525,7 +551,8 @@ function GuidePlayer({ api, channel, navigate, onLost, controls = null, actions 
     if (program?.catalog && !transcode && [3, 4].includes(event.currentTarget.error?.code)) { setTranscode(true); setRestart(value => value + 1); return; }
     reopen();
   };
-  const showing = Boolean(program && sessionReady && !failed);
+  const holding = holdUntil != null;
+  const showing = Boolean(program && sessionReady && !failed && !holding);
   useEffect(() => {
     if (!showing || playing || needsTap) return;
     // Phones hold video back while the page is in the background; that is not a failure.
@@ -553,7 +580,9 @@ function GuidePlayer({ api, channel, navigate, onLost, controls = null, actions 
   const tuning = program && session.phase === "loading";
   const unavailable = program && session.phase === "error" && !notice;
   const starting = showing && !playing;
-  const stage = notice || (tuning ? session.stage || "Tuning in…" : needsTap ? "Ready to play" : restart && !transcode ? "Catching up…" : "Starting the stream…");
+  const upNext = holding ? lineup?.find(item => item.start === program?.end) : null;
+  const stage = notice || (holding ? `Up next at ${clock(holdUntil)}${upNext ? ` · ${upNext.title}` : ""}`
+    : tuning ? session.stage || "Tuning in…" : needsTap ? "Ready to play" : restart && !transcode ? "Catching up…" : "Starting the stream…");
 
   const buttons = <>
     {chosen?.subtitleId && <button className="guide-player-button" onClick={() => setCaptions(value => !value)} aria-pressed={captions} aria-label={captions ? "Turn subtitles off" : "Turn subtitles on"} title={captions ? "Subtitles on" : "Subtitles off"}><ClosedCaptioning size={17} weight={captions ? "fill" : "regular"} /></button>}
@@ -565,11 +594,11 @@ function GuidePlayer({ api, channel, navigate, onLost, controls = null, actions 
     <div ref={shell} className={`guide-player ${fullscreen && !controls ? "is-fullscreen" : ""}`} onDoubleClick={toggleFullscreen}>
       {program?.thumbnail_url && <img src={program.thumbnail_url} alt="" />}
       {showing && <video ref={video} key={`${program.id}:${program.start}:${restart}`} src={src} muted={muted} playsInline disablePictureInPicture preload="auto" className={playing ? "" : "is-starting"}
-        onLoadedMetadata={start} onPlaying={event => { setPlaying(true); setBuffering(false); countView(); keepLive(event); }} onWaiting={() => setBuffering(true)} onEnded={advance} onError={onVideoError}
+        onLoadedMetadata={start} onPlaying={event => { setPlaying(true); setBuffering(false); countView(); keepLive(event); }} onWaiting={() => setBuffering(true)} onEnded={ended} onError={onVideoError}
         onTimeUpdate={event => setTime(position(event.currentTarget))} />}
       {showing && playing && captions && chosen?.subtitleId && <SubtitleLayer cues={subtitles.cues} time={time} size={subtitleStyle.size} background={subtitleStyle.background} />}
-      {program && (tuning || starting || notice) && <div className="guide-player-message guide-tuning" role="status">
-        {!needsTap && <span className="guide-spinner" aria-hidden="true" />}
+      {program && (tuning || starting || notice || holding) && <div className="guide-player-message guide-tuning" role="status">
+        {!needsTap && !holding && <span className="guide-spinner" aria-hidden="true" />}
         <p className="guide-tuning-title"><strong>{program.title}</strong>{program.subtitle && <small>{program.subtitle}</small>}</p>
         <p className="guide-tuning-stage">{stage}</p>
         {needsTap && <button className="primary-button" onClick={() => video.current && playMuted(video.current)}><Play size={16} weight="fill" /> Play</button>}

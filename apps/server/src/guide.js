@@ -4,8 +4,11 @@ import { ensureAllSeasons, getMedia, getProvider, getTitle, imageUrl, syncHouseh
 import { EPISODE_BLOCKS, ORDERS, readRules, ruleAssets, validateRules } from "./channel-rules.js";
 import { titleAllowed, topicAllowed } from "./profiles.js";
 
-// Every channel loops its lineup forever from this instant, so "what's on" is the same on
-// every request and device without storing a schedule.
+// Every channel loops its lineup forever. Where the loop stands is kept as an anchor per profile and channel: the
+// program airing when the guide was last asked, and when it started (guide_anchors). The schedule runs forward and
+// back from there, and the anchor moves up as programs end, so what's on now never depends on anything before it:
+// a program's length being corrected, or videos joining and leaving the lineup, only changes what comes after.
+// A channel with no anchor yet loops from this instant.
 export const GUIDE_EPOCH = Date.UTC(2026, 0, 1);
 // Tags with fewer playable videos than this would repeat every few minutes, so they get no channel.
 export const MIN_CHANNEL_VIDEOS = 3;
@@ -78,11 +81,9 @@ const channelSources = rules => {
   };
 };
 
-// The channels you made that this profile has: the household's and its own. `everyone` includes every profile's
-// personal channels (for background work).
-const customChannels = ({ everyone = false } = {}) => {
-  const rows = everyone ? db.prepare("SELECT * FROM guide_channels ORDER BY number").all()
-    : db.prepare("SELECT * FROM guide_channels WHERE owner_id IS NULL OR owner_id=? ORDER BY number").all(currentProfile().id);
+// The channels you made that this profile has: the household's and its own.
+const customChannels = () => {
+  const rows = db.prepare("SELECT * FROM guide_channels WHERE owner_id IS NULL OR owner_id=? ORDER BY number").all(currentProfile().id);
   return rows.map(row => {
     const rules = readRules(row.rules_json);
     return {
@@ -98,10 +99,10 @@ const topicKind = type => type === "person" ? "person" : type === "genre" ? "gen
 
 // All channels in number order, each with the set of video ids it airs. A household channel with nothing a restricted
 // profile may watch doesn't exist for that profile.
-export function guideChannels({ everyone = false } = {}) {
+export function guideChannels() {
   const { byTopic, info, classes } = memberships();
   const restricted = !isUnrestricted();
-  const custom = customChannels({ everyone }).map(channel => ({ ...channel, assets: ruleAssets(channel.rules, info) }))
+  const custom = customChannels().map(channel => ({ ...channel, assets: ruleAssets(channel.rules, info) }))
     .filter(channel => !restricted || channel.scope === "personal" || channel.assets.size);
   const media = CLASS_CHANNELS.map(([key, name, offset]) => ({ key: `class:${key}`, id: key, number: CLASS_CHANNEL_BASE + offset, name, type: "media", avatar_url: null, assets: classes[key] }))
     .filter(channel => channel.assets.size >= MIN_CHANNEL_VIDEOS);
@@ -113,6 +114,11 @@ export function guideChannels({ everyone = false } = {}) {
     .filter(channel => channel.assets.size >= MIN_CHANNEL_VIDEOS);
   return { channels: [...custom, ...media, ...tags], info };
 }
+
+const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+// Where an item sits in a channel's order: [hash or air date, block key, place in the block]. Lets an anchor whose
+// video has left the lineup be placed between the videos that are left.
+const compareRank = (a, b, order) => (order === "newest" ? -1 : 1) * compare(a[0], b[0]) || compare(a[1], b[1]) || compare(a[2], b[2]);
 
 // A channel's repeating order: singles (home videos, movies) and blocks of consecutive episodes (or whole seasons).
 // Shuffled by a stable hash, or by when each block first aired: oldest first ("in order") or newest first.
@@ -135,29 +141,66 @@ function lineupFor(channel, info) {
       i += size;
     }
   }
-  const byKey = (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
-  const sorted = order === "shuffle"
-    ? units.map(unit => ({ ...unit, order: hash(`${channel.key}:${unit.key}`) })).sort((a, b) => a.order - b.order || byKey(a, b))
-    : units.sort((a, b) => (order === "newest" ? -1 : 1) * (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) || byKey(a, b));
-  return sorted.flatMap(unit => unit.ids.map(id => ({ id, duration: info.get(id).duration })));
+  const ranked = order === "shuffle"
+    ? units.map(unit => ({ ...unit, rank: hash(`${channel.key}:${unit.key}`) }))
+    : units.map(unit => ({ ...unit, rank: unit.date }));
+  ranked.sort((a, b) => compareRank([a.rank, a.key, 0], [b.rank, b.key, 0], order));
+  return ranked.flatMap(unit => unit.ids.map((id, index) => ({ id, duration: info.get(id).duration, rank: [unit.rank, unit.key, index] })));
 }
 
-// The programs airing on a channel between start and end (epoch ms), including any already under way at start.
-export function schedule(channel, info, start, end) {
-  const lineup = lineupFor(channel, info);
-  if (!lineup.length) return [];
-  const offsets = [];
+// The item airing at `time` and when it started, counting forward (or back) from the anchor: an item of the lineup
+// and the moment it started.
+function locate(lineup, anchor, time) {
+  const count = lineup.length, offsets = new Array(count);
   let cycle = 0;
-  for (const item of lineup) { offsets.push(cycle); cycle += item.duration; }
-  const into = ((start - GUIDE_EPOCH) % cycle + cycle) % cycle;
-  // Last program starting at or before `into`.
-  let low = 0, high = lineup.length - 1;
+  for (let step = 0; step < count; step++) { offsets[step] = cycle; cycle += lineup[(anchor.index + step) % count].duration; }
+  const into = ((time - anchor.start) % cycle + cycle) % cycle;
+  // Last item starting at or before `into`.
+  let low = 0, high = count - 1;
   while (low < high) {
     const middle = (low + high + 1) >> 1;
     if (offsets[middle] <= into) low = middle; else high = middle - 1;
   }
+  return { index: (anchor.index + low) % count, start: time - (into - offsets[low]) };
+}
+
+const anchorRow = db.prepare("SELECT asset_id, rank_json, start_ms FROM guide_anchors WHERE profile_id=? AND channel_key=?");
+const saveAnchor = db.prepare(`INSERT INTO guide_anchors (profile_id,channel_key,asset_id,rank_json,start_ms,updated_at) VALUES (?,?,?,?,?,?)
+  ON CONFLICT(profile_id,channel_key) DO UPDATE SET asset_id=excluded.asset_id, rank_json=excluded.rank_json, start_ms=excluded.start_ms, updated_at=excluded.updated_at`);
+
+// The stored anchor as a place in today's lineup. Its video may have left the lineup since (no longer available, or
+// no longer matching the channel): then the video after where it sat takes its start.
+function anchorIn(lineup, row, order) {
+  if (!row) return { index: 0, start: GUIDE_EPOCH };
+  let index = lineup.findIndex(item => item.id === row.asset_id);
+  if (index < 0) {
+    let rank = null;
+    try { rank = JSON.parse(row.rank_json); } catch {}
+    // A channel whose order was changed ranks by something else; start its lineup over at the anchor.
+    // (An equal rank is the episode that moved up into its place in a block.)
+    index = Array.isArray(rank) && typeof rank[0] === typeof lineup[0].rank[0] ? Math.max(0, lineup.findIndex(item => compareRank(item.rank, rank, order) >= 0)) : 0;
+  }
+  return { index, start: row.start_ms };
+}
+
+// The programs airing on a channel between start and end (epoch ms), including any already under way at start, as
+// the current profile sees it. With `persist`, the channel's anchor moves up to the program airing at `now`.
+export function schedule(channel, info, start, end, { now = Date.now(), persist = false } = {}) {
+  const lineup = lineupFor(channel, info);
+  if (!lineup.length) return [];
+  const profileId = currentProfile().id;
+  const row = anchorRow.get(profileId, channel.key);
+  const anchor = anchorIn(lineup, row, channel.order || "shuffle");
+  if (persist) {
+    const live = locate(lineup, anchor, now), item = lineup[live.index];
+    // Only ever forward: a request about the past leaves the anchor where it is.
+    if (!row || live.start > row.start_ms || (live.start === row.start_ms && item.id !== row.asset_id)) {
+      try { saveAnchor.run(profileId, channel.key, item.id, JSON.stringify(item.rank), live.start, new Date().toISOString()); } catch {}
+    }
+  }
+  const first = locate(lineup, anchor, start);
   const programs = [];
-  for (let index = low, at = start - (into - offsets[low]); at < end && programs.length < MAX_PROGRAMS_PER_ROW; index = (index + 1) % lineup.length) {
+  for (let index = first.index, at = first.start; at < end && programs.length < MAX_PROGRAMS_PER_ROW; index = (index + 1) % lineup.length) {
     const { id, duration } = lineup[index];
     programs.push({ id, start: at, end: at + duration });
     at += duration;
@@ -260,7 +303,7 @@ export function registerGuide(app, { warmer } = {}) {
     const only = req.query.channel;
     const matching = only ? channels.filter(channel => channel.key === only)
       : channels.filter(filters[filter]).filter(channel => !q || String(channel.number) === q || channel.name.toLowerCase().includes(q));
-    const page = matching.slice(offset, offset + limit).map(channel => ({ ...publicChannel(channel), programs: schedule(channel, info, start, end) }));
+    const page = matching.slice(offset, offset + limit).map(channel => ({ ...publicChannel(channel), programs: schedule(channel, info, start, end, { now, persist: true }) }));
     const details = programDetails([...new Set(page.flatMap(channel => channel.programs.map(program => program.id)))]);
     return {
       start, end, now, total: matching.length,
@@ -282,7 +325,8 @@ export function registerGuide(app, { warmer } = {}) {
     const { info } = memberships({ extraTitleIds: checked.rules.titleIds });
     const channel = { key: `custom:${row?.id || "preview"}`, order, episodeBlock, assets: ruleAssets(checked.rules, info) };
     const now = Date.now();
-    const programs = schedule(channel, info, now, now + 12 * 3_600_000).slice(0, 5);
+    // A channel being edited carries on from what it airs now (its anchor), without moving it.
+    const programs = schedule(channel, info, now, now + 12 * 3_600_000, { now }).slice(0, 5);
     const details = programDetails(programs.map(program => program.id));
     return { item_count: channel.assets.size, upcoming: programs.map(program => ({ ...details.get(program.id), ...program })) };
   });
@@ -336,6 +380,7 @@ export function registerGuide(app, { warmer } = {}) {
     const row = editable(req, reply);
     if (!row) return reply;
     db.prepare("DELETE FROM guide_channels WHERE id=?").run(row.id);
+    db.prepare("DELETE FROM guide_anchors WHERE channel_key=?").run(`custom:${row.id}`);
     syncTitles(readRules(row.rules_json).titleIds);
     return reply.code(204).send();
   });

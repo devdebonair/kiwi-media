@@ -18,6 +18,10 @@ const RECHECK_UNAVAILABLE = 24 * 3600_000;
 const INDEXER_GRACE = 1_500;
 const MAX_STORED = 12;
 const MAX_ATTEMPTS = 3;
+// A file shorter than this share of TMDB's runtime is turned down (a sample, or a cut-off upload). Only checked when
+// TMDB gives a runtime of at least MIN_CHECKED_RUNTIME, so short segments and specials aren't second-guessed.
+const TOO_SHORT = 0.25;
+const MIN_CHECKED_RUNTIME = 10 * 60_000;
 
 export class SourceError extends Error {
   constructor(message, { status = 502, code = "unavailable" } = {}) { super(message); this.name = "SourceError"; this.statusCode = status; this.code = code; }
@@ -207,10 +211,12 @@ export function createSourceService({ torbox, indexers = [], probeImpl = probeFi
     links.delete(row.id);
   }
 
+  // The file's own length replaces TMDB's runtime, so the TV guide gives it a slot that ends when it does. (The guide
+  // keeps what is airing now in place when a length changes; only later programs move.)
   function notePlayable(asset, info) {
     const stored = parse(asset.metadata_json, {});
     let duration = asset.duration_ms;
-    if (info.durationMs && Math.abs(info.durationMs - asset.duration_ms) / asset.duration_ms > 0.02) { duration = info.durationMs; stored.probedDuration = info.durationMs; }
+    if (info.durationMs && Math.abs(info.durationMs - asset.duration_ms) > 1000) { duration = Math.round(info.durationMs); stored.probedDuration = duration; }
     db.prepare("UPDATE assets SET availability='ready',duration_ms=?,width=?,height=?,metadata_json=?,updated_at=? WHERE id=?")
       .run(duration, info.video?.width ?? null, info.video?.height ?? null, JSON.stringify(stored), now(), asset.id);
   }
@@ -275,6 +281,11 @@ export function createSourceService({ torbox, indexers = [], probeImpl = probeFi
         const chosen = chooseTracks(info, playback, { originalLanguage: title.original_language });
         // The file itself is the final word: no audio you can follow means it is the wrong release.
         if (chosen.foreignOnly) throw new SourceError(`audio is only ${[...new Set(info.audio.map(track => track.language || "unknown"))].join("/")}`, { status: 422, code: "wrong-language" });
+        // A fraction of the episode or movie is a sample or a broken upload, not the real thing.
+        const expected = parse(asset.metadata_json, {}).runtime;
+        if (expected >= MIN_CHECKED_RUNTIME && info.durationMs && info.durationMs < expected * TOO_SHORT) {
+          throw new SourceError(`file is only ${Math.round(info.durationMs / 60_000)} min, expected about ${Math.round(expected / 60_000)}`, { status: 422, code: "too-short" });
+        }
         db.prepare("UPDATE playback_sources SET status='candidate' WHERE asset_id=? AND status='selected'").run(assetId);
         db.prepare("UPDATE playback_sources SET status='selected',torbox_id=?,torbox_file_id=?,file_name=?,file_size=coalesce(?,file_size),probe_json=?,verified_at=?,updated_at=?,fail_reason=NULL WHERE id=?")
           .run(resolved.torrentId, resolved.file.id, resolved.file.short_name || resolved.file.name, resolved.file.size ?? null, JSON.stringify(info), now(), now(), row.id);

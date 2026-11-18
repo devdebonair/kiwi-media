@@ -48,6 +48,13 @@ final class PlayerSession {
     /// How many times this asset's stream has been restarted after stopping short.
     @ObservationIgnored private var restarts = 0
     @ObservationIgnored private var channelKeys: [String] = []
+    /// The program on screen while watching a channel.
+    @ObservationIgnored private var airingProgram: Program?
+    /// A channel program whose file has played to its end. If the guide still has it on (the file is shorter than
+    /// its slot), tuning in holds until the slot ends instead of replaying it or starting the next one early.
+    @ObservationIgnored private var endedProgram: Program?
+    /// The length in seconds of the file playing on a channel, to tell its real end from a stream that broke off.
+    @ObservationIgnored private var fileLength: Double?
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var endObserver: (any NSObjectProtocol)?
@@ -121,6 +128,7 @@ final class PlayerSession {
         saveProgress(completed: false)
         source = .channel(key)
         channelKey = key
+        endedProgram = nil
         start()
     }
 
@@ -159,10 +167,20 @@ final class PlayerSession {
     /// within 15 seconds of the start, begin at the start).
     private func tuneIn(_ key: String) async throws {
         phase = .preparing("Tuning in…")
-        let guide = try await api.guide(hours: 3, limit: 1, channel: key)
+        var guide = try await api.guide(hours: 3, limit: 1, channel: key)
+        // The program just shown ran out of file before its slot ended: wait for the slot to end, then ask again.
+        while let ended = endedProgram, let channel = guide.channels.first,
+              let airing = channel.airing(at: GuideClock.now), airing.id == ended.id {
+            let next = channel.programs.first { $0.start == airing.end }?.title
+            phase = .preparing(["Up next at \(GuideClock.time(airing.end))", next].compactMap { $0 }.joined(separator: " · "))
+            try await Task.sleep(for: .milliseconds(max(0, Int(airing.end - GuideClock.now)) + 250))
+            guide = try await api.guide(hours: 3, limit: 1, channel: key)
+        }
+        endedProgram = nil
         guard let channel = guide.channels.first,
               let program = channel.airing(at: GuideClock.now) ?? channel.programs.first
         else { throw APIError.http(status: 404, message: "Nothing is on this channel right now.", code: nil) }
+        airingProgram = program
         Task { try? await api.tune(key) }
 
         channelLabel = "\(channel.number) \(channel.name)"
@@ -185,6 +203,7 @@ final class PlayerSession {
     /// needed, so a live position accounts for the time spent getting the stream ready.
     private func startPlayback(_ id: String, at start: () -> Double, metadata: [AVMetadataItem], savesProgress: Bool) async throws {
         let info = try await prepareStream(id)
+        fileLength = info.durationMs.flatMap { $0 > 0 ? Double($0) / 1000 : nil }
         let plan = PlaybackPlanner.plan(info: info, assetId: id, startSeconds: start())
 
         if plan.kind == .hls {
@@ -277,7 +296,12 @@ final class PlayerSession {
         saveProgress(completed: true)
         canSave = false
         if isLive {
-            // The next program is on now; tune to it.
+            // A stream that stopped well short of the file's end broke off: tune back in at the live position.
+            // One that reached the end asks the guide what is on now: normally the next program, unless this one's
+            // slot hasn't ended yet.
+            let position = player.map { origin + $0.currentTime().seconds }
+            let brokeOff = if let position, let fileLength, position.isFinite { position < fileLength - 30 } else { false }
+            endedProgram = brokeOff ? nil : airingProgram
             start()
             return
         }
